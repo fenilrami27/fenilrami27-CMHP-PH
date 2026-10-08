@@ -1,0 +1,162 @@
+/* =========================================================
+   CMHP PHARMA ERP
+   INVENTORY MODAL
+   ========================================================= */
+
+.inv-modal-overlay {
+  position: fixed;
+
+  inset: 0;
+
+  z-index: 9999;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  padding: 20px;
+
+  background:
+    rgba(20,55,82,0.34);
+
+  backdrop-filter: blur(7px);
+}
+
+.inv-modal {
+  width: 100%;
+
+  max-width: 600px;
+
+  max-height: 90vh;
+
+  overflow-y: auto;
+
+  background: #fff;
+
+  border: 1px solid #dce7ee;
+
+  border-radius: 16px;
+
+  box-shadow:
+    0 25px 70px rgba(20,60,90,0.2);
+
+  animation:
+    cmhp-modal-in 0.18s ease-out;
+}
+
+@keyframes cmhp-modal-in {
+  from {
+    opacity: 0;
+
+    transform:
+      translateY(10px)
+      scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+
+    transform:
+      translateY(0)
+      scale(1);
+  }
+}
+
+.inv-modal-header {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  padding: 17px 20px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #edf7fc,
+      #fbfdff
+    );
+
+  border-bottom: 1px solid #dfe9ef;
+}
+
+.inv-modal-header h3 {
+  margin: 0;
+
+  color: #163b59;
+
+  font-size: 15px;
+
+  font-weight: 800;
+}
+
+.inv-modal-close {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  width: 33px;
+
+  height: 33px;
+
+  color: #71899b;
+
+  background: #fff;
+
+  border: 1px solid #dce7ee;
+
+  border-radius: 8px;
+
+  cursor: pointer;
+
+  font-size: 19px;
+}
+
+.inv-modal-close:hover {
+  color: #1478c9;
+
+  background: #eaf5fc;
+}
+
+.inv-modal-body {
+  padding: 21px;
+}
+
+.inv-modal-footer {
+  display: flex;
+
+  justify-content: flex-end;
+
+  gap: 9px;
+
+  padding: 14px 20px;
+
+  background: #fbfdfe;
+
+  border-top: 1px solid #e7eef3;
+}
+
+@media (max-width: 560px) {
+  .inv-modal-overlay {
+    padding: 10px;
+  }
+
+  .inv-modal {
+    max-height: calc(100vh - 20px);
+
+    border-radius: 14px;
+  }
+
+  .inv-modal-body {
+    padding: 17px;
+  }
+
+  .inv-modal-footer {
+    padding: 13px 17px;
+  }
+}

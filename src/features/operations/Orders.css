@@ -1,0 +1,646 @@
+
+/* =========================================================
+   CMHP PHARMA ERP - ORDERS / CUSTOMER MANAGEMENT
+   PROFESSIONAL UI OVERRIDES
+   ========================================================= */
+
+.orders-page {
+  width: 100%;
+}
+
+/* =========================================================
+   CUSTOMER SEARCH + ADD CUSTOMER
+   ========================================================= */
+
+/*
+ * The order form currently uses an inline flex wrapper for
+ * Customer + Add customer. These selectors target only that
+ * customer row and keep the search field wider than the button.
+ */
+
+.inv-form-grid .field > div[style*="align-items: flex-end"] {
+  display: flex !important;
+  align-items: flex-end !important;
+  gap: 10px !important;
+  width: 100%;
+}
+
+.inv-form-grid .field > div[style*="align-items: flex-end"] > div[style*="flex: 1"] {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  width: auto !important;
+}
+
+.inv-form-grid .field > div[style*="align-items: flex-end"] .field-input {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 42px !important;
+  box-sizing: border-box;
+}
+
+/* =========================================================
+   ADD CUSTOMER BUTTON
+   ========================================================= */
+
+.inv-form-grid .field > div[style*="align-items: flex-end"] > .btn {
+  flex: 0 0 auto !important;
+  min-width: 108px !important;
+  min-height: 42px !important;
+  padding: 9px 13px !important;
+  border-radius: 9px !important;
+  white-space: nowrap !important;
+}
+
+/* =========================================================
+   CUSTOMER SEARCH FIELD HOVER / FOCUS
+   ========================================================= */
+
+.inv-form-grid .field > div[style*="align-items: flex-end"] .field-input:hover {
+  border-color: #a9c9dd;
+}
+
+.inv-form-grid .field > div[style*="align-items: flex-end"] .field-input:focus {
+  border-color: #318bd1;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(49, 139, 209, 0.10);
+
+  background: #ffffff;
+}
+
+/* =========================================================
+   CUSTOMER SEARCH ROW - GENERIC SUPPORT
+   ========================================================= */
+
+.order-customer-select-row {
+  display: flex;
+
+  align-items: flex-end;
+
+  gap: 10px;
+
+  width: 100%;
+}
+
+.order-customer-select-row .field {
+  flex: 1;
+
+  min-width: 0;
+}
+
+.order-customer-select-row .field-input {
+  width: 100%;
+}
+
+.order-customer-search-row {
+  display: flex;
+
+  align-items: flex-end;
+
+  width: 100%;
+
+  gap: 10px;
+}
+
+.order-customer-search-control {
+  flex: 1 1 auto;
+
+  min-width: 0;
+
+  width: 100%;
+}
+
+.customer-search-field {
+  position: relative;
+
+  z-index: 30;
+
+  width: 100%;
+
+  min-width: 0;
+}
+
+.customer-search-field .customer-search-control,
+.customer-search-field .customer-search-select {
+  width: 100%;
+
+  min-width: 0;
+}
+
+/* =========================================================
+   CUSTOMER ACTIONS
+   EDIT = LIGHT YELLOW / APP THEME
+   DELETE = RED
+   ========================================================= */
+
+.customer-actions {
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: flex-start;
+
+  gap: 7px;
+
+  flex-wrap: wrap;
+
+  padding: 4px;
+
+  background: #f8fbfd;
+
+  border:
+    1px solid #e2edf3;
+
+  border-radius: 9px;
+
+  box-shadow:
+    0 2px 7px
+    rgba(30, 72, 100, 0.05);
+}
+
+.customer-actions .company-link,
+.customer-actions .company-link.danger {
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  min-width: 58px;
+
+  min-height: 31px;
+
+  padding: 6px 11px;
+
+  margin: 0;
+
+  border-radius: 7px;
+
+  font-family: inherit;
+
+  font-size: 9px;
+
+  font-weight: 800;
+
+  line-height: 1;
+
+  white-space: nowrap;
+
+  cursor: pointer;
+
+  text-decoration: none;
+
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+/* =========================================================
+   CUSTOMER EDIT
+   ========================================================= */
+
+.customer-actions .company-link:not(.danger) {
+  color: #8b5d00;
+
+  background: #fff8e5;
+
+  border:
+    1px solid #e5c66f;
+
+  box-shadow:
+    0 2px 6px
+    rgba(210, 156, 24, 0.08);
+}
+
+.customer-actions .company-link:not(.danger):hover:not(:disabled) {
+  color: #704b00;
+
+  background: #ffefbf;
+
+  border-color: #d6b34e;
+
+  box-shadow:
+    0 4px 10px
+    rgba(210, 156, 24, 0.12);
+
+  transform:
+    translateY(-1px);
+}
+
+/* =========================================================
+   CUSTOMER DELETE
+   ========================================================= */
+
+.customer-actions .company-link.danger {
+  color: #bf3042;
+
+  background: #fff1f3;
+
+  border:
+    1px solid #edb8c0;
+
+  box-shadow:
+    0 2px 6px
+    rgba(214, 69, 85, 0.07);
+}
+
+.customer-actions .company-link.danger:hover:not(:disabled) {
+  color: #a32133;
+
+  background: #ffe2e6;
+
+  border-color: #dd8d99;
+
+  box-shadow:
+    0 4px 10px
+    rgba(214, 69, 85, 0.11);
+
+  transform:
+    translateY(-1px);
+}
+
+.customer-actions .company-link:disabled {
+  opacity: 0.55;
+
+  cursor: not-allowed;
+
+  transform: none;
+
+  box-shadow: none;
+}
+
+/* =========================================================
+   ORDER TABLE ACTIONS
+   EDIT = LIGHT YELLOW
+   DELETE = RED
+   ========================================================= */
+
+.inv-table td:has(.table-edit),
+.inv-table td:has(.table-delete) {
+  white-space: nowrap;
+
+  vertical-align: middle;
+}
+
+.table-edit,
+.table-delete {
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  min-width: 58px;
+
+  min-height: 31px;
+
+  padding: 6px 11px;
+
+  border-radius: 7px;
+
+  font-family: inherit;
+
+  font-size: 9px;
+
+  font-weight: 800;
+
+  line-height: 1;
+
+  white-space: nowrap;
+
+  cursor: pointer;
+
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+/* =========================================================
+   ORDER EDIT
+   ========================================================= */
+
+.table-edit {
+  color: #8b5d00;
+
+  background: #fff8e5;
+
+  border:
+    1px solid #e5c66f;
+
+  box-shadow:
+    0 2px 6px
+    rgba(210, 156, 24, 0.08);
+}
+
+.table-edit:hover:not(:disabled) {
+  color: #704b00;
+
+  background: #ffefbf;
+
+  border-color: #d6b34e;
+
+  box-shadow:
+    0 4px 10px
+    rgba(210, 156, 24, 0.12);
+
+  transform:
+    translateY(-1px);
+
+  text-decoration: none;
+}
+
+/* =========================================================
+   ORDER DELETE
+   ========================================================= */
+
+.table-delete {
+  color: #bf3042;
+
+  background: #fff1f3;
+
+  border:
+    1px solid #edb8c0;
+
+  box-shadow:
+    0 2px 6px
+    rgba(214, 69, 85, 0.07);
+}
+
+.table-delete:hover:not(:disabled) {
+  color: #a32133;
+
+  background: #ffe2e6;
+
+  border-color: #dd8d99;
+
+  box-shadow:
+    0 4px 10px
+    rgba(214, 69, 85, 0.11);
+
+  transform:
+    translateY(-1px);
+
+  text-decoration: none;
+}
+
+.table-edit:disabled,
+.table-delete:disabled {
+  opacity: 0.55;
+
+  cursor: not-allowed;
+
+  transform: none;
+
+  box-shadow: none;
+}
+
+/* =========================================================
+   SALES ORDER ACTIONS
+   ========================================================= */
+
+.sales-order-actions {
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: flex-start;
+
+  gap: 7px;
+
+  flex-wrap: wrap;
+
+  padding: 4px;
+
+  background: #f8fbfd;
+
+  border:
+    1px solid #e2edf3;
+
+  border-radius: 9px;
+
+  box-shadow:
+    0 2px 7px
+    rgba(30, 72, 100, 0.05);
+}
+
+.sales-order-actions .btn {
+  min-height: 31px;
+
+  padding: 6px 11px;
+
+  border-radius: 7px;
+
+  font-size: 9px;
+
+  box-shadow: none;
+}
+
+/* =========================================================
+   SALES ORDER EDIT
+   ========================================================= */
+
+.sales-order-actions .btn-secondary {
+  color: #8b5d00;
+
+  background: #fff8e5;
+
+  border-color: #e5c66f;
+}
+
+.sales-order-actions .btn-secondary:hover:not(:disabled) {
+  color: #704b00;
+
+  background: #ffefbf;
+
+  border-color: #d6b34e;
+}
+
+/* =========================================================
+   SALES ORDER DELETE
+   ========================================================= */
+
+.sales-order-actions .btn-danger {
+  color: #bf3042;
+
+  background: #fff1f3;
+
+  border-color: #edb8c0;
+}
+
+.sales-order-actions .btn-danger:hover:not(:disabled) {
+  color: #a32133;
+
+  background: #ffe2e6;
+
+  border-color: #dd8d99;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+  .order-customer-select-row,
+  .order-customer-search-row {
+    flex-direction: column;
+
+    align-items: stretch;
+  }
+
+  .order-customer-select-row button,
+  .order-customer-search-row .btn {
+    width: 100%;
+  }
+
+  .inv-form-grid .field > div[style*="align-items: flex-end"] {
+    flex-direction: column;
+
+    align-items: stretch !important;
+  }
+
+  .inv-form-grid .field > div[style*="align-items: flex-end"] > div[style*="flex: 1"],
+  .inv-form-grid .field > div[style*="align-items: flex-end"] > .btn {
+    width: 100% !important;
+
+    min-width: 0 !important;
+
+    flex: 1 1 auto !important;
+  }
+
+  .customer-actions,
+  .sales-order-actions {
+    gap: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+
+  .customer-actions .company-link,
+  .customer-actions .company-link.danger,
+  .table-edit,
+  .table-delete,
+  .sales-order-actions .btn {
+    min-height: 30px;
+
+    padding: 5px 9px;
+  }
+}
+
+
+/* =========================================================
+   ORDER CUSTOMER SEARCH ROW
+   ========================================================= */
+
+.order-customer-row {
+
+  display: flex;
+
+  align-items: flex-end;
+
+  gap: 10px;
+
+  width: 100%;
+
+}
+
+
+.order-customer-search {
+
+  flex: 1 1 auto;
+
+  min-width: 0;
+
+}
+
+
+.order-customer-search .field-input {
+
+  width: 100% !important;
+
+  min-height: 42px;
+
+}
+
+
+/* =========================================================
+   ADD CUSTOMER BUTTON
+   ========================================================= */
+
+.order-customer-add-btn {
+
+  flex:
+    0 0 122px;
+
+  min-width: 122px;
+
+  min-height: 42px;
+
+  white-space: nowrap;
+
+}
+
+
+/* =========================================================
+   SEARCH INPUT
+   ========================================================= */
+
+.order-customer-search input {
+
+  width: 100% !important;
+
+  min-height: 42px !important;
+
+  box-sizing: border-box;
+
+}
+
+
+/* =========================================================
+   CUSTOMER DROPDOWN
+   ========================================================= */
+
+.order-customer-search [role="listbox"] {
+
+  border:
+    1px solid #d4e2eb !important;
+
+  border-radius: 10px !important;
+
+  box-shadow:
+    0 14px 35px
+    rgba(25, 70, 100, 0.15) !important;
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+  .order-customer-row {
+
+    flex-direction: column;
+
+    align-items: stretch;
+
+  }
+
+  .order-customer-add-btn {
+
+    width: 100%;
+
+    flex: 1 1 auto;
+
+  }
+
+}
