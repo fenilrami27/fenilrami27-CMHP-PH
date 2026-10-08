@@ -7,6 +7,7 @@ import Input from '../../components/Input'
 import { getErrorMessage } from '../../utils/errors'
 
 import Modal from '../inventory/components/Modal'
+import { recordAudit } from '../../utils/audit'
 
 import { companyService } from '../companies/companyService'
 import { hrService } from './hrService'
@@ -22,6 +23,8 @@ const EMPTY_FORM = {
   end_time: '18:00',
   break_minutes: 60,
   grace_minutes: 10,
+  half_day_hours: 4.5,
+  is_overnight: false,
   weekly_off: 'Sunday',
   company: '',
 }
@@ -35,8 +38,15 @@ export default function Shifts() {
 
   const [shifts, setShifts] = useState([])
   const [companies, setCompanies] = useState([])
+  const [employees, setEmployees] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+
+  const [search, setSearch] = useState('')
+  const [companyFilter, setCompanyFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -49,13 +59,15 @@ export default function Shifts() {
     setError('')
 
     try {
-      const [shiftsResponse, companiesResponse] = await Promise.all([
+      const [shiftsResponse, companiesResponse, employeesResponse] = await Promise.all([
         hrService.getShifts(scopedCompanies),
         companyService.getCompanies(),
+        hrService.getEmployees(scopedCompanies),
       ])
 
-      setShifts(shiftsResponse.data)
-      setCompanies(companiesResponse.data.filter((c) => c.is_active))
+      setShifts(shiftsResponse.data || [])
+      setCompanies((companiesResponse.data || []).filter((c) => c.is_active))
+      setEmployees(employeesResponse.data || [])
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -69,6 +81,10 @@ export default function Shifts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    setPage(1)
+  }, [search, companyFilter, statusFilter])
+
 
   const companyName = (id) => {
     if (!id) {
@@ -76,6 +92,12 @@ export default function Shifts() {
     }
 
     return companies.find((c) => Number(c.id) === Number(id))?.name || '\u2014'
+  }
+
+  const assignedCount = (shiftId) => {
+    return employees.filter(
+      (emp) => Number(emp.shift?.id ?? emp.shift) === Number(shiftId)
+    ).length
   }
 
 
@@ -96,6 +118,8 @@ export default function Shifts() {
       end_time: shift.end_time || '18:00',
       break_minutes: shift.break_minutes ?? 60,
       grace_minutes: shift.grace_minutes ?? 10,
+      half_day_hours: shift.half_day_hours ?? 4.5,
+      is_overnight: Boolean(shift.is_overnight),
       weekly_off: shift.weekly_off || 'Sunday',
       company: shift.company ? String(shift.company) : '',
     })
@@ -108,6 +132,11 @@ export default function Shifts() {
   const save = async (event) => {
     event.preventDefault()
 
+    if (!form.name.trim()) {
+      setError('Shift name is required.')
+      return
+    }
+
     setSaving(true)
     setError('')
 
@@ -118,14 +147,46 @@ export default function Shifts() {
         end_time: form.end_time,
         break_minutes: Number(form.break_minutes) || 0,
         grace_minutes: Number(form.grace_minutes) || 0,
-        weekly_off: form.weekly_off.trim(),
+        half_day_hours: Number(form.half_day_hours) || 4.5,
+        is_overnight: Boolean(form.is_overnight),
+        weekly_off: form.weekly_off.trim() || 'Sunday',
         company: form.company ? Number(form.company) : null,
       }
 
       if (editing) {
         await hrService.updateShift(editing.id, payload)
+
+        recordAudit({
+          user,
+          module: 'HRMS',
+          entityType: 'Shift',
+          entityId: String(editing.id),
+          referenceNumber: payload.name,
+          action: 'UPDATE',
+          before: {
+            name: editing.name,
+            start_time: editing.start_time,
+            end_time: editing.end_time,
+            break_minutes: editing.break_minutes,
+            grace_minutes: editing.grace_minutes,
+            half_day_hours: editing.half_day_hours,
+            is_overnight: editing.is_overnight,
+            weekly_off: editing.weekly_off,
+          },
+          after: payload,
+        })
       } else {
         await hrService.createShift(payload)
+
+        recordAudit({
+          user,
+          module: 'HRMS',
+          entityType: 'Shift',
+          entityId: payload.name,
+          referenceNumber: payload.name,
+          action: 'CREATE',
+          after: payload,
+        })
       }
 
       setModalOpen(false)
@@ -154,12 +215,81 @@ export default function Shifts() {
         await hrService.reactivateShift(shift.id)
       }
 
+      recordAudit({
+        user,
+        module: 'HRMS',
+        entityType: 'Shift',
+        entityId: String(shift.id),
+        referenceNumber: shift.name,
+        action: shift.is_active ? 'DEACTIVATE' : 'REACTIVATE',
+        before: { is_active: shift.is_active },
+        after: { is_active: !shift.is_active },
+      })
+
       await load()
     } catch (err) {
       setError(getErrorMessage(err))
     }
   }
 
+  const remove = async (shift) => {
+    const inUse = assignedCount(shift.id)
+
+    if (inUse > 0) {
+      setError(
+        `"${shift.name}" is assigned to ${inUse} employee${inUse === 1 ? '' : 's'}. Deactivate it instead of deleting.`
+      )
+      return
+    }
+
+    if (!window.confirm(`Delete "${shift.name}"? This cannot be undone.`)) {
+      return
+    }
+
+    setError('')
+
+    try {
+      await hrService.deleteShift(shift.id)
+
+      recordAudit({
+        user,
+        module: 'HRMS',
+        entityType: 'Shift',
+        entityId: String(shift.id),
+        referenceNumber: shift.name,
+        action: 'DELETE',
+        before: shift,
+      })
+
+      await load()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    }
+  }
+
+  const filteredShifts = shifts
+    .filter((shift) => {
+      if (companyFilter !== 'ALL') {
+        return !shift.company || Number(shift.company) === Number(companyFilter)
+      }
+      return true
+    })
+    .filter((shift) => {
+      if (statusFilter === 'ACTIVE') return shift.is_active
+      if (statusFilter === 'INACTIVE') return !shift.is_active
+      return true
+    })
+    .filter((shift) => {
+      const q = search.trim().toLowerCase()
+      if (!q) return true
+      return [shift.name, shift.weekly_off, companyName(shift.company)]
+        .filter(Boolean)
+        .some((val) => String(val).toLowerCase().includes(q))
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const totalPages = Math.max(1, Math.ceil(filteredShifts.length / pageSize))
+  const paginatedShifts = filteredShifts.slice((page - 1) * pageSize, page * pageSize)
 
   if (!canManage) {
     return (
@@ -172,10 +302,8 @@ export default function Shifts() {
     )
   }
 
-
   return (
     <div className="hr-page">
-
       <div className="hr-header">
         <div>
           <span className="dash-pill" style={{ marginBottom: 6, display: 'inline-block' }}>
@@ -183,8 +311,8 @@ export default function Shifts() {
           </span>
           <h1>Shifts</h1>
           <p>
-            Shift rules can differ per company (US-HR-8). Assign a shift
-            to an employee from the Employees screen.
+            Configure standard, overnight, and custom shifts with grace times, break duration,
+            half-day thresholds, and weekly offs (US-HR-8).
           </p>
         </div>
       </div>
@@ -193,10 +321,45 @@ export default function Shifts() {
         <div className="company-toolbar">
           <div>
             <h2>Shift masters</h2>
-            <p>{shifts.length} shift{shifts.length === 1 ? '' : 's'} configured</p>
+            <p>
+              {shifts.length} shift{shifts.length === 1 ? '' : 's'} configured &middot;{' '}
+              {shifts.filter((s) => s.is_active).length} active
+            </p>
           </div>
 
           <Button onClick={openCreate}>+ Add shift</Button>
+        </div>
+
+        <div className="hr-filters">
+          <input
+            className="company-search"
+            placeholder="Search by shift name, weekly off, company..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+
+          <select
+            className="company-select"
+            value={companyFilter}
+            onChange={(e) => setCompanyFilter(e.target.value)}
+          >
+            <option value="ALL">All companies</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="company-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="ALL">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
         </div>
 
         {error && !modalOpen && <Alert type="error">{error}</Alert>}
@@ -207,10 +370,11 @@ export default function Shifts() {
               <tr>
                 <th>Shift</th>
                 <th>Timing</th>
-                <th>Break</th>
-                <th>Grace</th>
-                <th>Weekly off</th>
+                <th>Break / Grace</th>
+                <th>Half-Day Threshold</th>
+                <th>Weekly Off</th>
                 <th>Company</th>
+                <th>Employees</th>
                 <th>Status</th>
                 <th className="company-actions">Actions</th>
               </tr>
@@ -219,19 +383,39 @@ export default function Shifts() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan="8" className="company-empty">Loading shifts...</td>
+                  <td colSpan="9" className="company-empty">Loading shifts...</td>
                 </tr>
               )}
 
               {!loading &&
-                shifts.map((shift) => (
+                paginatedShifts.map((shift) => (
                   <tr key={shift.id}>
-                    <td><strong>{shift.name}</strong></td>
+                    <td>
+                      <strong>{shift.name}</strong>
+                      {shift.is_overnight && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 10,
+                            padding: '2px 6px',
+                            background: '#eff6ff',
+                            color: '#1d4ed8',
+                            borderRadius: 4,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Overnight
+                        </span>
+                      )}
+                    </td>
                     <td>{shift.start_time} &ndash; {shift.end_time}</td>
-                    <td>{shift.break_minutes} min</td>
-                    <td>{shift.grace_minutes} min</td>
-                    <td>{shift.weekly_off}</td>
+                    <td>{shift.break_minutes}m break / {shift.grace_minutes}m grace</td>
+                    <td>{shift.half_day_hours ?? 4.5} hrs</td>
+                    <td>{shift.weekly_off || 'Sunday'}</td>
                     <td>{companyName(shift.company)}</td>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{assignedCount(shift.id)}</span>
+                    </td>
                     <td>
                       <span className={shift.is_active ? 'company-status active' : 'company-status inactive'}>
                         {shift.is_active ? 'Active' : 'Inactive'}
@@ -248,17 +432,59 @@ export default function Shifts() {
                       >
                         {shift.is_active ? 'Deactivate' : 'Reactivate'}
                       </button>
+                      <button
+                        type="button"
+                        className="company-link danger"
+                        onClick={() => remove(shift)}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
 
-              {!loading && shifts.length === 0 && (
+              {!loading && filteredShifts.length === 0 && (
                 <tr>
-                  <td colSpan="8" className="company-empty">No shifts configured yet.</td>
+                  <td colSpan="9" className="company-empty">
+                    {shifts.length === 0
+                      ? 'No shifts configured yet.'
+                      : 'No shifts match the current filters.'}
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, padding: '0 4px', fontSize: 13, color: '#6d859a' }}>
+          <div>
+            Showing {filteredShifts.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredShifts.length)} of {filteredShifts.length} shift{filteredShifts.length === 1 ? '' : 's'}
+          </div>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="company-link"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                style={{ opacity: page <= 1 ? 0.4 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}
+              >
+                Previous
+              </button>
+              <span style={{ padding: '4px 8px', fontWeight: 600, color: '#173b59' }}>
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="company-link"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                style={{ opacity: page >= totalPages ? 0.4 : 1, cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -277,7 +503,7 @@ export default function Shifts() {
             </>
           }
         >
-          <Alert type="error">{error}</Alert>
+          {error && <Alert type="error">{error}</Alert>}
 
           <form onSubmit={save}>
             <div className="company-form-grid">
@@ -327,7 +553,17 @@ export default function Shifts() {
               />
 
               <Input
-                label="Weekly off"
+                label="Half-day minimum hours"
+                type="number"
+                step="0.5"
+                min="1"
+                max="12"
+                value={form.half_day_hours}
+                onChange={(e) => setForm({ ...form, half_day_hours: e.target.value })}
+              />
+
+              <Input
+                label="Weekly off (e.g. Sunday or Saturday, Sunday)"
                 placeholder="e.g. Sunday"
                 value={form.weekly_off}
                 onChange={(e) => setForm({ ...form, weekly_off: e.target.value })}
@@ -347,6 +583,19 @@ export default function Shifts() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="field" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  id="is_overnight"
+                  checked={form.is_overnight}
+                  onChange={(e) => setForm({ ...form, is_overnight: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <label htmlFor="is_overnight" style={{ fontSize: 13, color: '#173b59', cursor: 'pointer', fontWeight: 600 }}>
+                  Overnight Shift (shift crosses midnight to next day)
+                </label>
               </div>
             </div>
           </form>

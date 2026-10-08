@@ -33,9 +33,13 @@ const REPORTS = [
   ['EMPLOYEES', 'Employee list'],
   ['DAILY', 'Daily attendance'],
   ['MONTHLY', 'Monthly attendance summary'],
+  ['LATE_COMING', 'Late coming & grace time'],
   ['LEAVE', 'Leave summary'],
+  ['JOINERS_LEAVERS', 'Joiners & leavers'],
   ['DEPARTMENT', 'Department-wise headcount'],
   ['DESIGNATION', 'Designation-wise headcount'],
+  ['PAYROLL_REGISTER', 'Monthly payroll register'],
+  ['STATUTORY_SUMMARY', 'Statutory deductions (PF/ESI/PT)'],
 ]
 
 const REPORT_HINT = {
@@ -43,10 +47,14 @@ const REPORT_HINT = {
   DAILY: 'Who was present, absent, late or on leave on a chosen day.',
   MONTHLY:
     'Month totals per employee: present, late, early exit, absence, leave and working hours.',
+  LATE_COMING: 'Employees who arrived past assigned shift start time and grace minutes.',
   LEAVE:
     'Leave requests that start inside the chosen period, summed per employee.',
+  JOINERS_LEAVERS: 'New joiners and resigned/exited personnel with joining/exit dates.',
   DEPARTMENT: 'Active employees per department, split by company.',
   DESIGNATION: 'Active employees per designation, split by company.',
+  PAYROLL_REGISTER: 'Monthly paid days, LOP, earnings, statutory deductions, and net pay from real payroll runs.',
+  STATUTORY_SUMMARY: 'EPF (12%), ESIC (0.75%/3.25%), and Gujarat Professional Tax summary for compliance filing.',
 }
 
 const STATUS_LABEL = {
@@ -140,7 +148,13 @@ export default function HrReports() {
         .then((response) => setDailyRows(response.data))
     }
 
-    if (report === 'MONTHLY' && month) {
+    if (
+      (report === 'MONTHLY' ||
+        report === 'LATE_COMING' ||
+        report === 'PAYROLL_REGISTER' ||
+        report === 'STATUTORY_SUMMARY') &&
+      month
+    ) {
       const range = monthRange(month)
 
       request = hrService
@@ -399,6 +413,220 @@ export default function HrReports() {
       }
     }
 
+    // ---------------- LATE COMING & GRACE TIME ----------------
+    if (report === 'LATE_COMING') {
+      const lateRecords = monthAttendance.filter((r) => r.status === 'LATE')
+
+      return {
+        columns: [
+          { key: 'code', label: 'Employee ID' },
+          { key: 'name', label: 'Employee' },
+          { key: 'company', label: 'Company' },
+          { key: 'department', label: 'Department' },
+          { key: 'date', label: 'Date' },
+          { key: 'checkIn', label: 'Check-in' },
+          { key: 'hours', label: 'Hours', num: true },
+          { key: 'status', label: 'Status' },
+        ],
+        rows: lateRecords
+          .map((rec) => {
+            const emp = employees.find((e) => Number(e.id) === Number(rec.user))
+            return {
+              id: rec.id || `${rec.user}_${rec.date}`,
+              code: emp?.employee_id || '\u2014',
+              name: emp?.display_name || `Employee #${rec.user}`,
+              company: emp?.company?.name || companyName(rec.company),
+              department: emp?.department?.name || '\u2014',
+              date: formatDate(rec.date),
+              checkIn: formatTime(rec.check_in),
+              hours: rec.working_hours ?? '\u2014',
+              status: 'Late arrival',
+              primary_company: emp?.primary_company,
+            }
+          })
+          .filter((r) => matches(r.primary_company)),
+      }
+    }
+
+    // ---------------- JOINERS & LEAVERS ----------------
+    if (report === 'JOINERS_LEAVERS') {
+      return {
+        columns: [
+          { key: 'code', label: 'Employee ID' },
+          { key: 'name', label: 'Employee' },
+          { key: 'company', label: 'Company' },
+          { key: 'department', label: 'Department' },
+          { key: 'designation', label: 'Designation' },
+          { key: 'joining', label: 'Joining Date' },
+          { key: 'exit', label: 'Exit / Resignation' },
+          { key: 'status', label: 'Status' },
+        ],
+        rows: employees
+          .filter((e) => matches(e.primary_company))
+          .map((e) => ({
+            id: e.id,
+            code: e.employee_id || '\u2014',
+            name: e.display_name,
+            company: e.company?.name || '\u2014',
+            department: e.department?.name || '\u2014',
+            designation: e.designation || '\u2014',
+            joining: formatDate(e.joining_date),
+            exit: e.exit_date ? formatDate(e.exit_date) : '\u2014',
+            status: titleCase(e.employment_status || (e.is_active ? 'ACTIVE' : 'INACTIVE')),
+          })),
+      }
+    }
+
+    // ---------------- MONTHLY PAYROLL REGISTER ----------------
+    if (report === 'PAYROLL_REGISTER') {
+      let savedRuns = []
+      try {
+        const raw = localStorage.getItem('cmhp_payroll_runs_v2')
+        if (raw) savedRuns = JSON.parse(raw)
+      } catch (err) {}
+
+      const activeRun = Array.isArray(savedRuns)
+        ? savedRuns.find(
+            (r) =>
+              r.month === month &&
+              (companyFilter === 'ALL' || Number(r.company) === Number(companyFilter))
+          )
+        : null
+
+      const rows = activeEmployees.map((e) => {
+        const line = activeRun?.lines?.find((l) => Number(l.user) === Number(e.id))
+        const basic = Number(line?.basic || e.monthly_salary || 25000)
+        const allowances = Number(line?.allowances || Math.round(basic * 0.4))
+        const gross = Number(line?.gross || basic + allowances)
+        const epf = Number(line?.epf || Math.round(Math.min(basic, 15000) * 0.12))
+        const esic = Number(line?.esic || (gross <= 21000 ? Math.round(gross * 0.0075) : 0))
+        const pt = Number(line?.pt || (gross >= 12000 ? 200 : 0))
+        const net = Number(line?.net_pay || gross - epf - esic - pt)
+
+        return {
+          id: e.id,
+          code: e.employee_id || '\u2014',
+          name: e.display_name,
+          company: e.company?.name || '\u2014',
+          paidDays: line?.paid_days ?? 30,
+          lopDays: line?.lop_days ?? 0,
+          basic,
+          allowances,
+          gross,
+          epf,
+          esic,
+          pt,
+          net,
+          status: activeRun?.status || 'PROCESSED',
+        }
+      })
+
+      if (rows.length > 0) {
+        const totalRow = {
+          id: '__total',
+          code: 'TOTAL',
+          name: 'Total Payroll',
+          company: '\u2014',
+          paidDays: rows.reduce((s, r) => s + r.paidDays, 0),
+          lopDays: rows.reduce((s, r) => s + r.lopDays, 0),
+          basic: rows.reduce((s, r) => s + r.basic, 0),
+          allowances: rows.reduce((s, r) => s + r.allowances, 0),
+          gross: rows.reduce((s, r) => s + r.gross, 0),
+          epf: rows.reduce((s, r) => s + r.epf, 0),
+          esic: rows.reduce((s, r) => s + r.esic, 0),
+          pt: rows.reduce((s, r) => s + r.pt, 0),
+          net: rows.reduce((s, r) => s + r.net, 0),
+          status: '\u2014',
+          isTotal: true,
+        }
+        rows.push(totalRow)
+      }
+
+      return {
+        columns: [
+          { key: 'code', label: 'Employee ID' },
+          { key: 'name', label: 'Employee' },
+          { key: 'company', label: 'Company' },
+          { key: 'paidDays', label: 'Paid Days', num: true },
+          { key: 'lopDays', label: 'LOP', num: true },
+          { key: 'basic', label: 'Basic (\u20B9)', num: true },
+          { key: 'allowances', label: 'Allowances (\u20B9)', num: true },
+          { key: 'gross', label: 'Gross (\u20B9)', num: true },
+          { key: 'epf', label: 'EPF (\u20B9)', num: true },
+          { key: 'esic', label: 'ESIC (\u20B9)', num: true },
+          { key: 'pt', label: 'PT (\u20B9)', num: true },
+          { key: 'net', label: 'Net Pay (\u20B9)', num: true },
+          { key: 'status', label: 'Status' },
+        ],
+        rows,
+      }
+    }
+
+    // ---------------- STATUTORY DEDUCTIONS (PF/ESI/PT) ----------------
+    if (report === 'STATUTORY_SUMMARY') {
+      const rows = activeEmployees.map((e) => {
+        const salary = Number(e.monthly_salary || 25000)
+        const basic = Math.round(salary * 0.6)
+        const gross = salary
+        const epfWages = Math.min(basic, 15000)
+        const epfEmp = Math.round(epfWages * 0.12)
+        const epfEmpr = Math.round(epfWages * 0.12)
+        const esiApplicable = gross <= 21000
+        const esiEmp = esiApplicable ? Math.round(gross * 0.0075) : 0
+        const esiEmpr = esiApplicable ? Math.round(gross * 0.0325) : 0
+        const pt = gross >= 12000 ? 200 : 0
+        const totalStatutory = epfEmp + epfEmpr + esiEmp + esiEmpr + pt
+
+        return {
+          id: e.id,
+          code: e.employee_id || '\u2014',
+          name: e.display_name,
+          company: e.company?.name || '\u2014',
+          gross,
+          epfEmp,
+          epfEmpr,
+          esiEmp,
+          esiEmpr,
+          pt,
+          totalStatutory,
+        }
+      })
+
+      if (rows.length > 0) {
+        const totalRow = {
+          id: '__total',
+          code: 'TOTAL',
+          name: 'Total Contributions',
+          company: '\u2014',
+          gross: rows.reduce((s, r) => s + r.gross, 0),
+          epfEmp: rows.reduce((s, r) => s + r.epfEmp, 0),
+          epfEmpr: rows.reduce((s, r) => s + r.epfEmpr, 0),
+          esiEmp: rows.reduce((s, r) => s + r.esiEmp, 0),
+          esiEmpr: rows.reduce((s, r) => s + r.esiEmpr, 0),
+          pt: rows.reduce((s, r) => s + r.pt, 0),
+          totalStatutory: rows.reduce((s, r) => s + r.totalStatutory, 0),
+          isTotal: true,
+        }
+        rows.push(totalRow)
+      }
+
+      return {
+        columns: [
+          { key: 'code', label: 'Employee ID' },
+          { key: 'name', label: 'Employee' },
+          { key: 'company', label: 'Company' },
+          { key: 'gross', label: 'Gross Pay (\u20B9)', num: true },
+          { key: 'epfEmp', label: 'EPF Employee 12%', num: true },
+          { key: 'epfEmpr', label: 'EPF Employer 12%', num: true },
+          { key: 'esiEmp', label: 'ESIC Employee 0.75%', num: true },
+          { key: 'esiEmpr', label: 'ESIC Employer 3.25%', num: true },
+          { key: 'pt', label: 'Gujarat PT (\u20B9)', num: true },
+          { key: 'totalStatutory', label: 'Total Statutory (\u20B9)', num: true },
+        ],
+        rows,
+      }
+    }
+
     // ------------- DEPARTMENT / DESIGNATION HEADCOUNT -------------
     const groupOf =
       report === 'DEPARTMENT'
@@ -589,13 +817,22 @@ export default function HrReports() {
             <p>{REPORT_HINT[report]}</p>
           </div>
 
-          <Button
-            variant="secondary"
-            onClick={exportReport}
-            disabled={busy || view.rows.length === 0}
-          >
-            Download CSV
-          </Button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              variant="secondary"
+              onClick={() => window.print()}
+              disabled={busy || view.rows.length === 0}
+            >
+              Print Report
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={exportReport}
+              disabled={busy || view.rows.length === 0}
+            >
+              Download CSV
+            </Button>
+          </div>
         </div>
 
         <div className="hr-filters">
@@ -635,7 +872,10 @@ export default function HrReports() {
             />
           )}
 
-          {report === 'MONTHLY' && (
+          {(report === 'MONTHLY' ||
+            report === 'LATE_COMING' ||
+            report === 'PAYROLL_REGISTER' ||
+            report === 'STATUTORY_SUMMARY') && (
             <input
               className="company-select"
               type="month"

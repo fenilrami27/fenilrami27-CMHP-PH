@@ -8,6 +8,9 @@ import Alert from '../../components/Alert'
 import Button from '../../components/Button'
 import Input from '../../components/Input'
 import Modal from '../inventory/components/Modal'
+import StatusPill from '../../components/StatusPill'
+import { getEntityAuditLogs } from '../../utils/audit'
+import { formatDateTimeIN } from '../../utils/formatters'
 
 import { getErrorMessage } from '../../utils/errors'
 
@@ -980,13 +983,27 @@ export default function Operations({
     email: '',
     phone: '',
     address: '',
+    shipping_address: '',
+    gstin: '',
+    state: 'Gujarat',
+    state_code: '24',
+    payment_terms: 'Net 30',
   })
-
 
   const [
     editingCustomer,
     setEditingCustomer,
   ] = useState(null)
+
+  const [
+    viewingOrder,
+    setViewingOrder,
+  ] = useState(null)
+
+  const [
+    orderViewTab,
+    setOrderViewTab,
+  ] = useState('details')
 
 
   /*
@@ -1399,22 +1416,16 @@ export default function Operations({
     )
 
     setCustomerForm({
-
-      code:
-        customer.code || '',
-
-      name:
-        customer.name || '',
-
-      email:
-        customer.email || '',
-
-      phone:
-        customer.phone || '',
-
-      address:
-        customer.address || '',
-
+      code: customer.code || '',
+      name: customer.name || '',
+      email: customer.email || '',
+      phone: customer.phone || '',
+      address: customer.address || '',
+      shipping_address: customer.shipping_address || customer.address || '',
+      gstin: customer.gstin || '',
+      state: customer.state || 'Gujarat',
+      state_code: customer.state_code || '24',
+      payment_terms: customer.payment_terms || 'Net 30',
     })
 
     setModal(
@@ -1501,62 +1512,43 @@ export default function Operations({
 
 
       const payload = {
-
         ...customerForm,
-
-        code:
-          customerCode,
-
-        name:
-          customerName,
-
-        email:
-          customerForm.email.trim(),
-
-        phone:
-          customerForm.phone.trim(),
-
-        address:
-          customerForm.address.trim(),
-
+        code: customerCode,
+        name: customerName,
+        email: customerForm.email.trim(),
+        phone: customerForm.phone.trim(),
+        address: customerForm.address.trim(),
+        shipping_address: (customerForm.shipping_address || customerForm.address).trim(),
+        gstin: (customerForm.gstin || '').trim().toUpperCase(),
+        state: customerForm.state || 'Gujarat',
+        state_code: customerForm.state_code || '24',
+        payment_terms: customerForm.payment_terms || 'Net 30',
       }
 
-
       if (editingCustomer) {
-
         await operationsService.updateCustomer(
-
           editingCustomer.id,
-
           payload
-
         )
-
-        setSuccess(
-          'Shared customer updated successfully.'
-        )
-
+        setSuccess('Shared customer updated successfully.')
       } else {
-
         await operationsService.createCustomer(
           payload
         )
-
-        setSuccess(
-          'Shared customer created successfully.'
-        )
-
+        setSuccess('Shared customer created successfully.')
       }
 
-
       setCustomerForm({
-
         code: '',
         name: '',
         email: '',
         phone: '',
         address: '',
-
+        shipping_address: '',
+        gstin: '',
+        state: 'Gujarat',
+        state_code: '24',
+        payment_terms: 'Net 30',
       })
 
 
@@ -1750,11 +1742,18 @@ export default function Operations({
   }
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | OPEN ORDER EDIT
-  |--------------------------------------------------------------------------
-  */
+  const handleConfirmOrder = async (order) => {
+    try {
+      setSaving(true)
+      await operationsService.confirmOrder(order.id, storage.getUser())
+      setSuccess(`Order ${order.number} confirmed and routed to Quality Control (QC inspection created).`)
+      await load()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const openOrderEdit = (
     order
@@ -2896,57 +2895,65 @@ export default function Operations({
 
 
                         <td>
-                          {
-                            order.status ||
-                            '—'
-                          }
+                          <StatusPill
+                            tone={
+                              order.status === 'PAID' || order.status === 'READY_TO_INVOICE' || order.status === 'QA_APPROVED'
+                                ? 'success'
+                                : order.status === 'QC_FAILED' || order.status === 'QA_REJECTED'
+                                ? 'danger'
+                                : order.status === 'QC_PENDING' || order.status === 'QA_PENDING' || order.status === 'INVOICED'
+                                ? 'info'
+                                : 'neutral'
+                            }
+                          >
+                            {order.status || 'DRAFT'}
+                          </StatusPill>
                         </td>
 
-
                         <td>
-
-                          {canEditOrders() && (
-
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <button
                               type="button"
                               className="table-edit"
-                              onClick={() =>
-                                openOrderEdit(
-                                  order
-                                )
-                              }
-                            >
-                              Edit
-                            </button>
-
-                          )}
-
-
-                          {isSuperAdmin() && (
-
-                            <button
-                              type="button"
-                              className="table-delete"
-                              onClick={() =>
-                                deleteOrder(
-                                  order.id
-                                )
-                              }
-                              style={{
-                                marginLeft:
-                                  6,
+                              onClick={() => {
+                                setViewingOrder(order)
+                                setOrderViewTab('details')
                               }}
                             >
-                              Delete
+                              View
                             </button>
 
-                          )}
+                            {(!order.status || order.status === 'DRAFT') && (
+                              <button
+                                type="button"
+                                className="table-edit"
+                                style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}
+                                onClick={() => handleConfirmOrder(order)}
+                              >
+                                Confirm
+                              </button>
+                            )}
 
+                            {canEditOrders() && (
+                              <button
+                                type="button"
+                                className="table-edit"
+                                onClick={() => openOrderEdit(order)}
+                              >
+                                Edit
+                              </button>
+                            )}
 
-                          {!canEditOrders() &&
-                            !isSuperAdmin() &&
-                            'View only'}
-
+                            {isSuperAdmin() && (
+                              <button
+                                type="button"
+                                className="table-delete"
+                                onClick={() => deleteOrder(order.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
                         </td>
 
                       </tr>
@@ -3324,87 +3331,135 @@ export default function Operations({
           >
 
             <div className="inv-form-grid">
-
               <Input
                 label="Customer code (Auto-Generated)"
-                value={
-                  customerForm.code
-                }
+                value={customerForm.code}
                 readOnly
                 disabled
                 style={{ backgroundColor: 'var(--surface-hover)', cursor: 'not-allowed' }}
               />
 
-
               <Input
-                label="Customer name"
-                value={
-                  customerForm.name
-                }
+                label="Customer name *"
+                value={customerForm.name}
                 onChange={(e) =>
                   setCustomerForm({
                     ...customerForm,
-                    name:
-                      e.target.value,
+                    name: e.target.value,
                   })
                 }
                 required
               />
 
+              <Input
+                label="GSTIN (15-Digit GST Number)"
+                value={customerForm.gstin}
+                onChange={(e) =>
+                  setCustomerForm({
+                    ...customerForm,
+                    gstin: e.target.value.toUpperCase(),
+                  })
+                }
+                placeholder="e.g. 24AAACC1234P1Z5"
+              />
+
+              <div className="field">
+                <label className="field-label">State / Place of Supply</label>
+                <select
+                  className="field-input"
+                  value={customerForm.state_code}
+                  onChange={(e) => {
+                    const code = e.target.value
+                    const stateName = code === '24' ? 'Gujarat' : code === '27' ? 'Maharashtra' : code === '29' ? 'Karnataka' : code === '07' ? 'Delhi' : 'Other State'
+                    setCustomerForm({
+                      ...customerForm,
+                      state_code: code,
+                      state: stateName,
+                    })
+                  }}
+                >
+                  <option value="24">24 - Gujarat (Intra-State CGST+SGST)</option>
+                  <option value="27">27 - Maharashtra (Inter-State IGST)</option>
+                  <option value="29">29 - Karnataka (Inter-State IGST)</option>
+                  <option value="07">07 - Delhi (Inter-State IGST)</option>
+                  <option value="99">99 - Other State / Inter-State</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="field-label">Payment Terms</label>
+                <select
+                  className="field-input"
+                  value={customerForm.payment_terms}
+                  onChange={(e) =>
+                    setCustomerForm({
+                      ...customerForm,
+                      payment_terms: e.target.value,
+                    })
+                  }
+                >
+                  <option value="Net 30">Net 30 Days</option>
+                  <option value="Net 15">Net 15 Days</option>
+                  <option value="Net 45">Net 45 Days</option>
+                  <option value="Net 60">Net 60 Days</option>
+                  <option value="Immediate">Immediate / Advance</option>
+                </select>
+              </div>
 
               <Input
                 label="Email"
                 type="email"
-                value={
-                  customerForm.email
-                }
+                value={customerForm.email}
                 onChange={(e) =>
                   setCustomerForm({
                     ...customerForm,
-                    email:
-                      e.target.value,
+                    email: e.target.value,
                   })
                 }
               />
-
 
               <Input
                 label="Phone"
-                value={
-                  customerForm.phone
-                }
+                value={customerForm.phone}
                 onChange={(e) =>
                   setCustomerForm({
                     ...customerForm,
-                    phone:
-                      e.target.value,
+                    phone: e.target.value,
                   })
                 }
               />
 
-
               <div className="field field-full">
-
-                <label className="field-label">
-                  Address
-                </label>
-
+                <label className="field-label">Billing Address</label>
                 <textarea
                   className="field-input"
-                  value={
-                    customerForm.address
-                  }
+                  rows={2}
+                  value={customerForm.address}
                   onChange={(e) =>
                     setCustomerForm({
                       ...customerForm,
-                      address:
-                        e.target.value,
+                      address: e.target.value,
                     })
                   }
+                  placeholder="Registered company billing address"
                 />
-
               </div>
 
+              <div className="field field-full">
+                <label className="field-label">Shipping Address</label>
+                <textarea
+                  className="field-input"
+                  rows={2}
+                  value={customerForm.shipping_address}
+                  onChange={(e) =>
+                    setCustomerForm({
+                      ...customerForm,
+                      shipping_address: e.target.value,
+                    })
+                  }
+                  placeholder="Warehouse / delivery destination (leave blank if same as billing)"
+                />
+              </div>
             </div>
 
           </form>
@@ -4893,11 +4948,159 @@ export default function Operations({
           </form>
 
         </Modal>
+      )}
 
+      {/* =========================================================
+          VIEW SALES ORDER MODAL WITH AUDIT HISTORY
+          ========================================================= */}
+      {viewingOrder && (
+        <Modal
+          title={`Sales Order ${viewingOrder.number}`}
+          onClose={() => setViewingOrder(null)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+              <div>
+                {(!viewingOrder.status || viewingOrder.status === 'DRAFT') && (
+                  <Button
+                    onClick={() => {
+                      handleConfirmOrder(viewingOrder)
+                      setViewingOrder(null)
+                    }}
+                    style={{ backgroundColor: '#1d4ed8' }}
+                  >
+                    Confirm & Route to QC
+                  </Button>
+                )}
+              </div>
+              <Button variant="secondary" onClick={() => setViewingOrder(null)}>
+                Close
+              </Button>
+            </div>
+          }
+        >
+          <div className="inv-view-tabs" style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0', marginBottom: '16px' }}>
+            <button
+              type="button"
+              className={`inv-tab-btn ${orderViewTab === 'details' ? 'active' : ''}`}
+              onClick={() => setOrderViewTab('details')}
+            >
+              Order Details & Traceability
+            </button>
+            <button
+              type="button"
+              className={`inv-tab-btn ${orderViewTab === 'activity' ? 'active' : ''}`}
+              onClick={() => setOrderViewTab('activity')}
+            >
+              Activity & Audit History
+            </button>
+          </div>
+
+          {orderViewTab === 'details' && (
+            <div>
+              <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Order No</span>
+                    <strong>{viewingOrder.number}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Customer</span>
+                    <strong>{viewingOrder.customer_name || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Order Date</span>
+                    <strong>{viewingOrder.order_date || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Overall Status</span>
+                    <StatusPill tone={viewingOrder.status === 'PAID' || viewingOrder.status === 'READY_TO_INVOICE' ? 'success' : viewingOrder.status === 'QC_FAILED' ? 'danger' : 'info'}>
+                      {viewingOrder.status || 'DRAFT'}
+                    </StatusPill>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                <div style={{ border: '1px solid #e2e8f0', padding: '12px', borderRadius: '6px' }}>
+                  <h4 style={{ margin: '0 0 8px', fontSize: '12px', color: '#0b73df', textTransform: 'uppercase' }}>Product Specifications</h4>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Product: <strong>{viewingOrder.product_name || '—'}</strong> ({viewingOrder.product_type || 'Formulation'})</p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Product Code: <strong>{viewingOrder.product_code || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Packing Size: <strong>{viewingOrder.packing_size || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Batch Size: <strong>{viewingOrder.batch_size || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>MRP for Printing: <strong>₹{viewingOrder.mrp_for_printing || '0'}</strong></p>
+                </div>
+
+                <div style={{ border: '1px solid #e2e8f0', padding: '12px', borderRadius: '6px' }}>
+                  <h4 style={{ margin: '0 0 8px', fontSize: '12px', color: '#0b73df', textTransform: 'uppercase' }}>Workflow & Quality Clearance</h4>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Batch No: <strong>{viewingOrder.batch_no || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Planned Mfg: <strong>{viewingOrder.planned_mfg_date || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>QC Inspection: <strong style={{ color: viewingOrder.qc_status === 'PASSED' ? '#059669' : viewingOrder.qc_status === 'FAILED' ? '#dc2626' : '#2563eb' }}>{viewingOrder.qc_status || 'PENDING'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>QA Release: <strong style={{ color: viewingOrder.qa_status === 'APPROVED' ? '#059669' : viewingOrder.qa_status === 'REJECTED' ? '#dc2626' : '#2563eb' }}>{viewingOrder.qa_status || 'PENDING'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Invoiced Quantity: <strong>{viewingOrder.invoiced_qty || 0} / {viewingOrder.batch_size || 1000}</strong></p>
+                </div>
+              </div>
+
+              {(!viewingOrder.status || viewingOrder.status === 'DRAFT') && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#1e40af' }}>
+                    This order is in <strong>DRAFT</strong> status. Confirming the order will lock initial specs and automatically trigger the <strong>QC Inspection</strong>.
+                  </p>
+                  <Button
+                    onClick={() => {
+                      handleConfirmOrder(viewingOrder)
+                      setViewingOrder(null)
+                    }}
+                    style={{ backgroundColor: '#1d4ed8' }}
+                  >
+                    Confirm Order & Schedule QC Inspection
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {orderViewTab === 'activity' && (
+            <div>
+              <h4 style={{ margin: '0 0 12px', color: '#163b59' }}>Audit Trail for Order {viewingOrder.number}</h4>
+              <div className="inv-table-scroll">
+                <table className="inv-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp (IST)</th>
+                      <th>User</th>
+                      <th>Action</th>
+                      <th>Description</th>
+                      <th>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getEntityAuditLogs('Order', viewingOrder.number).map((log) => (
+                      <tr key={log.id}>
+                        <td>{formatDateTimeIN(log.timestamp)}</td>
+                        <td>
+                          <strong>{log.user_name || log.user_id}</strong>
+                          <span style={{ display: 'block', fontSize: '10px', color: '#64748b' }}>{log.role}</span>
+                        </td>
+                        <td><span style={{ fontWeight: 700, color: '#0b73df' }}>{log.action}</span></td>
+                        <td>{log.description}</td>
+                        <td>{log.remarks || '—'}</td>
+                      </tr>
+                    ))}
+                    {getEntityAuditLogs('Order', viewingOrder.number).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="inv-empty">
+                          No audit entries found for this order.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
 
     </div>
-
   )
-
 }

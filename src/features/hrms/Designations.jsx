@@ -7,6 +7,7 @@ import Input from '../../components/Input'
 import { getErrorMessage } from '../../utils/errors'
 
 import Modal from '../inventory/components/Modal'
+import { recordAudit } from '../../utils/audit'
 
 import { companyService } from '../companies/companyService'
 import { hrService } from './hrService'
@@ -51,6 +52,12 @@ export default function Designations() {
   const [search, setSearch] = useState('')
   const [companyFilter, setCompanyFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, companyFilter, statusFilter])
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -187,6 +194,9 @@ export default function Designations() {
         a.name.localeCompare(b.name)
     )
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const paginatedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+
   const activeCount = designations.filter((d) => d.is_active).length
 
   const editingInUse = editing ? employeeCount(editing) > 0 : false
@@ -315,6 +325,23 @@ export default function Designations() {
 
         await hrService.updateDesignation(editing.id, payload)
 
+        recordAudit({
+          user,
+          module: 'HRMS',
+          entityType: 'Designation',
+          entityId: String(editing.id),
+          referenceNumber: payload.name,
+          action: 'UPDATE',
+          before: {
+            name: editing.name,
+            code: editing.code,
+            level: editing.level,
+            department: editing.department,
+            description: editing.description,
+          },
+          after: payload,
+        })
+
         // Keep employee records in sync when the designation is renamed.
         if (oldName !== payload.name) {
           await Promise.all(
@@ -327,6 +354,16 @@ export default function Designations() {
         }
       } else {
         await hrService.createDesignation(payload)
+
+        recordAudit({
+          user,
+          module: 'HRMS',
+          entityType: 'Designation',
+          entityId: payload.code || payload.name,
+          referenceNumber: payload.name,
+          action: 'CREATE',
+          after: payload,
+        })
       }
 
       setModalOpen(false)
@@ -360,6 +397,17 @@ export default function Designations() {
         await hrService.reactivateDesignation(designation.id)
       }
 
+      recordAudit({
+        user,
+        module: 'HRMS',
+        entityType: 'Designation',
+        entityId: String(designation.id),
+        referenceNumber: designation.name,
+        action: designation.is_active ? 'DEACTIVATE' : 'REACTIVATE',
+        before: { is_active: designation.is_active },
+        after: { is_active: !designation.is_active },
+      })
+
       await load()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -389,6 +437,17 @@ export default function Designations() {
 
     try {
       await hrService.deleteDesignation(designation.id)
+
+      recordAudit({
+        user,
+        module: 'HRMS',
+        entityType: 'Designation',
+        entityId: String(designation.id),
+        referenceNumber: designation.name,
+        action: 'DELETE',
+        before: designation,
+      })
+
       await load()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -502,7 +561,7 @@ export default function Designations() {
               )}
 
               {!loading &&
-                rows.map((designation) => (
+                paginatedRows.map((designation) => (
                   <tr key={designation.id}>
                     <td>
                       <strong>{designation.name}</strong>
@@ -590,6 +649,37 @@ export default function Designations() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, padding: '0 4px', fontSize: 13, color: '#6d859a' }}>
+          <div>
+            Showing {rows.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, rows.length)} of {rows.length} designation{rows.length === 1 ? '' : 's'}
+          </div>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="company-link"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                style={{ opacity: page <= 1 ? 0.4 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}
+              >
+                Previous
+              </button>
+              <span style={{ padding: '4px 8px', fontWeight: 600, color: '#173b59' }}>
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="company-link"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                style={{ opacity: page >= totalPages ? 0.4 : 1, cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

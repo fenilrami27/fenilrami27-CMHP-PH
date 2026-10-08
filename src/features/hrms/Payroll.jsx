@@ -24,6 +24,13 @@ import {
   recordAudit,
 } from '../../utils/audit'
 
+import {
+  formatINR,
+  numberToWordsINR,
+  formatDateIN,
+  maskBankAcc,
+} from '../../utils/formatters'
+
 import Modal
   from '../inventory/components/Modal'
 
@@ -75,6 +82,25 @@ const ADJUSTMENTS_KEY =
 const PAYMENTS_KEY =
   'cmhp_payroll_payments_v2'
 
+const STATUTORY_CONFIG_KEY =
+  'cmhp_payroll_statutory_config_v1'
+
+const PAYROLL_RUNS_KEY =
+  'cmhp_payroll_runs_v2'
+
+const DEFAULT_STATUTORY = {
+  pfEnabled: true,
+  pfEmployeeRate: 12,
+  pfEmployerRate: 12,
+  pfWageCap: 15000,
+  esiEnabled: true,
+  esiEmployeeRate: 0.75,
+  esiGrossLimit: 21000,
+  ptEnabled: true,
+  ptSlabThreshold: 12000,
+  ptAmount: 200,
+  tdsEnabled: false,
+}
 
 const COMPANY_DISPLAY_NAMES = {
   1: 'CMHP',
@@ -381,6 +407,7 @@ function buildPayrollRow({
   data,
   unmarkedPaid,
   adjustment,
+  statutoryConfig,
 }) {
 
   const {
@@ -715,6 +742,13 @@ function buildPayrollRow({
       ) / days
     )
 
+  const proratedBasic =
+    round2(
+      (
+        num(structure.basic) *
+        payableDays
+      ) / days
+    )
 
   const earnings =
     round2(
@@ -722,12 +756,27 @@ function buildPayrollRow({
         variableEarnings
     )
 
+  // Statutory deductions: PF, ESI, Professional Tax
+  let pfDeduction = 0
+  if (statutoryConfig?.pfEnabled) {
+    const pfBasis = statutoryConfig.pfWageCap > 0
+      ? Math.min(proratedBasic, statutoryConfig.pfWageCap)
+      : proratedBasic
+    pfDeduction = round2(pfBasis * ((statutoryConfig.pfEmployeeRate || 12) / 100))
+  }
 
-  const deductions =
-    num(
-      structure.deductions
-    )
+  let esiDeduction = 0
+  if (statutoryConfig?.esiEnabled && earnings <= (statutoryConfig.esiGrossLimit || 21000)) {
+    esiDeduction = round2(earnings * ((statutoryConfig.esiEmployeeRate || 0.75) / 100))
+  }
 
+  let ptDeduction = 0
+  if (statutoryConfig?.ptEnabled && earnings > (statutoryConfig.ptSlabThreshold || 12000)) {
+    ptDeduction = round2(statutoryConfig.ptAmount || 200)
+  }
+
+  const otherDeductions = num(structure.deductions)
+  const deductions = round2(otherDeductions + pfDeduction + esiDeduction + ptDeduction)
 
   const net =
     Math.max(
@@ -772,6 +821,8 @@ function buildPayrollRow({
         structure.basic
       ),
 
+    proratedBasic,
+
     allowances:
       num(
         structure.allowances
@@ -794,11 +845,21 @@ function buildPayrollRow({
 
     earnings,
 
+    pfDeduction,
+
+    esiDeduction,
+
+    ptDeduction,
+
+    otherDeductions,
+
     deductions,
 
     adjustment,
 
     net,
+
+    employee,
 
   }
 }
@@ -836,328 +897,414 @@ function downloadSalarySlip({
   companies,
   payment,
 }) {
+  const companyName = companyDisplayName(row.company, companies)
+  const paidDate = payment?.paidAt ? formatDateIN(payment.paidAt) : '—'
+  const netInWords = numberToWordsINR(row.net)
 
-  const companyName =
-    companyDisplayName(
-      row.company,
-      companies
-    )
-
-
-  const paidDate =
-    payment?.paidAt
-      ? new Date(
-          payment.paidAt
-        ).toLocaleDateString(
-          'en-IN',
-          {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-          }
-        )
-      : '—'
-
-
-  const html =
-`<!doctype html>
-<html>
+  const html = `<!doctype html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Salary Slip - ${row.name} - ${month}</title>
-
 <style>
-body{
-  font-family:Arial,sans-serif;
-  background:#f4f8fc;
-  margin:0;
-  padding:32px;
-  color:#173b5f;
-}
-
-.sheet{
-  max-width:820px;
-  margin:auto;
-  background:#fff;
-  border:1px solid #d8e5f0;
-  border-radius:18px;
-  padding:34px;
-  box-shadow:0 12px 35px rgba(25,65,100,.08);
-}
-
-h1{
-  margin:0 0 6px;
-  font-size:28px;
-}
-
-.muted{
-  color:#71869a;
-}
-
-.head{
-  display:flex;
-  justify-content:space-between;
-  gap:20px;
-  border-bottom:1px solid #e4edf4;
-  padding-bottom:22px;
-  margin-bottom:22px;
-}
-
-.badge{
-  display:inline-block;
-  padding:7px 12px;
-  border-radius:20px;
-  background:#eaf4ff;
-  color:#1671c8;
-  font-weight:700;
-  font-size:12px;
-}
-
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:18px;
-}
-
-td{
-  padding:12px;
-  border-bottom:1px solid #edf2f6;
-}
-
-td:last-child{
-  text-align:right;
-  font-weight:700;
-}
-
-.total td{
-  font-size:18px;
-  border-top:2px solid #173b5f;
-}
-
-.meta{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px 24px;
-}
-
-.footer{
-  margin-top:28px;
-  font-size:12px;
-  color:#7890a4;
-}
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f1f5f9;
+    margin: 0;
+    padding: 24px;
+    color: #1e293b;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .slip-container {
+    max-width: 820px;
+    margin: 0 auto;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  }
+  .no-print {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .btn-print {
+    background: #0284c7;
+    color: #fff;
+    border: none;
+    padding: 9px 18px;
+    font-weight: 600;
+    font-size: 14px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .btn-print:hover { background: #0369a1; }
+  .header {
+    border-bottom: 2px solid #0284c7;
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .company-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 4px 0;
+  }
+  .company-sub {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0;
+  }
+  .slip-badge {
+    text-align: right;
+  }
+  .badge-tag {
+    display: inline-block;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .month-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+  }
+  .grid-info {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 20px;
+    font-size: 12px;
+  }
+  .info-item label {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .info-item span {
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .att-summary {
+    display: flex;
+    justify-content: space-between;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin-bottom: 20px;
+    font-size: 12px;
+  }
+  .att-item {
+    text-align: center;
+  }
+  .att-item div:first-child {
+    font-size: 11px;
+    color: #166534;
+  }
+  .att-item div:last-child {
+    font-size: 14px;
+    font-weight: 700;
+    color: #14532d;
+  }
+  .tables-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  table.comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.comp-table th {
+    background: #f1f5f9;
+    color: #334155;
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 2px solid #cbd5e1;
+    font-weight: 700;
+  }
+  table.comp-table th:last-child {
+    text-align: right;
+  }
+  table.comp-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  table.comp-table td:last-child {
+    text-align: right;
+    font-weight: 600;
+  }
+  .total-row td {
+    border-top: 1px solid #cbd5e1;
+    border-bottom: none;
+    font-weight: 700 !important;
+    background: #f8fafc;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  .net-box {
+    background: #0f172a;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .net-label {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #94a3b8;
+  }
+  .net-words {
+    font-size: 12px;
+    color: #cbd5e1;
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .net-amount {
+    font-size: 24px;
+    font-weight: 700;
+    color: #38bdf8;
+  }
+  .sign-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-top: 36px;
+    padding-top: 20px;
+  }
+  .sign-line {
+    border-top: 1px dashed #94a3b8;
+    text-align: center;
+    padding-top: 6px;
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+  }
+  .footer-note {
+    margin-top: 24px;
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 12px;
+  }
+  @media print {
+    body {
+      background: #fff;
+      padding: 0;
+    }
+    .slip-container {
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      max-width: 100%;
+    }
+    .no-print {
+      display: none !important;
+    }
+  }
 </style>
-
 </head>
-
 <body>
+  <div class="slip-container">
+    <div class="no-print">
+      <button class="btn-print" onclick="window.print()">🖨️ Print Payslip</button>
+    </div>
 
-<div class="sheet">
+    <div class="header">
+      <div>
+        <h1 class="company-title">${companyName}</h1>
+        <p class="company-sub">Pharmaceutical Formulation & Healthcare ERP • Registered Office</p>
+      </div>
+      <div class="slip-badge">
+        <span class="badge-tag">PAYSLIP</span>
+        <div class="month-text">Month: ${month}</div>
+      </div>
+    </div>
 
-<div class="head">
+    <div class="grid-info">
+      <div class="info-item">
+        <label>Employee Name</label>
+        <span>${row.name}</span>
+      </div>
+      <div class="info-item">
+        <label>Employee ID</label>
+        <span>${row.code || '—'}</span>
+      </div>
+      <div class="info-item">
+        <label>Company</label>
+        <span>${companyName}</span>
+      </div>
+      <div class="info-item">
+        <label>Payment Status</label>
+        <span style="color:#16a34a;">PAID (${paidDate})</span>
+      </div>
+      <div class="info-item">
+        <label>Bank Name</label>
+        <span>${row.employee?.bank_name || 'Bank Transfer'}</span>
+      </div>
+      <div class="info-item">
+        <label>Bank Account</label>
+        <span>${row.employee?.bank_account_no ? maskBankAcc(row.employee.bank_account_no) : '—'}</span>
+      </div>
+      <div class="info-item">
+        <label>IFSC Code</label>
+        <span>${row.employee?.bank_ifsc || '—'}</span>
+      </div>
+      <div class="info-item">
+        <label>Disbursement</label>
+        <span>NEFT / Direct Credit</span>
+      </div>
+    </div>
 
-<div>
+    <div class="att-summary">
+      <div class="att-item">
+        <div>Calendar Days</div>
+        <div>${row.days}</div>
+      </div>
+      <div class="att-item">
+        <div>Days Worked</div>
+        <div>${row.worked}</div>
+      </div>
+      <div class="att-item">
+        <div>Paid Leaves</div>
+        <div>${row.paidLeave}</div>
+      </div>
+      <div class="att-item">
+        <div>Holidays / Offs</div>
+        <div>${row.holidayDays + row.offDays}</div>
+      </div>
+      <div class="att-item">
+        <div>Loss of Pay (LOP)</div>
+        <div style="color:#dc2626;">${row.unpaidDays}</div>
+      </div>
+      <div class="att-item">
+        <div>Payable Days</div>
+        <div style="color:#0284c7;">${row.payableDays}</div>
+      </div>
+    </div>
 
-<span class="badge">
-SALARY SLIP
-</span>
+    <div class="tables-wrap">
+      <div>
+        <table class="comp-table">
+          <thead>
+            <tr>
+              <th>Earnings</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Basic Salary (Prorated)</td>
+              <td>${formatINR(row.proratedBasic || row.basic)}</td>
+            </tr>
+            <tr>
+              <td>Special Allowances / HRA</td>
+              <td>${formatINR(row.allowances)}</td>
+            </tr>
+            ${row.incentives > 0 ? `<tr><td>Incentives</td><td>${formatINR(row.incentives)}</td></tr>` : ''}
+            ${row.bonus > 0 ? `<tr><td>Bonus</td><td>${formatINR(row.bonus)}</td></tr>` : ''}
+            ${row.other > 0 ? `<tr><td>Other Allowances</td><td>${formatINR(row.other)}</td></tr>` : ''}
+            <tr class="total-row">
+              <td>Gross Earnings</td>
+              <td>${formatINR(row.earnings)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-<h1>
-${companyName}
-</h1>
+      <div>
+        <table class="comp-table">
+          <thead>
+            <tr>
+              <th>Deductions</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Provident Fund (EPF)</td>
+              <td>${formatINR(row.pfDeduction || 0)}</td>
+            </tr>
+            <tr>
+              <td>ESIC Contribution</td>
+              <td>${formatINR(row.esiDeduction || 0)}</td>
+            </tr>
+            <tr>
+              <td>Professional Tax (PT)</td>
+              <td>${formatINR(row.ptDeduction || 0)}</td>
+            </tr>
+            ${row.otherDeductions > 0 ? `<tr><td>Other Deductions</td><td>${formatINR(row.otherDeductions)}</td></tr>` : ''}
+            ${row.adjustment !== 0 ? `<tr><td>Adjustments (${row.adjustment > 0 ? '+' : '-'})</td><td>${formatINR(row.adjustment)}</td></tr>` : ''}
+            <tr class="total-row">
+              <td>Total Deductions</td>
+              <td>${formatINR(row.deductions)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-<div class="muted">
-Monthly salary statement • ${month}
-</div>
+    <div class="net-box">
+      <div>
+        <div class="net-label">Net Salary Payable</div>
+        <div class="net-words">In Words: ${netInWords}</div>
+      </div>
+      <div class="net-amount">${formatINR(row.net)}</div>
+    </div>
 
-</div>
+    <div class="sign-grid">
+      <div class="sign-line">Employee Signature</div>
+      <div class="sign-line">Authorized Signatory • For ${companyName}</div>
+    </div>
 
-<div style="text-align:right">
-
-<strong>
-${row.name}
-</strong>
-
-<div class="muted">
-${row.code || 'Employee'}
-</div>
-
-</div>
-
-</div>
-
-
-<div class="meta">
-
-<div>
-<strong>Employee</strong><br>
-${row.name}
-</div>
-
-<div>
-<strong>Employee ID</strong><br>
-${row.code || '—'}
-</div>
-
-<div>
-<strong>Salary Month</strong><br>
-${month}
-</div>
-
-<div>
-<strong>Payment Status</strong><br>
-PAID on ${paidDate}
-</div>
-
-</div>
-
-
-<table>
-
-<tr>
-<td>Basic Salary</td>
-<td>
-₹${row.basic.toLocaleString(
-  'en-IN',
-  {
-    minimumFractionDigits:2,
-  }
-)}
-</td>
-</tr>
-
-<tr>
-<td>Allowances</td>
-<td>
-₹${row.allowances.toLocaleString(
-  'en-IN',
-  {
-    minimumFractionDigits:2,
-  }
-)}
-</td>
-</tr>
-
-<tr>
-<td>
-Incentives + Bonus + Other
-</td>
-
-<td>
-₹${(
-  row.incentives +
-  row.bonus +
-  row.other
-).toLocaleString(
-  'en-IN',
-  {
-    minimumFractionDigits:2,
-  }
-)}
-</td>
-
-</tr>
-
-<tr>
-
-<td>
-Deductions
-</td>
-
-<td>
-- ₹${row.deductions.toLocaleString(
-  'en-IN',
-  {
-    minimumFractionDigits:2,
-  }
-)}
-</td>
-
-</tr>
-
-<tr>
-
-<td>
-Attendance / Payable Days
-</td>
-
-<td>
-${row.payableDays} / ${row.days}
-</td>
-
-</tr>
-
-<tr class="total">
-
-<td>
-NET PAYABLE
-</td>
-
-<td>
-₹${row.net.toLocaleString(
-  'en-IN',
-  {
-    minimumFractionDigits:2,
-  }
-)}
-</td>
-
-</tr>
-
-</table>
-
-
-<div class="footer">
-This salary slip was generated by the CMHP Pharmaceutical ERP local payroll module.
-</div>
-
-</div>
-
+    <div class="footer-note">
+      This is a system generated document. No physical signature is required. Generated via CMHP ERP Payroll Management.
+    </div>
+  </div>
 </body>
 </html>`
 
-
-  const blob =
-    new Blob(
-      [html],
-      {
-        type:
-          'text/html;charset=utf-8',
-      }
-    )
-
-
-  const url =
-    URL.createObjectURL(
-      blob
-    )
-
-
-  const link =
-    document.createElement(
-      'a'
-    )
-
-
-  link.href =
-    url
-
-  link.download =
-    `salary-slip-${row.code || row.user}-${month}.html`
-
-
-  document.body.appendChild(
-    link
-  )
-
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `salary-slip-${row.code || row.user}-${month}.html`
+  document.body.appendChild(link)
   link.click()
-
-  document.body.removeChild(
-    link
-  )
-
-  URL.revokeObjectURL(
-    url
-  )
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 
@@ -1317,6 +1464,25 @@ export default function Payroll() {
     setPayrollError,
   ] = useState('')
 
+  const [
+    statutoryConfig,
+    setStatutoryConfig,
+  ] = useState(() =>
+    loadJson(STATUTORY_CONFIG_KEY, DEFAULT_STATUTORY)
+  )
+
+  const [
+    payrollRuns,
+    setPayrollRuns,
+  ] = useState(() =>
+    loadJson(PAYROLL_RUNS_KEY, [])
+  )
+
+  const [
+    statutorySuccess,
+    setStatutorySuccess,
+  ] = useState('')
+
 
   const load =
     async () => {
@@ -1422,6 +1588,26 @@ export default function Payroll() {
 
     },
     [payments]
+  )
+
+  useEffect(
+    () => {
+      saveJson(
+        STATUTORY_CONFIG_KEY,
+        statutoryConfig
+      )
+    },
+    [statutoryConfig]
+  )
+
+  useEffect(
+    () => {
+      saveJson(
+        PAYROLL_RUNS_KEY,
+        payrollRuns
+      )
+    },
+    [payrollRuns]
   )
 
 
@@ -1696,6 +1882,8 @@ export default function Payroll() {
 
                   adjustment,
 
+                  statutoryConfig,
+
                 })
 
 
@@ -1729,6 +1917,7 @@ export default function Payroll() {
         unmarkedPaid,
         adjustments,
         payments,
+        statutoryConfig,
       ]
     )
 
@@ -2353,125 +2542,192 @@ export default function Payroll() {
     }
 
 
-  const exportPayroll =
-    () => {
+  const currentRun = useMemo(() => {
+    return (
+      payrollRuns.find(
+        (r) =>
+          r.month === month &&
+          (companyFilter === 'ALL' || Number(r.company) === Number(companyFilter))
+      ) || null
+    )
+  }, [payrollRuns, month, companyFilter])
 
-      downloadCsv(
+  const runStatus = currentRun?.status || 'DRAFT'
 
-        `payroll-${month}.csv`,
-
-        [
-
-          {
-            key:
-              'code',
-            label:
-              'Employee ID',
-          },
-
-          {
-            key:
-              'name',
-            label:
-              'Employee',
-          },
-
-          {
-            key:
-              'company',
-
-            label:
-              'Company',
-
-            csv:
-              (row) =>
-                companyDisplayName(
-                  row.company,
-                  companies
-                ),
-          },
-
-          {
-            key:
-              'days',
-            label:
-              'Days in month',
-          },
-
-          {
-            key:
-              'payableDays',
-            label:
-              'Payable days',
-          },
-
-          {
-            key:
-              'unpaidDays',
-            label:
-              'Unpaid days',
-          },
-
-          {
-            key:
-              'earnings',
-            label:
-              'Earnings',
-          },
-
-          {
-            key:
-              'deductions',
-            label:
-              'Deductions',
-          },
-
-          {
-            key:
-              'adjustment',
-            label:
-              'Adjustment',
-          },
-
-          {
-            key:
-              'net',
-            label:
-              'Net payable',
-          },
-
-          {
-            key:
-              'payment_status',
-
-            label:
-              'Payment status',
-
-            csv:
-              (row) =>
-                row.payment?.status ||
-                'UNPAID',
-          },
-
-          {
-            key:
-              'paid_at',
-
-            label:
-              'Paid at',
-
-            csv:
-              (row) =>
-                row.payment?.paidAt ||
-                '',
-          },
-
-        ],
-
-        payrollRows
-      )
-
+  const processPayroll = () => {
+    const runId = currentRun?.id || `RUN-${month}-${companyFilter}`
+    const updated = {
+      id: runId,
+      month,
+      company: companyFilter === 'ALL' ? 1 : Number(companyFilter),
+      status: 'PROCESSED',
+      processedAt: new Date().toISOString(),
+      processedBy: user?.first_name || user?.username || 'Admin',
+      totalGross: totals.earnings,
+      totalDeductions: totals.deductions,
+      totalNet: totals.net,
+      count: payrollRows.length,
+      statutoryConfig,
     }
+    const nextRuns = payrollRuns.filter((r) => r.id !== runId).concat(updated)
+    setPayrollRuns(nextRuns)
+    saveJson(PAYROLL_RUNS_KEY, nextRuns)
+    recordAudit({
+      action: 'hr/payrollProcessed',
+      entityType: 'PayrollRun',
+      entityId: runId,
+      payload: { month, company: companyFilter, totalGross: totals.earnings, totalNet: totals.net, count: payrollRows.length },
+    })
+  }
+
+  const approvePayroll = () => {
+    const runId = currentRun?.id || `RUN-${month}-${companyFilter}`
+    const updated = {
+      ...(currentRun || {}),
+      id: runId,
+      month,
+      company: companyFilter === 'ALL' ? 1 : Number(companyFilter),
+      status: 'APPROVED',
+      approvedAt: new Date().toISOString(),
+      approvedBy: user?.first_name || user?.username || 'Admin',
+      totalGross: totals.earnings,
+      totalDeductions: totals.deductions,
+      totalNet: totals.net,
+      count: payrollRows.length,
+    }
+    const nextRuns = payrollRuns.filter((r) => r.id !== runId).concat(updated)
+    setPayrollRuns(nextRuns)
+    saveJson(PAYROLL_RUNS_KEY, nextRuns)
+    recordAudit({
+      action: 'hr/payrollApproved',
+      entityType: 'PayrollRun',
+      entityId: runId,
+      payload: { month, approvedBy: user?.username },
+    })
+  }
+
+  const markAllPaid = () => {
+    if (payrollRows.length === 0) return
+    const confirmed = window.confirm(
+      `Mark all ${payrollRows.length} salaries for ${month} (${formatINR(totals.net)}) as PAID?`
+    )
+    if (!confirmed) return
+
+    const now = new Date().toISOString()
+    const nextPayments = { ...payments }
+    payrollRows.forEach((row) => {
+      const key = paymentKey(month, row)
+      nextPayments[key] = {
+        status: 'PAID',
+        paidAt: now,
+        paidBy: user?.first_name || user?.username || 'Admin',
+        amount: row.net,
+      }
+    })
+    setPayments(nextPayments)
+    saveJson(PAYMENTS_KEY, nextPayments)
+
+    const runId = currentRun?.id || `RUN-${month}-${companyFilter}`
+    const updated = {
+      ...(currentRun || {}),
+      id: runId,
+      month,
+      company: companyFilter === 'ALL' ? 1 : Number(companyFilter),
+      status: 'PAID',
+      paidAt: now,
+      paidBy: user?.first_name || user?.username || 'Admin',
+      totalGross: totals.earnings,
+      totalDeductions: totals.deductions,
+      totalNet: totals.net,
+      count: payrollRows.length,
+    }
+    const nextRuns = payrollRuns.filter((r) => r.id !== runId).concat(updated)
+    setPayrollRuns(nextRuns)
+    saveJson(PAYROLL_RUNS_KEY, nextRuns)
+    recordAudit({
+      action: 'hr/payrollFinalized',
+      entityType: 'PayrollRun',
+      entityId: runId,
+      payload: { month, totalNet: totals.net, count: payrollRows.length },
+    })
+  }
+
+  const revertPayroll = (targetStatus = 'DRAFT') => {
+    if (!currentRun) return
+    const confirmed = window.confirm(
+      `Revert payroll run for ${month} back to ${targetStatus}?`
+    )
+    if (!confirmed) return
+    const updated = {
+      ...currentRun,
+      status: targetStatus,
+    }
+    const nextRuns = payrollRuns.map((r) => (r.id === currentRun.id ? updated : r))
+    setPayrollRuns(nextRuns)
+    saveJson(PAYROLL_RUNS_KEY, nextRuns)
+    recordAudit({
+      action: 'hr/payrollReverted',
+      entityType: 'PayrollRun',
+      entityId: currentRun.id,
+      payload: { month, revertedTo: targetStatus },
+    })
+  }
+
+  const exportBankTransfer = () => {
+    downloadCsv(
+      `bank-transfer-${month}.csv`,
+      [
+        { key: 'sr', label: 'Sr No', csv: (_, index) => index + 1 },
+        { key: 'code', label: 'Employee ID' },
+        { key: 'name', label: 'Beneficiary Name' },
+        { key: 'bank_name', label: 'Bank Name', csv: (row) => row.employee?.bank_name || 'Bank Transfer' },
+        { key: 'account', label: 'Account Number', csv: (row) => row.employee?.bank_account_no || '—' },
+        { key: 'ifsc', label: 'IFSC Code', csv: (row) => row.employee?.bank_ifsc || '—' },
+        { key: 'net', label: 'Amount (INR)', csv: (row) => row.net.toFixed(2) },
+        { key: 'remarks', label: 'Remarks', csv: () => `Salary for ${month}` },
+      ],
+      payrollRows
+    )
+  }
+
+  const exportPayroll = () => {
+    downloadCsv(
+      `payroll-register-${month}.csv`,
+      [
+        { key: 'code', label: 'Employee ID' },
+        { key: 'name', label: 'Employee' },
+        {
+          key: 'company',
+          label: 'Company',
+          csv: (row) => companyDisplayName(row.company, companies),
+        },
+        { key: 'days', label: 'Days in month' },
+        { key: 'payableDays', label: 'Payable days' },
+        { key: 'unpaidDays', label: 'Unpaid days' },
+        { key: 'basic', label: 'Basic' },
+        { key: 'allowances', label: 'Allowances' },
+        { key: 'earnings', label: 'Gross Earnings' },
+        { key: 'pfDeduction', label: 'EPF Deduction' },
+        { key: 'esiDeduction', label: 'ESIC Deduction' },
+        { key: 'ptDeduction', label: 'PT Deduction' },
+        { key: 'otherDeductions', label: 'Other Deductions' },
+        { key: 'deductions', label: 'Total Deductions' },
+        { key: 'adjustment', label: 'Adjustment' },
+        { key: 'net', label: 'Net Payable' },
+        {
+          key: 'payment_status',
+          label: 'Payment Status',
+          csv: (row) => row.payment?.status || 'UNPAID',
+        },
+        {
+          key: 'paid_at',
+          label: 'Paid At',
+          csv: (row) => row.payment?.paidAt || '',
+        },
+      ],
+      payrollRows
+    )
+  }
 
 
   if (
@@ -2664,6 +2920,23 @@ export default function Payroll() {
             }
           >
             Monthly Payroll
+          </button>
+
+          <button
+            type="button"
+            className={
+              tab ===
+              'statutory'
+                ? 'hr-tab active'
+                : 'hr-tab'
+            }
+            onClick={() =>
+              setTab(
+                'statutory'
+              )
+            }
+          >
+            Statutory Rules (PF / ESI / PT)
           </button>
 
         </div>
@@ -2927,29 +3200,28 @@ export default function Payroll() {
 
               <div>
 
-                <h2>
-                  Payroll for {month}
-                </h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                  <h2 style={{ margin: 0 }}>
+                    Payroll for {month}
+                  </h2>
+                  <span
+                    className={`company-status ${
+                      runStatus === 'PAID'
+                        ? 'active'
+                        : runStatus === 'APPROVED'
+                        ? 'active'
+                        : runStatus === 'PROCESSED'
+                        ? 'pending'
+                        : 'inactive'
+                    }`}
+                    style={{ textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}
+                  >
+                    ● {runStatus}
+                  </span>
+                </div>
 
-                <p>
-
-                  {payrollRows.length}
-                  {' '}
-                  employee
-                  {payrollRows.length ===
-                  1
-                    ? ''
-                    : 's'}
-
-                  {' • '}
-
-                  {totals.paid}
-                  {' paid • net payable '}
-
-                  {formatMoney(
-                    totals.net
-                  )}
-
+                <p style={{ margin: 0 }}>
+                  {payrollRows.length} employee{payrollRows.length === 1 ? '' : 's'} • {totals.paid} paid • Net Payable: <strong>{formatINR(totals.net)}</strong>
                 </p>
 
               </div>
@@ -2958,7 +3230,7 @@ export default function Payroll() {
               <div
                 style={{
                   display: 'flex',
-                  gap: 10,
+                  gap: 8,
                   alignItems: 'center',
                   flexWrap: 'wrap',
                 }}
@@ -3003,6 +3275,57 @@ export default function Payroll() {
 
                 </select>
 
+                {runStatus === 'DRAFT' && (
+                  <Button
+                    onClick={processPayroll}
+                    disabled={payrollRows.length === 0 || payrollLoading}
+                  >
+                    ⚡ Process Payroll
+                  </Button>
+                )}
+
+                {runStatus === 'PROCESSED' && (
+                  <>
+                    <Button
+                      onClick={approvePayroll}
+                      disabled={payrollRows.length === 0}
+                    >
+                      ✓ Approve Payroll
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => revertPayroll('DRAFT')}
+                    >
+                      ↺ Revert to Draft
+                    </Button>
+                  </>
+                )}
+
+                {runStatus === 'APPROVED' && (
+                  <>
+                    <Button
+                      onClick={markAllPaid}
+                      disabled={payrollRows.length === 0}
+                    >
+                      💰 Disburse & Mark Paid
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => revertPayroll('PROCESSED')}
+                    >
+                      ↺ Revert
+                    </Button>
+                  </>
+                )}
+
+                {runStatus === 'PAID' && (
+                  <span
+                    className="company-status active"
+                    style={{ padding: '6px 12px', fontSize: 13 }}
+                  >
+                    ✓ Month Locked & Paid
+                  </span>
+                )}
 
                 <Button
                   variant="secondary"
@@ -3014,7 +3337,20 @@ export default function Payroll() {
                     0
                   }
                 >
-                  Download CSV
+                  Register CSV
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  onClick={
+                    exportBankTransfer
+                  }
+                  disabled={
+                    payrollRows.length ===
+                    0
+                  }
+                >
+                  Bank Transfer CSV
                 </Button>
 
               </div>
@@ -3030,26 +3366,28 @@ export default function Payroll() {
 
             )}
 
-
-            {payrollRows.length >
-              0 && (
-
-              <div className="hr-note">
-
-                Click
-                {' '}
-                <strong>
-                  Pay
-                </strong>
-                {' '}
-                after the amount is
-                verified. Once paid, the
-                row remains PAID and the
-                salary slip becomes
-                downloadable.
-
+            {runStatus === 'DRAFT' && (
+              <div className="hr-note" style={{ background: '#f8fafc', borderLeft: '4px solid #0284c7' }}>
+                📋 <strong>Draft Stage:</strong> Attendance is open for regularization and adjustments can be edited. Click <strong>Process Payroll</strong> to lock attendance and freeze figures for approval.
               </div>
+            )}
 
+            {runStatus === 'PROCESSED' && (
+              <div className="hr-note" style={{ background: '#fefce8', borderLeft: '4px solid #eab308' }}>
+                🔒 <strong>Processed Stage:</strong> Attendance records for {month} are now locked against edits. Verify figures and click <strong>Approve Payroll</strong>.
+              </div>
+            )}
+
+            {runStatus === 'APPROVED' && (
+              <div className="hr-note" style={{ background: '#f0fdf4', borderLeft: '4px solid #22c55e' }}>
+                ✅ <strong>Approved Stage:</strong> Ready for disbursement. Click <strong>Disburse & Mark Paid</strong> once the bank transfer file is uploaded to your bank portal.
+              </div>
+            )}
+
+            {runStatus === 'PAID' && (
+              <div className="hr-note" style={{ background: '#f0fdf4', borderLeft: '4px solid #16a34a' }}>
+                🎉 <strong>Completed & Finalized:</strong> All salaries for {month} have been disbursed and locked. Download individual payslips or bank transfer registers below.
+              </div>
             )}
 
 
@@ -3078,11 +3416,15 @@ export default function Payroll() {
                     </th>
 
                     <th className="hr-num">
-                      Earnings
+                      Gross
                     </th>
 
                     <th className="hr-num">
-                      Deductions
+                      Statutory (PF/ESI/PT)
+                    </th>
+
+                    <th className="hr-num">
+                      Other Ded.
                     </th>
 
                     <th className="hr-num">
@@ -3113,7 +3455,7 @@ export default function Payroll() {
                     <tr>
 
                       <td
-                        colSpan="10"
+                        colSpan="11"
                         className="company-empty"
                       >
                         Calculating payroll...
@@ -3190,9 +3532,15 @@ export default function Payroll() {
                             </td>
 
 
+                            <td className="hr-num" title={`PF: ${formatMoney(row.pfDeduction || 0)} | ESI: ${formatMoney(row.esiDeduction || 0)} | PT: ${formatMoney(row.ptDeduction || 0)}`}>
+                              {formatMoney(
+                                (row.pfDeduction || 0) + (row.esiDeduction || 0) + (row.ptDeduction || 0)
+                              )}
+                            </td>
+
                             <td className="hr-num">
                               {formatMoney(
-                                row.deductions
+                                row.otherDeductions || 0
                               )}
                             </td>
 
@@ -3217,7 +3565,7 @@ export default function Payroll() {
                                   )
                                 }
                                 disabled={
-                                  paid
+                                  paid || runStatus === 'PAID'
                                 }
                               />
 
@@ -3265,7 +3613,7 @@ export default function Payroll() {
                                   )
                                 }
                                 disabled={
-                                  paid
+                                  paid || runStatus === 'PAID'
                                 }
                               >
                                 {
@@ -3308,7 +3656,7 @@ export default function Payroll() {
                     <tr>
 
                       <td
-                        colSpan="10"
+                        colSpan="11"
                         className="company-empty"
                       >
                         No salary configured
@@ -3338,7 +3686,13 @@ export default function Payroll() {
 
                       <td className="hr-num">
                         {formatMoney(
-                          totals.deductions
+                          payrollRows.reduce((sum, r) => sum + (r.pfDeduction || 0) + (r.esiDeduction || 0) + (r.ptDeduction || 0), 0)
+                        )}
+                      </td>
+
+                      <td className="hr-num">
+                        {formatMoney(
+                          payrollRows.reduce((sum, r) => sum + (r.otherDeductions || 0), 0)
                         )}
                       </td>
 
@@ -3368,6 +3722,187 @@ export default function Payroll() {
 
           </>
 
+        )}
+
+        {tab === 'statutory' && (
+          <div style={{ padding: '20px 0' }}>
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: 18, color: '#0f172a' }}>
+                Statutory Deductions & Contributions Configuration
+              </h3>
+              <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
+                Configure Employee Provident Fund (EPF), Employee State Insurance (ESIC), and Gujarat Professional Tax (PT). These rules calculate automatically during monthly payroll and can be customized or toggled on/off at any time.
+              </p>
+            </div>
+
+            {statutorySuccess && (
+              <Alert type="success">
+                {statutorySuccess}
+              </Alert>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 24 }}>
+              {/* EPF Card */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
+                  <h4 style={{ margin: 0, fontSize: 16, color: '#0369a1' }}>
+                    🏢 Provident Fund (EPF)
+                  </h4>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={statutoryConfig.pfEnabled}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, pfEnabled: e.target.checked }))}
+                    />
+                    {statutoryConfig.pfEnabled ? 'Active' : 'Disabled'}
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                      Employee Contribution (%)
+                    </label>
+                    <input
+                      className="field-input"
+                      type="number"
+                      step="0.1"
+                      value={statutoryConfig.pfEmployeeRate}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, pfEmployeeRate: Number(e.target.value) || 0 }))}
+                      disabled={!statutoryConfig.pfEnabled}
+                    />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Standard Indian statutory rate: 12%</span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                      Statutory Wage Ceiling Cap (₹)
+                    </label>
+                    <input
+                      className="field-input"
+                      type="number"
+                      value={statutoryConfig.pfWageCap}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, pfWageCap: Number(e.target.value) || 0 }))}
+                      disabled={!statutoryConfig.pfEnabled}
+                    />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Default EPFO cap: ₹15,000/mo (Set 0 for uncapped full basic)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ESIC Card */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
+                  <h4 style={{ margin: 0, fontSize: 16, color: '#0369a1' }}>
+                    🏥 Employee State Insurance (ESIC)
+                  </h4>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={statutoryConfig.esiEnabled}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, esiEnabled: e.target.checked }))}
+                    />
+                    {statutoryConfig.esiEnabled ? 'Active' : 'Disabled'}
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                      Employee Contribution (%)
+                    </label>
+                    <input
+                      className="field-input"
+                      type="number"
+                      step="0.05"
+                      value={statutoryConfig.esiEmployeeRate}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, esiEmployeeRate: Number(e.target.value) || 0 }))}
+                      disabled={!statutoryConfig.esiEnabled}
+                    />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Standard statutory employee rate: 0.75%</span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                      Eligibility Gross Wage Limit (₹)
+                    </label>
+                    <input
+                      className="field-input"
+                      type="number"
+                      value={statutoryConfig.esiGrossLimit}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, esiGrossLimit: Number(e.target.value) || 0 }))}
+                      disabled={!statutoryConfig.esiEnabled}
+                    />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Applicable to employees earning gross ≤ ₹21,000/mo</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Professional Tax (PT) Card */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
+                  <h4 style={{ margin: 0, fontSize: 16, color: '#0369a1' }}>
+                    🏛️ Professional Tax (PT - Gujarat)
+                  </h4>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={statutoryConfig.ptEnabled}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, ptEnabled: e.target.checked }))}
+                    />
+                    {statutoryConfig.ptEnabled ? 'Active' : 'Disabled'}
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                      Monthly Exemption Slab Threshold (₹)
+                    </label>
+                    <input
+                      className="field-input"
+                      type="number"
+                      value={statutoryConfig.ptSlabThreshold}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, ptSlabThreshold: Number(e.target.value) || 0 }))}
+                      disabled={!statutoryConfig.ptEnabled}
+                    />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Gujarat PT: ₹0 deduction if salary ≤ ₹12,000</span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
+                      Monthly Deduction Amount (₹)
+                    </label>
+                    <input
+                      className="field-input"
+                      type="number"
+                      value={statutoryConfig.ptAmount}
+                      onChange={(e) => setStatutoryConfig(c => ({ ...c, ptAmount: Number(e.target.value) || 0 }))}
+                      disabled={!statutoryConfig.ptEnabled}
+                    />
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Standard Gujarat PT: ₹200 per month</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <Button
+                onClick={() => {
+                  saveJson(STATUTORY_CONFIG_KEY, statutoryConfig)
+                  recordAudit({
+                    action: 'hr/statutoryConfigUpdated',
+                    entityType: 'PayrollSettings',
+                    payload: statutoryConfig,
+                  })
+                  setStatutorySuccess('Statutory deduction configuration saved successfully.')
+                  setTimeout(() => setStatutorySuccess(''), 4000)
+                }}
+              >
+                💾 Save Statutory Configuration
+              </Button>
+            </div>
+          </div>
         )}
 
       </section>

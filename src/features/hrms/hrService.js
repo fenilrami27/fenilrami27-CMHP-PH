@@ -5,6 +5,7 @@ import {
     addUser,
     editUserAccess,
     setUserStatus,
+    deleteUser,
 
     addDesignation,
     editDesignation,
@@ -805,6 +806,24 @@ export const hrService = {
                 is_active:
                     true,
 
+            })
+        )
+
+        return delay(null)
+    },
+
+
+    deleteEmployee(
+        id
+    ) {
+
+        assertEmployeeCompany(
+            id
+        )
+
+        store.dispatch(
+            deleteUser({
+                id,
             })
         )
 

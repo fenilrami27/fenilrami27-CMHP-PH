@@ -2,48 +2,61 @@
  * CMHP Pharmaceutical ERP - Central Document & Entity ID Generator
  *
  * Rules:
- * - Master entities (EMP, CUST, VEND, PROD, ITEM, LOC) are global continuous sequences.
- * - Transactional documents (INV, SO, QT, PO, GRN, BILL, BATCH, DSP, CN, LR, WO)
- *   are partitioned per company and calendar year.
- * - Sequence counters never decrement or repeat.
+ * - Master entities (EMP, CUST, VEND, PROD, ITEM, LOC) are continuous sequences.
+ * - Invoices use Indian Financial Year notation: INV/YYYY-YY/0001 (e.g. INV/2026-27/0001).
+ * - Orders, Batches, QC, QA use Year-based notation: PREFIX-YYYY-0001.
+ * - Sequence counters never decrement, guaranteeing zero duplicates.
  */
+
+export function getIndianFinancialYear(dateInput = new Date()) {
+  const d = new Date(dateInput);
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1; // 1-12
+  if (month >= 4) {
+    const nextYear = String(year + 1).slice(-2);
+    return `${year}-${nextYear}`;
+  } else {
+    const currentYearShort = String(year).slice(-2);
+    return `${year - 1}-${currentYearShort}`;
+  }
+}
 
 export const DOCUMENT_CONFIGS = {
   // Master Entities (Global)
-  EMPLOYEE: { prefix: 'EMP', padding: 4, includeYear: false, scopedByCompany: false },
-  CUSTOMER: { prefix: 'CUST', padding: 4, includeYear: false, scopedByCompany: false },
-  VENDOR: { prefix: 'VEND', padding: 4, includeYear: false, scopedByCompany: false },
-  ITEM: { prefix: 'ITM', padding: 4, includeYear: false, scopedByCompany: false },
-  PRODUCT: { prefix: 'PRD', padding: 4, includeYear: false, scopedByCompany: false },
-  LOCATION: { prefix: 'LOC', padding: 4, includeYear: false, scopedByCompany: false },
+  EMPLOYEE: { prefix: 'EMP', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
+  CUSTOMER: { prefix: 'CUST', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
+  VENDOR: { prefix: 'VEND', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
+  ITEM: { prefix: 'ITM', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
+  PRODUCT: { prefix: 'PRD', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
+  LOCATION: { prefix: 'LOC', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
 
-  // Commercial & Sales (Per-Company, Per-Year)
-  INVOICE: { prefix: 'INV', padding: 4, includeYear: true, scopedByCompany: true },
-  SALES_ORDER: { prefix: 'SO', padding: 4, includeYear: true, scopedByCompany: true },
-  QUOTATION: { prefix: 'QT', padding: 4, includeYear: true, scopedByCompany: true },
-  CREDIT_NOTE: { prefix: 'CN', padding: 4, includeYear: true, scopedByCompany: true },
-  DELIVERY: { prefix: 'DSP', padding: 4, includeYear: true, scopedByCompany: true },
+  // Commercial & Sales
+  INVOICE: { prefix: 'INV', padding: 4, isFY: true, includeYear: true, scopedByCompany: true },
+  ORDER: { prefix: 'ORD', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  SALES_ORDER: { prefix: 'SO', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  QUOTATION: { prefix: 'QT', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  CREDIT_NOTE: { prefix: 'CN', padding: 4, isFY: true, includeYear: true, scopedByCompany: true },
+  PAYMENT: { prefix: 'PAY', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
 
-  // Procurement & Supply Chain (Per-Company, Per-Year)
-  PURCHASE_REQUEST: { prefix: 'PR', padding: 4, includeYear: true, scopedByCompany: true },
-  PURCHASE_ORDER: { prefix: 'PO', padding: 4, includeYear: true, scopedByCompany: true },
-  GRN: { prefix: 'GRN', padding: 4, includeYear: true, scopedByCompany: true },
-  BILL: { prefix: 'BILL', padding: 4, includeYear: true, scopedByCompany: true },
+  // Quality Control & Assurance
+  QC: { prefix: 'QC', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  QA: { prefix: 'QA', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
 
-  // Operations & Manufacturing (Per-Company, Per-Year)
-  BATCH: { prefix: 'BAT', padding: 4, includeYear: true, scopedByCompany: true },
-  WORK_ORDER: { prefix: 'WO', padding: 4, includeYear: true, scopedByCompany: true },
+  // Operations & Manufacturing
+  BATCH: { prefix: 'BAT', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
 
-  // HRMS & Administration (Per-Company, Per-Year)
-  LEAVE_REQUEST: { prefix: 'LR', padding: 4, includeYear: true, scopedByCompany: true },
-  USER: { prefix: 'USR', padding: 4, includeYear: false, scopedByCompany: false },
+  // Procurement & Supply Chain
+  PURCHASE_ORDER: { prefix: 'PO', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  GRN: { prefix: 'GRN', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  BILL: { prefix: 'BILL', padding: 4, isFY: true, includeYear: true, scopedByCompany: true },
+
+  // HRMS
+  LEAVE_REQUEST: { prefix: 'LR', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
+  PAYROLL_RUN: { prefix: 'PAYROLL', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
 };
 
-const SEQUENCE_STORAGE_KEY = 'cmhp_document_sequences_v1';
+const SEQUENCE_STORAGE_KEY = 'cmhp_document_sequences_v2';
 
-/**
- * Reads sequence registry from localStorage.
- */
 export function getSequenceRegistry() {
   try {
     const raw = localStorage.getItem(SEQUENCE_STORAGE_KEY);
@@ -54,9 +67,6 @@ export function getSequenceRegistry() {
   }
 }
 
-/**
- * Writes sequence registry to localStorage.
- */
 export function saveSequenceRegistry(registry) {
   try {
     localStorage.setItem(SEQUENCE_STORAGE_KEY, JSON.stringify(registry));
@@ -65,10 +75,7 @@ export function saveSequenceRegistry(registry) {
   }
 }
 
-/**
- * Builds sequence key.
- */
-export function buildSequenceKey(docType, companyId = null, year = null) {
+export function buildSequenceKey(docType, companyId = null, period = null) {
   const cfg = DOCUMENT_CONFIGS[docType];
   if (!cfg) throw new Error(`Unknown document type: ${docType}`);
 
@@ -79,65 +86,58 @@ export function buildSequenceKey(docType, companyId = null, year = null) {
     parts.push('GLOBAL');
   }
 
-  if (cfg.includeYear) {
-    parts.push(String(year || new Date().getFullYear()));
+  if (cfg.isFY) {
+    parts.push(period || getIndianFinancialYear());
+  } else if (cfg.includeYear) {
+    parts.push(String(period || new Date().getFullYear()));
   }
 
   return parts.join(':');
 }
 
-/**
- * Formats a sequence number into the official document number string.
- */
-export function formatDocumentNumber(docType, sequenceNumber, year = null) {
+export function formatDocumentNumber(docType, sequenceNumber, period = null) {
   const cfg = DOCUMENT_CONFIGS[docType];
   if (!cfg) throw new Error(`Unknown document type: ${docType}`);
 
   const paddedSeq = String(sequenceNumber).padStart(cfg.padding, '0');
-  const targetYear = year || new Date().getFullYear();
+
+  if (cfg.isFY) {
+    const fy = period || getIndianFinancialYear();
+    return `${cfg.prefix}/${fy}/${paddedSeq}`;
+  }
 
   if (cfg.includeYear) {
-    return `${cfg.prefix}-${targetYear}-${paddedSeq}`;
+    const year = period || new Date().getFullYear();
+    return `${cfg.prefix}-${year}-${paddedSeq}`;
   }
+
   return `${cfg.prefix}-${paddedSeq}`;
 }
 
-/**
- * Returns the next available sequence value without advancing the counter.
- */
-export function peekNextDocumentNumber(docType, companyId = null, year = null) {
+export function peekNextDocumentNumber(docType, companyId = null, period = null) {
   const registry = getSequenceRegistry();
-  const key = buildSequenceKey(docType, companyId, year);
+  const key = buildSequenceKey(docType, companyId, period);
   const currentSeq = registry[key] || 0;
   const nextSeq = currentSeq + 1;
-  return formatDocumentNumber(docType, nextSeq, year);
+  return formatDocumentNumber(docType, nextSeq, period);
 }
 
-/**
- * Previews the next number (for display in open forms before submission).
- */
-export function previewDocumentNumber(docType, companyId = null, year = null) {
-  return peekNextDocumentNumber(docType, companyId, year);
+export function previewDocumentNumber(docType, companyId = null, period = null) {
+  return peekNextDocumentNumber(docType, companyId, period);
 }
 
-/**
- * Finalizes and commits the document number, incrementing the persistent sequence counter.
- */
-export function commitDocumentNumber(docType, companyId = null, year = null) {
+export function commitDocumentNumber(docType, companyId = null, period = null) {
   const registry = getSequenceRegistry();
-  const key = buildSequenceKey(docType, companyId, year);
+  const key = buildSequenceKey(docType, companyId, period);
   const currentSeq = registry[key] || 0;
   const nextSeq = currentSeq + 1;
 
   registry[key] = nextSeq;
   saveSequenceRegistry(registry);
 
-  return formatDocumentNumber(docType, nextSeq, year);
+  return formatDocumentNumber(docType, nextSeq, period);
 }
 
-/**
- * Seeds and migrates initial sequences from existing records.
- */
 export function migrateDocumentNumbers(entities = {}) {
   const registry = getSequenceRegistry();
   let changed = false;
@@ -150,25 +150,35 @@ export function migrateDocumentNumbers(entities = {}) {
       const val = extractor(item);
       if (!val || typeof val !== 'string') return;
 
-      const regex = cfg.includeYear
-        ? new RegExp(`^${cfg.prefix}-(\\d{4})-(\\d+)$`, 'i')
-        : new RegExp(`^${cfg.prefix}-(\\d+)$`, 'i');
+      let seq = 0;
+      let period = null;
 
-      const match = val.match(regex);
-      if (match) {
-        let yr = null;
-        let seq = 0;
-        if (cfg.includeYear) {
-          yr = match[1];
-          seq = parseInt(match[2], 10);
-        } else {
-          seq = parseInt(match[1], 10);
+      if (cfg.isFY) {
+        // e.g. INV/2026-27/0001
+        const m = val.match(new RegExp(`^${cfg.prefix}/(\\d{4}-\\d{2})/(\\d+)$`, 'i'));
+        if (m) {
+          period = m[1];
+          seq = parseInt(m[2], 10);
         }
+      } else if (cfg.includeYear) {
+        // e.g. ORD-2026-0001
+        const m = val.match(new RegExp(`^${cfg.prefix}-(\\d{4})-(\\d+)$`, 'i'));
+        if (m) {
+          period = m[1];
+          seq = parseInt(m[2], 10);
+        }
+      } else {
+        // e.g. EMP-0001
+        const m = val.match(new RegExp(`^${cfg.prefix}-(\\d+)$`, 'i'));
+        if (m) {
+          seq = parseInt(m[1], 10);
+        }
+      }
 
-        const compId = item.companyId || item.company_id || null;
-        const key = buildSequenceKey(docType, compId, yr);
+      if (seq > 0) {
+        const compId = item.company || item.company_id || item.companyId || null;
+        const key = buildSequenceKey(docType, compId, period);
         const existing = registry[key] || 0;
-
         if (seq > existing) {
           registry[key] = seq;
           changed = true;
@@ -180,14 +190,14 @@ export function migrateDocumentNumbers(entities = {}) {
   if (entities.users) {
     checkMax(entities.users, 'EMPLOYEE', (u) => u.employee_id || u.employeeId);
   }
-  if (entities.employees) {
-    checkMax(entities.employees, 'EMPLOYEE', (e) => e.employee_id || e.employeeId || e.id);
-  }
   if (entities.invoices) {
-    checkMax(entities.invoices, 'INVOICE', (i) => i.invoice_number || i.invoiceNumber || i.id);
+    checkMax(entities.invoices, 'INVOICE', (i) => i.number || i.invoice_number);
+  }
+  if (entities.orders) {
+    checkMax(entities.orders, 'ORDER', (o) => o.number || o.order_number);
   }
   if (entities.customers) {
-    checkMax(entities.customers, 'CUSTOMER', (c) => c.customer_id || c.customerId || c.id);
+    checkMax(entities.customers, 'CUSTOMER', (c) => c.code || c.customer_id);
   }
 
   if (changed) {

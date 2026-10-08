@@ -56,13 +56,7 @@ function buildInitialERPState() {
     }
   )
 
-  if (!result.products || result.products.length === 0) {
-    result.products = [...initialState.products]
-  }
 
-  if (!result.formulas || result.formulas.length === 0) {
-    result.formulas = [...initialState.formulas]
-  }
 
   migrateDocumentNumbers(
     result

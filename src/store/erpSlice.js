@@ -132,14 +132,44 @@ export const initialState = {
     {
       id: 1,
       name: 'Company A',
+      legal_name: 'CMHP Pharmaceuticals Pvt. Ltd.',
       code: 'COMP-A',
+      gstin: '24AAACC1234F1Z5',
+      pan: 'AAACC1234F',
+      state: 'Gujarat',
+      state_code: '24',
+      registered_address: 'Plot No. 102, GIDC Industrial Estate, Ankleshwar, Gujarat, India - 393002',
+      contact_email: 'billing@cmhp.com',
+      contact_phone: '+91 98765 43210',
+      bank_name: 'State Bank of India',
+      bank_account_number: '38491029384',
+      bank_ifsc: 'SBIN0001234',
+      bank_branch: 'GIDC Ankleshwar',
+      terms_and_conditions: '1. Goods once sold will not be accepted back.\n2. Interest @18% p.a. will be charged on overdue payments.\n3. Subject to Ankleshwar jurisdiction.',
+      tax_enabled: true,
+      default_tax_rate: 18,
       is_active: true,
     },
 
     {
       id: 2,
       name: 'Company B',
+      legal_name: 'Tej Biocare Healthcare Pvt. Ltd.',
       code: 'COMP-B',
+      gstin: '24BBBCC5678G1Z2',
+      pan: 'BBBCC5678G',
+      state: 'Gujarat',
+      state_code: '24',
+      registered_address: 'Survey No. 45/2, Chhatral GIDC, Gandhinagar, Gujarat, India - 382729',
+      contact_email: 'accounts@tejbiocare.com',
+      contact_phone: '+91 98765 99999',
+      bank_name: 'HDFC Bank',
+      bank_account_number: '50200012345678',
+      bank_ifsc: 'HDFC0001824',
+      bank_branch: 'Gandhinagar',
+      terms_and_conditions: '1. Payment due as per agreed terms.\n2. Goods dispatched at buyer\'s risk.\n3. Subject to Gandhinagar jurisdiction.',
+      tax_enabled: true,
+      default_tax_rate: 18,
       is_active: true,
     },
 
@@ -277,131 +307,34 @@ export const initialState = {
   |--------------------------------------------------------------------------
   */
 
-  products: [
-    {
-      id: 1,
-      name: 'Paracetamol Tablets',
-      code: 'PRD-0001',
-      dosage_form: 'Tablet',
-      strength: '500 mg',
-      pack_size: '10x10 Tablets Blister',
-      description: 'Analgesic and antipyretic oral solid dosage formulation for fever and mild to moderate pain relief.',
-      is_active: true,
-      last_formula_id: 1,
-      last_revision_id: 'rev-00',
-    },
-    {
-      id: 2,
-      name: 'Amoxicillin Oral Suspension',
-      code: 'PRD-0002',
-      dosage_form: 'Suspension',
-      strength: '125 mg / 5 mL',
-      pack_size: '100 mL Glass Bottle',
-      description: 'Broad-spectrum beta-lactam antibacterial oral suspension for pediatric and adult administration.',
-      is_active: true,
-      last_formula_id: 2,
-      last_revision_id: 'rev-00',
-    },
-    {
-      id: 3,
-      name: 'Omeprazole Delayed-Release Capsules',
-      code: 'PRD-0003',
-      dosage_form: 'Capsule',
-      strength: '20 mg',
-      pack_size: '14 Capsules Strip',
-      description: 'Proton pump inhibitor enteric-coated pellet filled hard gelatin capsule for gastroprotection.',
-      is_active: true,
-      last_formula_id: 3,
-      last_revision_id: 'rev-00',
-    },
-  ],
+  products: [],
 
   customers: [],
 
-  formulas: [
-    {
-      id: 1,
-      product_id: 1,
-      name: 'Paracetamol 500mg Master Granulation',
-      base_quantity: 100,
-      base_unit: 'g',
-      revisions: [
-        {
-          id: 'rev-00',
-          name: 'Rev 00',
-          description: 'Initial approved production master formulation',
-          created_at: '2026-10-01T08:00:00.000Z',
-          materials: [
-            { id: 'mat-101', name: 'Paracetamol IP/BP (Active API)', base_quantity: 65, unit: 'g' },
-            { id: 'mat-102', name: 'Microcrystalline Cellulose (Avicel PH-101)', base_quantity: 20, unit: 'g' },
-            { id: 'mat-103', name: 'Maize Starch BP (Binder & Disintegrant)', base_quantity: 10, unit: 'g' },
-            { id: 'mat-104', name: 'Povidone K-30 (Wet Granulating Binder)', base_quantity: 3, unit: 'g' },
-            { id: 'mat-105', name: 'Magnesium Stearate (Lubricant)', base_quantity: 2, unit: 'g' },
-          ],
-        },
-        {
-          id: 'rev-01',
-          name: 'Rev 01',
-          description: 'Optimized rapid disintegration revision with Croscarmellose',
-          created_at: '2026-10-05T09:30:00.000Z',
-          materials: [
-            { id: 'mat-106', name: 'Paracetamol Micronized (Active API)', base_quantity: 65, unit: 'g' },
-            { id: 'mat-107', name: 'Microcrystalline Cellulose PH-102', base_quantity: 18, unit: 'g' },
-            { id: 'mat-108', name: 'Croscarmellose Sodium (Superdisintegrant)', base_quantity: 4, unit: 'g' },
-            { id: 'mat-109', name: 'Povidone K-30', base_quantity: 3, unit: 'g' },
-            { id: 'mat-110', name: 'Aerosil 200 (Colloidal Silicon Dioxide)', base_quantity: 1, unit: 'g' },
-            { id: 'mat-111', name: 'Magnesium Stearate', base_quantity: 1.5, unit: 'g' },
-          ],
-        },
-      ],
-    },
-    {
-      id: 2,
-      product_id: 2,
-      name: 'Amoxicillin Trihydrate Suspension Base',
-      base_quantity: 1,
-      base_unit: 'L',
-      revisions: [
-        {
-          id: 'rev-00',
-          name: 'Rev 00',
-          description: 'Standard reconstitution formula for 125mg/5mL',
-          created_at: '2026-10-02T11:00:00.000Z',
-          materials: [
-            { id: 'mat-201', name: 'Amoxicillin Trihydrate Compacted (API)', base_quantity: 28.7, unit: 'g' },
-            { id: 'mat-202', name: 'Sodium Benzoate (Preservative)', base_quantity: 2.0, unit: 'g' },
-            { id: 'mat-203', name: 'Sodium Citrate Dihydrate (Buffer)', base_quantity: 5.5, unit: 'g' },
-            { id: 'mat-204', name: 'Xanthan Gum (Suspending Agent)', base_quantity: 2.5, unit: 'g' },
-            { id: 'mat-205', name: 'Sucrose Extra Fine (Sweetener)', base_quantity: 320, unit: 'g' },
-            { id: 'mat-206', name: 'Purified Water USP', base_quantity: 0.85, unit: 'L' },
-          ],
-        },
-      ],
-    },
-    {
-      id: 3,
-      product_id: 3,
-      name: 'Omeprazole Enteric Coated Pellets Formula',
-      base_quantity: 50,
-      base_unit: 'kg',
-      revisions: [
-        {
-          id: 'rev-00',
-          name: 'Rev 00',
-          description: 'Pellet coating core and enteric barrier',
-          created_at: '2026-10-03T14:15:00.000Z',
-          materials: [
-            { id: 'mat-301', name: 'Omeprazole Base BP (Active API)', base_quantity: 4.5, unit: 'kg' },
-            { id: 'mat-302', name: 'Sugar Spheres (Nonpareil Seeds 25-30 mesh)', base_quantity: 28, unit: 'kg' },
-            { id: 'mat-303', name: 'Hypromellose (HPMC 2910) Sub-coating', base_quantity: 3.5, unit: 'kg' },
-            { id: 'mat-304', name: 'Methacrylic Acid Copolymer Type C', base_quantity: 9.5, unit: 'kg' },
-            { id: 'mat-305', name: 'Triethyl Citrate (Plasticizer)', base_quantity: 1.2, unit: 'kg' },
-            { id: 'mat-306', name: 'Talc Purified (Anti-tacking)', base_quantity: 3.3, unit: 'kg' },
-          ],
-        },
-      ],
-    },
-  ],
+  formulas: [],
+
+  qcRecords: [],
+
+  qaRecords: [],
+
+  payments: [],
+
+  payrollRuns: [],
+
+  payrollAdjustments: [],
+
+  attendanceRegularizations: [],
+
+  payrollSettings: {
+    pf_enabled: true,
+    pf_rate: 12,
+    pf_cap: 15000,
+    esi_enabled: true,
+    esi_rate: 0.75,
+    esi_threshold: 21000,
+    pt_enabled: true,
+    pt_amount: 200,
+  },
 
   quotations: [],
 
@@ -2230,6 +2163,76 @@ const erpSlice = createSlice({
 
     },
 
+    setOrderStatus: (
+      state,
+      action
+    ) => {
+      const order = state.orders.find(
+        (o) => Number(o.id) === Number(action.payload.id)
+      )
+      if (order) {
+        order.status = action.payload.status
+        if (action.payload.qc_status) order.qc_status = action.payload.qc_status
+        if (action.payload.qa_status) order.qa_status = action.payload.qa_status
+        if (action.payload.invoiced_qty !== undefined) order.invoiced_qty = action.payload.invoiced_qty
+      }
+    },
+
+    addQcRecord: (
+      state,
+      action
+    ) => {
+      state.qcRecords.push({
+        id: nextId(),
+        created_at: new Date().toISOString(),
+        ...action.payload,
+      })
+    },
+
+    editQcRecord: (
+      state,
+      action
+    ) => {
+      patchById(
+        state.qcRecords,
+        action.payload.id,
+        action.payload.payload
+      )
+    },
+
+    addQaRecord: (
+      state,
+      action
+    ) => {
+      state.qaRecords.push({
+        id: nextId(),
+        created_at: new Date().toISOString(),
+        ...action.payload,
+      })
+    },
+
+    editQaRecord: (
+      state,
+      action
+    ) => {
+      patchById(
+        state.qaRecords,
+        action.payload.id,
+        action.payload.payload
+      )
+    },
+
+    addPaymentRecord: (
+      state,
+      action
+    ) => {
+      state.payments.push({
+        id: nextId(),
+        created_at: new Date().toISOString(),
+        ...action.payload,
+      })
+    },
+
 
     /*
     |--------------------------------------------------------------------------
@@ -3865,6 +3868,18 @@ export const {
   deleteInvoice,
 
   setInvoiceStatus,
+
+  setOrderStatus,
+
+  addQcRecord,
+
+  editQcRecord,
+
+  addQaRecord,
+
+  editQaRecord,
+
+  addPaymentRecord,
 
 
   // suppliers
