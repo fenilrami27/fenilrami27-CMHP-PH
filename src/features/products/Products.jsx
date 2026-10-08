@@ -874,7 +874,9 @@ export default function Products() {
             </button>
             <button
               type="button"
-              className={`step-tab-btn ${formulaStep === 2 ? 'active' : ''}`}
+              className={`step-tab-btn ${formulaStep === 2 ? 'active' : ''} ${
+                activeRevision && (activeRevision.materials || []).length > 0 ? 'completed' : ''
+              }`}
               onClick={() => {
                 if (activeFormula) {
                   setFormulaStep(2)
@@ -888,6 +890,23 @@ export default function Products() {
             >
               <span className="step-number-circle">2</span>
               <span>Step 2: Raw Materials & Formulation</span>
+            </button>
+            <button
+              type="button"
+              className={`step-tab-btn ${formulaStep === 3 ? 'active' : ''}`}
+              onClick={() => {
+                if (activeFormula && activeRevision) {
+                  setFormulaStep(3)
+                } else {
+                  setNotification({
+                    type: 'error',
+                    message: 'Please select a formula and revision first.',
+                  })
+                }
+              }}
+            >
+              <span className="step-number-circle">3</span>
+              <span>Step 3: Batch Calculation</span>
             </button>
           </div>
 
@@ -1274,24 +1293,84 @@ export default function Products() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Step 2 Footer Navigation */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingTop: '16px',
+                  borderTop: '1px solid #f1f5f9',
+                  marginTop: '16px',
+                }}
+              >
+                <Button variant="secondary" onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1
+                </Button>
+                <Button onClick={() => setFormulaStep(3)}>
+                  Next: Calculation →
+                </Button>
+              </div>
             </div>
           )}
 
           {/* =========================================================
-              CALCULATION SECTION (LARGE CARD)
-              Always visible under Formula & Materials flow
+              STEP 3: BATCH CALCULATION
               ========================================================= */}
-          {activeFormula && activeRevision && (
+          {formulaStep === 3 && (!activeFormula || !activeRevision) && (
+            <div className="formula-step-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>📋</div>
+              <h3 style={{ fontSize: '18px', color: '#123f61', marginBottom: '8px' }}>
+                No Formula or Revision Selected
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '14px', maxWidth: '480px', margin: '0 auto 20px auto' }}>
+                Please select or create an approved Master Formula and Revision in Step 1 before calculating batch requirements.
+              </p>
+              <div>
+                <Button onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {formulaStep === 3 && activeFormula && activeRevision && (!activeRevision.materials || activeRevision.materials.length === 0) && (
+            <div className="formula-step-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>⚖️</div>
+              <h3 style={{ fontSize: '18px', color: '#123f61', marginBottom: '8px' }}>
+                No Raw Materials Defined
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '14px', maxWidth: '520px', margin: '0 auto 20px auto' }}>
+                Formula <strong>{activeFormula.name}</strong> ({activeRevision.name}) has no raw materials defined yet. Add raw materials in Step 2 to generate live batch formulation calculations.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+                <Button variant="secondary" onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1
+                </Button>
+                <Button onClick={() => setFormulaStep(2)}>
+                  ← Back to Step 2 (Add Materials)
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {formulaStep === 3 && activeFormula && activeRevision && activeRevision.materials && activeRevision.materials.length > 0 && (
             <div className="calculation-master-card">
               <div className="calc-card-header">
-                <div className="calc-card-title">
-                  <div className="calc-icon-badge">⚖️</div>
-                  <div>
-                    <h3>Live Batch Formulation Calculation Engine</h3>
-                    <p>
-                      Precision stoichiometric scaling with automatic multi-unit conversion and best-fit representation.
-                    </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
+                  <div className="calc-card-title">
+                    <div className="calc-icon-badge">⚖️</div>
+                    <div>
+                      <h3>Step 3: Live Batch Formulation Calculation Engine</h3>
+                      <p>
+                        Precision stoichiometric scaling with automatic multi-unit conversion and best-fit representation.
+                      </p>
+                    </div>
                   </div>
+                  <Button variant="secondary" onClick={() => setFormulaStep(2)}>
+                    ← Back to Step 2
+                  </Button>
                 </div>
 
                 <div className="calc-context-pill-row">
@@ -1417,6 +1496,21 @@ export default function Products() {
                   </div>
                 </div>
               )}
+
+              {/* Step 3 Footer Navigation */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  paddingTop: '16px',
+                  borderTop: '1px solid #e2e8f0',
+                  marginTop: '16px',
+                }}
+              >
+                <Button variant="secondary" onClick={() => setFormulaStep(2)}>
+                  ← Back to Step 2
+                </Button>
+              </div>
             </div>
           )}
         </div>

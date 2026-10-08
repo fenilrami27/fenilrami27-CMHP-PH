@@ -6,6 +6,8 @@ import {
   useNavigate,
 } from 'react-router-dom'
 
+import { useDispatch } from 'react-redux'
+
 import useAuth from '../../hooks/useAuth'
 
 import {
@@ -21,6 +23,8 @@ import {
   setSelectedWorkspace,
   WORKSPACES,
 } from '../../utils/workspace'
+
+import { setActiveCompanyId } from '../../store/erpSlice'
 
 import './WorkspaceSelection.css'
 
@@ -58,6 +62,8 @@ export default function WorkspaceSelection() {
   const navigate =
     useNavigate()
 
+  const dispatch =
+    useDispatch()
 
   const availableWorkspaces =
     getAvailableWorkspaces(user)
@@ -112,6 +118,14 @@ export default function WorkspaceSelection() {
   function handleWorkspaceSelect(
     workspace
   ) {
+
+    if (workspace.companyId !== undefined) {
+      dispatch(
+        setActiveCompanyId(
+          workspace.companyId
+        )
+      )
+    }
 
     setSelectedWorkspace(
       workspace.id

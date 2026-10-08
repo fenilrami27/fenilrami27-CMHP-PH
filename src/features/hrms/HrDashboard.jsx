@@ -50,11 +50,11 @@ export default function HrDashboard() {
           value: summary.on_leave_today,
         },
         {
-          label: 'Company A employees',
+          label: 'CMHP Pharma employees',
           value: summary.company_a_employees,
         },
         {
-          label: 'Company B employees',
+          label: 'Tej Biocare employees',
           value: summary.company_b_employees,
         },
       ]

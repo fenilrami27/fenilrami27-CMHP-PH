@@ -208,7 +208,7 @@ export const supplyChainService = {
    * Company selector inside Supply Chain:
    *
    * Normal users:
-   *   Company A only
+   *   CMHP Pharma only
    *
    * Super Admin:
    *   Currently selected company only

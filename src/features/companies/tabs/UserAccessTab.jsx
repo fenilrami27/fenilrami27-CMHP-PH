@@ -1376,9 +1376,9 @@ export default function UserAccessTab() {
                                 ? company.name
                                 : (
                                     Number(company) === 1
-                                      ? 'Company A'
+                                      ? 'CMHP Pharma'
                                       : Number(company) === 2
-                                        ? 'Company B'
+                                        ? 'Tej Biocare'
                                         : `Company ${company}`
                                   )
 

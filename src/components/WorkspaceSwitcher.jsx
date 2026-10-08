@@ -5,6 +5,7 @@ import {
 } from 'react'
 
 import { useNavigate } from 'react-router-dom'
+import { useDispatch } from 'react-redux'
 
 import {
   BuildingIcon,
@@ -14,6 +15,7 @@ import {
 import useWorkspace from '../hooks/useWorkspace'
 
 import { WORKSPACES } from '../utils/workspace'
+import { setActiveCompanyId } from '../store/erpSlice'
 
 import './WorkspaceSwitcher.css'
 
@@ -77,6 +79,7 @@ export default function WorkspaceSwitcher() {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const navigate = useNavigate()
+  const dispatch = useDispatch()
 
   useEffect(() => {
     const handleOutside = (event) => {
@@ -146,7 +149,7 @@ export default function WorkspaceSwitcher() {
           <div className="workspace-menu-head">
             <span className="workspace-menu-kicker">Switch Workspace Context</span>
             <span className="workspace-menu-subtitle">
-              Select company entity, consolidated group view, or shared stores
+              Select company entity or shared common store
             </span>
           </div>
 
@@ -161,12 +164,11 @@ export default function WorkspaceSwitcher() {
                   className={`workspace-option ${selected ? 'selected' : ''}`}
                   role="menuitem"
                   onClick={() => {
+                    if (option.companyId !== undefined) {
+                      dispatch(setActiveCompanyId(option.companyId))
+                    }
                     setActiveWorkspace(option.id)
                     setOpen(false)
-
-                    if (option.id === activeWorkspace) {
-                      return
-                    }
 
                     navigate(
                       option.id === WORKSPACES.COMMON

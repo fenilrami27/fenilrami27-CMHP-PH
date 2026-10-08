@@ -122,9 +122,7 @@ export default function Invoice() {
         companyRes,
         customerRes,
         orderRes,
-        batchRes,
         productRes,
-        qcRes,
         qaRes,
       ] = await Promise.all([
         invoiceService.getInvoices(),

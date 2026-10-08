@@ -58,6 +58,18 @@ function buildInitialERPState() {
 
 
 
+  if (Array.isArray(result.companies)) {
+    result.companies = result.companies.map((c) => {
+      if (c.id === 1 && (c.name === 'Company A' || c.code === 'COMP-A')) {
+        return { ...c, name: 'CMHP Pharma', code: 'CMHP' }
+      }
+      if (c.id === 2 && (c.name === 'Company B' || c.code === 'COMP-B')) {
+        return { ...c, name: 'Tej Biocare', code: 'TEJ' }
+      }
+      return c
+    })
+  }
+
   migrateDocumentNumbers(
     result
   )

@@ -121,6 +121,8 @@ function setStatusById(
 
 export const initialState = {
 
+  activeCompanyId: null,
+
   /*
   |--------------------------------------------------------------------------
   | FIXED COMPANIES
@@ -131,9 +133,9 @@ export const initialState = {
 
     {
       id: 1,
-      name: 'Company A',
+      name: 'CMHP Pharma',
       legal_name: 'CMHP Pharmaceuticals Pvt. Ltd.',
-      code: 'COMP-A',
+      code: 'CMHP',
       gstin: '24AAACC1234F1Z5',
       pan: 'AAACC1234F',
       state: 'Gujarat',
@@ -153,9 +155,9 @@ export const initialState = {
 
     {
       id: 2,
-      name: 'Company B',
+      name: 'Tej Biocare',
       legal_name: 'Tej Biocare Healthcare Pvt. Ltd.',
-      code: 'COMP-B',
+      code: 'TEJ',
       gstin: '24BBBCC5678G1Z2',
       pan: 'BBBCC5678G',
       state: 'Gujarat',
@@ -431,6 +433,13 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
+
+    setActiveCompanyId: (
+      state,
+      action
+    ) => {
+      state.activeCompanyId = action.payload
+    },
 
     editCompany: (
       state,
@@ -3735,6 +3744,8 @@ const erpSlice = createSlice({
 export const {
 
   // companies
+
+  setActiveCompanyId,
 
   editCompany,
 

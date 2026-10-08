@@ -2485,8 +2485,8 @@ export const hrService = {
              * These two values are intentionally
              * scoped to the active company.
              *
-             * Therefore Company A dashboard
-             * never reports Company B employees.
+             * Therefore CMHP Pharma dashboard
+             * never reports Tej Biocare employees.
              */
             company_a_employees:
                 Number(companyId) === 1

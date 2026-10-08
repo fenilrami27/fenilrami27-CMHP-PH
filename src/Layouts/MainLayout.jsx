@@ -327,9 +327,7 @@ function visibleSections(
     activeWorkspace ===
     WORKSPACES.COMPANY_A ||
     activeWorkspace ===
-    WORKSPACES.COMPANY_B ||
-    activeWorkspace ===
-    WORKSPACES.ALL_COMPANIES
+    WORKSPACES.COMPANY_B
 
 
   /*

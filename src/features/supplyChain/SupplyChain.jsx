@@ -1523,7 +1523,7 @@ export default function SupplyChain() {
 
           <Section
             title="Internal Material Allocation"
-            subtitle="Allocate common inventory to Company A or Company B"
+            subtitle="Allocate common inventory to CMHP Pharma or Tej Biocare"
           >
 
             <Table>

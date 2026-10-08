@@ -105,7 +105,7 @@ export default function Inventory() {
 
                     <p>
                         Common Store &amp; Inventory — shared
-                        across Company A and Company B.
+                        across CMHP Pharma and Tej Biocare.
                     </p>
 
                 </div>

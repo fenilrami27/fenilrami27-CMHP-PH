@@ -3,41 +3,31 @@ const WORKSPACE_KEY = 'cmhp_selected_workspace'
 export const WORKSPACES = {
   COMPANY_A: 'company_a',
   COMPANY_B: 'company_b',
-  ALL_COMPANIES: 'all_companies',
   COMMON: 'common_inventory',
 }
 
 export const WORKSPACE_OPTIONS = {
   COMPANY_A: {
     id: WORKSPACES.COMPANY_A,
-    name: 'Company A (CMHP Pharma)',
-    shortName: 'Company A',
-    label: 'Company A',
+    name: 'CMHP Pharma',
+    shortName: 'CMHP',
+    label: 'CMHP',
     description: 'CMHP Pharmaceuticals Private Limited operations and records',
     icon: 'building',
     companyId: 1,
   },
   COMPANY_B: {
     id: WORKSPACES.COMPANY_B,
-    name: 'Company B (Tej Biocare)',
-    shortName: 'Company B',
-    label: 'Company B',
+    name: 'Tej Biocare',
+    shortName: 'Tej Biocare',
+    label: 'Tej Biocare',
     description: 'Tej Biocare Formulations Private Limited operations and records',
     icon: 'building',
     companyId: 2,
   },
-  ALL_COMPANIES: {
-    id: WORKSPACES.ALL_COMPANIES,
-    name: 'All Companies (Group View)',
-    shortName: 'Group View',
-    label: 'All Companies',
-    description: 'Consolidated executive overview across Company A & Company B',
-    icon: 'building',
-    companyId: null,
-  },
   COMMON: {
     id: WORKSPACES.COMMON,
-    name: 'Common Store & Inventory',
+    name: 'Common Inventory',
     shortName: 'Common Inventory',
     label: 'Common Inventory',
     description: 'Shared physical raw materials, packaging, lots and warehouse locations',
@@ -115,14 +105,6 @@ export function hasCompanyBAccess(user) {
   return getUserCompanyIds(user).includes(2)
 }
 
-export function hasBothCompanyAccess(user) {
-  return (
-    isManagementRole(user) &&
-    hasCompanyAAccess(user) &&
-    hasCompanyBAccess(user)
-  )
-}
-
 export function hasCommonInventoryAccess(user) {
   return Boolean(
     isSuperAdmin(user) ||
@@ -143,10 +125,6 @@ export function getAvailableWorkspaces(user) {
 
   if (hasCompanyBAccess(user)) {
     options.push(WORKSPACE_OPTIONS.COMPANY_B)
-  }
-
-  if (hasBothCompanyAccess(user)) {
-    options.push(WORKSPACE_OPTIONS.ALL_COMPANIES)
   }
 
   if (hasCommonInventoryAccess(user)) {
@@ -207,6 +185,11 @@ export function getCurrentWorkspace(user) {
   const selected = getSelectedWorkspace()
   const available = getAvailableWorkspaces(user)
 
+  /* If a persisted workspace is no longer valid or removed, clean up safely */
+  if (selected && !available.some((workspace) => workspace.id === selected)) {
+    clearSelectedWorkspace()
+  }
+
   if (selected && available.some((workspace) => workspace.id === selected)) {
     return selected
   }
@@ -247,12 +230,6 @@ export function getActiveCompanyId(user) {
 }
 
 export function getActiveCompanyIds(user) {
-  const current = getCurrentWorkspace(user)
-
-  if (current === WORKSPACES.ALL_COMPANIES) {
-    return getUserCompanyIds(user)
-  }
-
   const companyId = getActiveCompanyId(user)
   return companyId ? [companyId] : []
 }
@@ -269,16 +246,15 @@ export function isCommonInventoryWorkspace(user) {
   return getCurrentWorkspace(user) === WORKSPACES.COMMON
 }
 
-export function isAllCompaniesWorkspace(user) {
-  return getCurrentWorkspace(user) === WORKSPACES.ALL_COMPANIES
+export function isAllCompaniesWorkspace() {
+  return false
 }
 
 export function isCompanyWorkspace(user) {
   const current = getCurrentWorkspace(user)
   return (
     current === WORKSPACES.COMPANY_A ||
-    current === WORKSPACES.COMPANY_B ||
-    current === WORKSPACES.ALL_COMPANIES
+    current === WORKSPACES.COMPANY_B
   )
 }
 

@@ -93,7 +93,7 @@ export function logAudit({
 }) {
   const actor = user || getActor() || { id: 1, username: 'admin', role: 'SUPER_ADMIN' }
   const companyId = company || getActiveCompanyId() || 1
-  const companyName = Number(companyId) === 1 ? 'Company A (CMHP)' : 'Company B (Tej Biocare)'
+  const companyName = Number(companyId) === 1 ? 'CMHP Pharma' : 'Tej Biocare'
 
   const now = new Date()
   const auditEntry = {
@@ -249,7 +249,7 @@ export function clearAuditRows() {
 }
 
 export function companyLabel(id) {
-  return Number(id) === 1 ? 'Company A (CMHP)' : Number(id) === 2 ? 'Company B (Tej Biocare)' : 'Group'
+  return Number(id) === 1 ? 'CMHP Pharma' : Number(id) === 2 ? 'Tej Biocare' : 'Common'
 }
 
 export { AUDIT_STORAGE_KEY }

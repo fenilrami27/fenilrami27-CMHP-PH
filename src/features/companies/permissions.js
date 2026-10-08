@@ -2,7 +2,7 @@
    CMHP ERP - 5-LEVEL COMPANY-WISE PERMISSIONS MATRIX
    Specification: Section 04 Company-Wise Permission Structure
    Level 1: User Authentication & Account Status
-   Level 2: Company Access (Company A / Company B / Both)
+   Level 2: Company Access (CMHP Pharma / Tej Biocare)
    Level 3: Department Access
    Level 4: Module Access
    Level 5: Action Authorization (View, Create, Edit, Approve, Delete, Export)

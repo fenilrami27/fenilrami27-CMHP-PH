@@ -24,17 +24,12 @@ export function isManagerOrAdmin(user = getCurrentUser()) {
 
 /*
  * Returns the company ID of the current business workspace.
- * When in ALL_COMPANIES group view, this returns null so callers can check for consolidated view.
  */
 export function getScopedCompanyId(user = getCurrentUser()) {
   return getActiveCompanyId(user)
 }
 
 export function getScopedCompanyIds(user = getCurrentUser()) {
-  const current = getCurrentWorkspace(user)
-  if (current === WORKSPACES.ALL_COMPANIES) {
-    return getUserCompanyIds(user)
-  }
   const companyId = getScopedCompanyId(user)
   return companyId ? [Number(companyId)] : []
 }
@@ -43,16 +38,15 @@ export function isCommonInventoryContext(user = getCurrentUser()) {
   return getCurrentWorkspace(user) === WORKSPACES.COMMON
 }
 
-export function isAllCompaniesContext(user = getCurrentUser()) {
-  return getCurrentWorkspace(user) === WORKSPACES.ALL_COMPANIES
+export function isAllCompaniesContext() {
+  return false
 }
 
 export function isCompanyScopedContext(user = getCurrentUser()) {
   const current = getCurrentWorkspace(user)
   return (
     current === WORKSPACES.COMPANY_A ||
-    current === WORKSPACES.COMPANY_B ||
-    current === WORKSPACES.ALL_COMPANIES
+    current === WORKSPACES.COMPANY_B
   )
 }
 
@@ -65,20 +59,9 @@ export function companyMatches(record, companyId) {
 
 /*
  * Filter company-specific records.
- * Supports single company workspaces as well as All Companies group view.
  */
 export function scopeCompanyRows(rows, user = getCurrentUser()) {
   const list = Array.isArray(rows) ? rows : []
-  const current = getCurrentWorkspace(user)
-
-  if (current === WORKSPACES.ALL_COMPANIES) {
-    const accessible = getUserCompanyIds(user)
-    return list.filter((row) => {
-      if (!row?.company) return true
-      return accessible.includes(Number(row.company))
-    })
-  }
-
   const companyId = getScopedCompanyId(user)
   if (!companyId) {
     return []
@@ -89,15 +72,9 @@ export function scopeCompanyRows(rows, user = getCurrentUser()) {
 
 /*
  * Enforce company ID into newly created records.
- * If in ALL_COMPANIES mode, fallback to payload company or primary company.
  */
 export function enforceCompanyPayload(payload = {}, user = getCurrentUser()) {
-  const current = getCurrentWorkspace(user)
-  let companyId = getScopedCompanyId(user)
-
-  if (!companyId && current === WORKSPACES.ALL_COMPANIES) {
-    companyId = payload.company || user?.profile?.primary_company || 1
-  }
+  const companyId = getScopedCompanyId(user)
 
   if (!companyId) {
     throw new Error('Select a company workspace before creating company-specific data.')
@@ -110,18 +87,7 @@ export function enforceCompanyPayload(payload = {}, user = getCurrentUser()) {
 }
 
 export function assertCompanyRecord(id, collection, user = getCurrentUser()) {
-  const current = getCurrentWorkspace(user)
   const list = Array.isArray(collection) ? collection : []
-
-  if (current === WORKSPACES.ALL_COMPANIES) {
-    const accessible = getUserCompanyIds(user)
-    const record = list.find((row) => Number(row?.id) === Number(id))
-    if (!record || (record.company && !accessible.includes(Number(record.company)))) {
-      throw new Error('This record does not belong to any assigned company.')
-    }
-    return record
-  }
-
   const companyId = getScopedCompanyId(user)
   if (!companyId) {
     throw new Error('No company workspace is active.')
