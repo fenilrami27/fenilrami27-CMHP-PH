@@ -2,11 +2,12 @@ import { useLocation } from 'react-router-dom'
 import useAuth from '../../hooks/useAuth'
 
 import OverviewTab from './tabs/OverviewTab'
-import MaterialsTab from './tabs/MaterialsTab'
-import LocationsTab from './tabs/LocationsTab'
+import CommonProductsTab from './tabs/CommonProductsTab'
+import CommonMaterialsTab from './tabs/CommonMaterialsTab'
+import CommonOrdersTab from './tabs/CommonOrdersTab'
 import StockTab from './tabs/StockTab'
 import IssueReturnTab from './tabs/IssueReturnTab'
-import LedgerTab from './tabs/LedgerTab'
+import StockLedgerTab from './tabs/StockLedgerTab'
 
 import './Inventory.css'
 
@@ -35,17 +36,19 @@ export default function Inventory() {
     const activeSection =
         activePath === '/inventory'
             ? 'overview'
-            : activePath === '/inventory/stock'
-                ? 'stock'
+            : activePath === '/inventory/products'
+                ? 'products'
                 : activePath === '/inventory/materials'
                     ? 'materials'
-                    : activePath === '/inventory/locations'
-                        ? 'locations'
-                        : activePath === '/inventory/issue-return'
-                            ? 'issue-return'
-                            : activePath === '/inventory/ledger'
-                                ? 'ledger'
-                                : 'overview'
+                    : activePath === '/inventory/orders'
+                        ? 'orders'
+                        : activePath === '/inventory/stock'
+                            ? 'stock'
+                            : activePath === '/inventory/issue-return'
+                                ? 'issue-return'
+                                : (activePath === '/inventory/ledger' || activePath === '/inventory/stock-ledger')
+                                    ? 'ledger'
+                                    : 'overview'
 
 
     /* =====================================================
@@ -95,17 +98,26 @@ export default function Inventory() {
                 HEADER
                 ================================================= */}
 
-            <div className="inv-header">
+            <div className="inv-header top-banner">
 
                 <div>
 
+                    <span className="page-hero-pill">
+                        {activeSection === 'ledger'
+                            ? 'PHARMACEUTICAL INVENTORY REGISTER'
+                            : 'COMMON STORE & WAREHOUSE'}
+                    </span>
+
                     <h1>
-                        Inventory
+                        {activeSection === 'ledger'
+                            ? 'Chemical & Stock Ledger'
+                            : 'Common Inventory'}
                     </h1>
 
                     <p>
-                        Common Store &amp; Inventory — shared
-                        across CMHP Pharma and Tej Biocare.
+                        {activeSection === 'ledger'
+                            ? 'Standard dual-register stock ledger: side-by-side Inward & Outward tracking, container math (kg to bags), opening stock carry-forward, and running physical balance.'
+                            : 'Common Store & Inventory — shared across CMHP Pharma and Tej Biocare.'}
                     </p>
 
                 </div>
@@ -118,36 +130,31 @@ export default function Inventory() {
                 ================================================= */}
 
             {activeSection === 'overview' && (
-
                 <OverviewTab />
-
             )}
 
+            {activeSection === 'products' && (
+                <CommonProductsTab
+                    role={role}
+                />
+            )}
+
+            {activeSection === 'materials' && (
+                <CommonMaterialsTab
+                    role={role}
+                />
+            )}
+
+            {activeSection === 'orders' && (
+                <CommonOrdersTab
+                    role={role}
+                />
+            )}
 
             {activeSection === 'stock' && (
-
                 <StockTab
                     role={role}
                 />
-
-            )}
-
-
-            {activeSection === 'materials' && (
-
-                <MaterialsTab
-                    role={role}
-                />
-
-            )}
-
-
-            {activeSection === 'locations' && (
-
-                <LocationsTab
-                    role={role}
-                />
-
             )}
 
 
@@ -160,7 +167,7 @@ export default function Inventory() {
 
             {activeSection === 'ledger' && (
 
-                <LedgerTab />
+                <StockLedgerTab />
 
             )}
 

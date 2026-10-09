@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useMemo,
 } from 'react'
 
 import Alert from '../../components/Alert'
@@ -18,8 +19,10 @@ import { inventoryService } from '../inventory/inventoryService'
 import { operationsService } from './operationsService'
 
 import { storage } from '../../utils/storage'
-import { isSuperAdmin } from '../../utils/companyScope'
+import { isSuperAdmin, getScopedCompanyId } from '../../utils/companyScope'
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
+import { checkFormulaStockAvailability, selectItemStock } from '../../utils/stockSelectors'
+import { store } from '../../store/store'
 import './Orders.css'
 
 
@@ -57,6 +60,7 @@ const PRODUCT_TYPE_OPTIONS = [
 import {
   getOrderEditFields,
   canEditOrders,
+  ORDER_FIELD_LABELS,
 } from './orderPermissions'
 
 
@@ -1005,6 +1009,11 @@ export default function Operations({
     setOrderViewTab,
   ] = useState('details')
 
+  const [produceModalOrder, setProduceModalOrder] = useState(null)
+  const [produceQuantity, setProduceQuantity] = useState(1000)
+  const [produceFormulaId, setProduceFormulaId] = useState('')
+  const [produceError, setProduceError] = useState('')
+
 
   /*
   |--------------------------------------------------------------------------
@@ -1696,23 +1705,31 @@ export default function Operations({
       const finalOrderNumber =
         commitDocumentNumber('SALES_ORDER', orderForm.company || getScopedCompanyId())
 
-      const finalBatchNo =
-        commitDocumentNumber('BATCH', orderForm.company || getScopedCompanyId())
+      const deliveryDeadline = orderForm.planned_mfg_date || orderForm.delivery_deadline || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+      const qty = Number(orderForm.batch_size) || 1000
+      const unitRate = Number(orderForm.mrp_for_printing) || 250
+      const orderLines = [
+        {
+          id: `line-${Date.now()}`,
+          product: orderForm.product || orderForm.product_id || '',
+          product_name: orderForm.product_name || 'Pharmaceutical Formulation',
+          product_code: orderForm.product_code || '',
+          quantity: qty,
+          unit: orderForm.packing_size || 'Box',
+          rate: unitRate,
+          total: qty * unitRate,
+        },
+      ]
 
       await operationsService.createOrder({
-
         ...orderForm,
-
-        number:
-          finalOrderNumber,
-
-        batch_no:
-          finalBatchNo,
-
+        number: finalOrderNumber,
+        batch_no: finalBatchNo,
+        delivery_deadline: deliveryDeadline,
+        planned_mfg_date: deliveryDeadline,
+        total_amount: qty * unitRate,
         quotation: null,
-
-        lines: [],
-
+        lines: orderLines,
       })
 
 
@@ -1750,6 +1767,105 @@ export default function Operations({
       await load()
     } catch (err) {
       setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openProduceModal = (order) => {
+    setError('')
+    setSuccess('')
+    setProduceError('')
+    setProduceModalOrder(order)
+    const qty = Number(order.batch_size || order.quantity || order.lines?.[0]?.quantity) || 1000
+    setProduceQuantity(qty)
+
+    // Match formula by product id or name
+    const matchingFormula = formulas.find((f) => {
+      const pName = order.product_name || ''
+      const fName = f.name || ''
+      return (
+        String(f.product_id) === String(order.product_id || order.product) ||
+        fName.toLowerCase().includes(pName.toLowerCase()) ||
+        pName.toLowerCase().includes(fName.toLowerCase())
+      )
+    })
+    setProduceFormulaId(matchingFormula ? matchingFormula.id : (formulas[0]?.id || ''))
+  }
+
+  const currentProduceFormula = useMemo(() => {
+    if (!produceModalOrder) return null
+    if (produceFormulaId) {
+      const f = formulas.find((item) => String(item.id) === String(produceFormulaId))
+      if (f) return f
+    }
+    const match = formulas.find((f) => {
+      const pName = produceModalOrder.product_name || ''
+      const fName = f.name || ''
+      return (
+        String(f.product_id) === String(produceModalOrder.product_id || produceModalOrder.product) ||
+        fName.toLowerCase().includes(pName.toLowerCase()) ||
+        pName.toLowerCase().includes(fName.toLowerCase())
+      )
+    })
+    return match || formulas[0] || null
+  }, [produceModalOrder, produceFormulaId, formulas])
+
+  const produceStockCheck = useMemo(() => {
+    if (!produceModalOrder || !currentProduceFormula) {
+      return { canProduce: false, materials: [], hasShortage: false, totalShortageCount: 0 }
+    }
+    const erpState = store.getState()?.erp || {}
+    return checkFormulaStockAvailability(
+      erpState,
+      currentProduceFormula,
+      Number(produceQuantity) || 1000,
+      currentProduceFormula.base_unit || 'kg'
+    )
+  }, [produceModalOrder, currentProduceFormula, produceQuantity])
+
+  const handleStartProductionFromOrder = async () => {
+    if (!produceModalOrder || !currentProduceFormula) return
+    if (!produceStockCheck.canProduce) {
+      setProduceError('Cannot start production: One or more raw materials have insufficient stock in inventory.')
+      return
+    }
+
+    setSaving(true)
+    setProduceError('')
+    try {
+      const compId = produceModalOrder.company || getScopedCompanyId() || 1
+      const compKey = Number(compId) === 2 ? 'tej' : 'cmhp'
+      const finalBatchNum = commitDocumentNumber('BATCH', compId)
+
+      await operationsService.produceBatchFromOrder({
+        orderId: produceModalOrder.id,
+        orderNumber: produceModalOrder.number,
+        batchNumber: finalBatchNum,
+        productId: produceModalOrder.product_id || produceModalOrder.product || currentProduceFormula.product_id,
+        productCode: produceModalOrder.product_code || '',
+        productName: produceModalOrder.product_name || currentProduceFormula.name,
+        plannedQuantity: Number(produceQuantity) || 1000,
+        company: compId,
+        companyKey: compKey,
+        materialsToIssue: produceStockCheck.materials.map((m) => ({
+          id: m.id,
+          code: m.code,
+          name: m.name,
+          requiredAmount: m.requiredAmount,
+          issuedQuantity: m.requiredAmount,
+          remark: `${m.requiredAmount.toFixed(2)} KG (${Math.ceil(m.requiredAmount / 25)} Bag)`,
+        })),
+      })
+
+      setSuccess(`Production started for Batch #${finalBatchNum}. Raw materials issued outward and routed to QC inspection.`)
+      setProduceModalOrder(null)
+      if (viewingOrder && viewingOrder.id === produceModalOrder.id) {
+        setViewingOrder(null)
+      }
+      await load()
+    } catch (err) {
+      setProduceError(getErrorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -2592,12 +2708,12 @@ export default function Operations({
                   isSuperAdmin()
                     ? 'Admin: full edit and delete access.'
 
-                    : getCurrentUser()?.profile?.role ===
+                    : storage.getUser()?.profile?.role ===
                       'HR_MANAGER'
 
                       ? 'HR Manager: edit Batch No., Packing Size, Batch Size, MRP for Printing and Printing Status only.'
 
-                      : getCurrentUser()?.profile?.role ===
+                      : storage.getUser()?.profile?.role ===
                         'STORES_MANAGER'
 
                         ? 'Store Manager: edit Packing Type, Label, Box, Insert and Requisition Status only.'
@@ -2923,14 +3039,15 @@ export default function Operations({
                               View
                             </button>
 
-                            {(!order.status || order.status === 'DRAFT') && (
+                            {(!order.status || order.status === 'DRAFT' || order.status === 'CONFIRMED') && (
                               <button
                                 type="button"
                                 className="table-edit"
-                                style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}
-                                onClick={() => handleConfirmOrder(order)}
+                                style={{ backgroundColor: '#ecfdf5', color: '#047857', borderColor: '#a7f3d0', fontWeight: 600 }}
+                                onClick={() => openProduceModal(order)}
+                                title="Produce batch automatically from formula BOM"
                               >
-                                Confirm
+                                Produce (BOM)
                               </button>
                             )}
 
@@ -4951,6 +5068,164 @@ export default function Operations({
       )}
 
       {/* =========================================================
+          PRODUCE BATCH FROM ORDER (FORMULA BOM) MODAL
+          ========================================================= */}
+      {produceModalOrder && (
+        <Modal
+          title={`Produce Batch: Order #${produceModalOrder.number}`}
+          onClose={() => setProduceModalOrder(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Order Number</span>
+                <div style={{ fontWeight: 700, color: '#1e293b' }}>{produceModalOrder.number}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Customer</span>
+                <div style={{ fontWeight: 600 }}>{produceModalOrder.customer_name || 'Direct Customer'}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Product</span>
+                <div style={{ fontWeight: 600, color: '#0284c7' }}>{produceModalOrder.product_name}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Due / Delivery Date</span>
+                <div style={{ fontWeight: 600, color: produceModalOrder.delivery_deadline ? '#d97706' : '#64748b' }}>
+                  {produceModalOrder.delivery_deadline || produceModalOrder.planned_mfg_date || 'No deadline'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Batch Quantity (to produce)
+                </label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={produceQuantity}
+                  onChange={(e) => setProduceQuantity(e.target.value)}
+                  placeholder="Batch quantity"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  BOM Formula
+                </label>
+                <select
+                  className="input-select"
+                  value={currentProduceFormula?.id || ''}
+                  onChange={(e) => setProduceFormulaId(e.target.value)}
+                  style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px' }}
+                >
+                  {formulas.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name} (Base: {f.base_quantity} {f.base_unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {produceError && <Alert type="error">{produceError}</Alert>}
+
+            {/* Formula Raw Materials Availability Check */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#334155' }}>
+                  Raw Material Requirements & Live Stock Verification
+                </h4>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Formula Base: {currentProduceFormula?.base_quantity || 100} {currentProduceFormula?.base_unit || 'g'} | Scale: {produceStockCheck.scaleFactor ? produceStockCheck.scaleFactor.toFixed(2) : '1.0'}x
+                </span>
+              </div>
+
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '8px 12px' }}>Material</th>
+                      <th style={{ padding: '8px 12px' }}>Base Qty</th>
+                      <th style={{ padding: '8px 12px' }}>Required Qty</th>
+                      <th style={{ padding: '8px 12px' }}>Stock Available</th>
+                      <th style={{ padding: '8px 12px' }}>Shortage</th>
+                      <th style={{ padding: '8px 12px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {produceStockCheck.materials.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>
+                          No raw materials defined for this formula. Select or create a formula revision in Products.
+                        </td>
+                      </tr>
+                    ) : (
+                      produceStockCheck.materials.map((m, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: m.isSufficient ? 'white' : '#fff1f2' }}>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{m.name}</td>
+                          <td style={{ padding: '8px 12px', color: '#64748b' }}>{m.baseQuantity} {m.unit}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#0f172a' }}>{m.requiredAmount.toFixed(2)} {m.unit}</td>
+                          <td style={{ padding: '8px 12px', color: m.isSufficient ? '#16a34a' : '#e11d48', fontWeight: 600 }}>
+                            {m.availableStock.toFixed(2)} {m.unit}
+                          </td>
+                          <td style={{ padding: '8px 12px', color: '#e11d48', fontWeight: 700 }}>
+                            {m.shortage > 0 ? `-${m.shortage.toFixed(2)} ${m.unit}` : '0'}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              background: m.isSufficient ? '#dcfce7' : '#fee2e2',
+                              color: m.isSufficient ? '#15803d' : '#b91c1c',
+                            }}>
+                              {m.isSufficient ? 'In Stock' : 'SHORTAGE'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Shortage warning or green confirmation */}
+            {produceStockCheck.hasShortage ? (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '12px', borderRadius: '6px', color: '#991b1b', fontSize: '13px' }}>
+                <strong>⚠️ Production Blocked:</strong> Stock is insufficient for {produceStockCheck.totalShortageCount} raw material(s). Inward stock into inventory before issuing to production.
+              </div>
+            ) : (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '12px', borderRadius: '6px', color: '#166534', fontSize: '13px' }}>
+                <strong>✓ Stock Verified:</strong> All required raw materials are available in inventory. Starting production will issue materials outward from the Stock Ledger and schedule QC inspection.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <Button variant="secondary" onClick={() => setProduceModalOrder(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={produceStockCheck.hasShortage || saving || produceStockCheck.materials.length === 0}
+                onClick={handleStartProductionFromOrder}
+                style={{
+                  backgroundColor: produceStockCheck.hasShortage ? '#cbd5e1' : '#16a34a',
+                  cursor: produceStockCheck.hasShortage ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {saving ? 'Issuing Materials...' : produceStockCheck.hasShortage ? 'Production Blocked (Shortage)' : 'Start Production & Issue Materials'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* =========================================================
           VIEW SALES ORDER MODAL WITH AUDIT HISTORY
           ========================================================= */}
       {viewingOrder && (
@@ -4959,7 +5234,15 @@ export default function Operations({
           onClose={() => setViewingOrder(null)}
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-              <div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {(!viewingOrder.status || viewingOrder.status === 'DRAFT' || viewingOrder.status === 'CONFIRMED') && (
+                  <Button
+                    onClick={() => openProduceModal(viewingOrder)}
+                    style={{ backgroundColor: '#059669' }}
+                  >
+                    Produce Batch (Formula BOM)
+                  </Button>
+                )}
                 {(!viewingOrder.status || viewingOrder.status === 'DRAFT') && (
                   <Button
                     onClick={() => {

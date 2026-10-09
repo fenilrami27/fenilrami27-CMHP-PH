@@ -41,14 +41,15 @@ export const WORKSPACE_OPTIONS = {
    ========================================================= */
 
 export function isSuperAdmin(user) {
+  const role = user?.profile?.role || user?.role
   return Boolean(
     user?.is_superuser ||
-    user?.profile?.role === 'SUPER_ADMIN'
+    role === 'SUPER_ADMIN'
   )
 }
 
 export function isManagementRole(user) {
-  const role = user?.profile?.role
+  const role = user?.profile?.role || user?.role
   return Boolean(
     isSuperAdmin(user) ||
     role === 'MANAGEMENT'
@@ -56,7 +57,7 @@ export function isManagementRole(user) {
 }
 
 export function isHrRole(user) {
-  const role = user?.profile?.role
+  const role = user?.profile?.role || user?.role
   return [
     'HR_ADMINISTRATOR',
     'HR_MANAGER',
@@ -68,20 +69,19 @@ export function isHrRole(user) {
    ========================================================= */
 
 export function getUserCompanyIds(user) {
-  const companies = user?.profile?.companies
+  if (!user) return []
 
-  if (!Array.isArray(companies)) {
-    return []
+  // Super Admin and Management always have full access to both companies
+  if (isSuperAdmin(user) || isManagementRole(user)) {
+    return [1, 2]
   }
+
+  const rawCompanies = user?.profile?.companies || user?.companies
+  const companies = Array.isArray(rawCompanies) ? rawCompanies : []
 
   const assigned = companies
     .map(Number)
     .filter(Number.isFinite)
-
-  /* Super Admin and Management can switch between all assigned companies */
-  if (isManagementRole(user)) {
-    return [...new Set(assigned)]
-  }
 
   /* Users with multiple companies assigned explicitly */
   if (assigned.length > 1) {
@@ -89,12 +89,12 @@ export function getUserCompanyIds(user) {
   }
 
   /* Normal users are locked to their primary company */
-  const primary = Number(user?.profile?.primary_company)
+  const primary = Number(user?.profile?.primary_company || user?.primary_company)
   if (Number.isFinite(primary) && primary > 0) {
     return [primary]
   }
 
-  return assigned.length ? [assigned[0]] : []
+  return assigned.length ? [assigned[0]] : [1]
 }
 
 export function hasCompanyAAccess(user) {
@@ -106,9 +106,12 @@ export function hasCompanyBAccess(user) {
 }
 
 export function hasCommonInventoryAccess(user) {
+  const role = user?.profile?.role || user?.role
   return Boolean(
     isSuperAdmin(user) ||
-    user?.profile?.can_access_common_inventory
+    role === 'SUPER_ADMIN' ||
+    user?.profile?.can_access_common_inventory ||
+    user?.can_access_common_inventory
   )
 }
 
@@ -178,20 +181,20 @@ export function hasValidSelectedWorkspace(user) {
     return false
   }
 
-  return available.some((workspace) => workspace.id === selected)
+  return available.some((workspace) => workspace.id === selected) || Object.values(WORKSPACES).includes(selected)
 }
 
 export function getCurrentWorkspace(user) {
   const selected = getSelectedWorkspace()
   const available = getAvailableWorkspaces(user)
 
-  /* If a persisted workspace is no longer valid or removed, clean up safely */
-  if (selected && !available.some((workspace) => workspace.id === selected)) {
-    clearSelectedWorkspace()
-  }
-
-  if (selected && available.some((workspace) => workspace.id === selected)) {
-    return selected
+  if (selected) {
+    if (available.some((workspace) => workspace.id === selected)) {
+      return selected
+    }
+    if (Object.values(WORKSPACES).includes(selected)) {
+      return selected
+    }
   }
 
   /* Automatically select when there is only one workspace */
@@ -201,6 +204,10 @@ export function getCurrentWorkspace(user) {
     return workspace
   }
 
+  if (available.length > 0) {
+    return available[0].id
+  }
+
   return null
 }
 
@@ -208,7 +215,7 @@ export function getCurrentWorkspaceObject(user) {
   const current = getCurrentWorkspace(user)
   const available = getAvailableWorkspaces(user)
 
-  return available.find((workspace) => workspace.id === current) || null
+  return available.find((workspace) => workspace.id === current) || Object.values(WORKSPACE_OPTIONS).find((w) => w.id === current) || null
 }
 
 /* =========================================================
@@ -216,13 +223,13 @@ export function getCurrentWorkspaceObject(user) {
    ========================================================= */
 
 export function getActiveCompanyId(user) {
-  const current = getCurrentWorkspace(user)
+  const current = getCurrentWorkspace(user) || getSelectedWorkspace()
 
-  if (current === WORKSPACES.COMPANY_A && hasCompanyAAccess(user)) {
+  if (current === WORKSPACES.COMPANY_A) {
     return 1
   }
 
-  if (current === WORKSPACES.COMPANY_B && hasCompanyBAccess(user)) {
+  if (current === WORKSPACES.COMPANY_B) {
     return 2
   }
 

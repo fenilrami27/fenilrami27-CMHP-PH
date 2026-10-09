@@ -7,10 +7,12 @@ import {
   editQcRecord,
   addQaRecord,
   editQaRecord,
+  approveQaRelease,
   setOrderStatus,
 } from '../../store/erpSlice'
 import { commitDocumentNumber } from '../../utils/documentNumbers'
 import { recordAudit } from '../../utils/audit'
+import { getScopedCompanyId } from '../../utils/companyScope'
 
 function hydrateBatch(b, state) {
   const company = state.companies.find((c) => c.id === Number(b.company))
@@ -59,7 +61,9 @@ export const qualityService = {
   // Existing Batch Methods (Preserved)
   getBatches: () => {
     const state = store.getState().erp
-    return delay(state.batches.map((b) => hydrateBatch(b, state)))
+    const companyId = getScopedCompanyId()
+    const rows = (state.batches || []).filter((b) => !companyId || Number(b.company) === Number(companyId))
+    return delay(rows.map((b) => hydrateBatch(b, state)))
   },
 
   qcDecision: (batchId, payload) => {
@@ -120,7 +124,9 @@ export const qualityService = {
   // Order QC Methods
   getQcRecords: () => {
     const state = store.getState().erp
-    return delay(state.qcRecords.map((qc) => hydrateQcRecord(qc, state)))
+    const companyId = getScopedCompanyId()
+    const rows = (state.qcRecords || []).filter((qc) => !companyId || Number(qc.company) === Number(companyId))
+    return delay(rows.map((qc) => hydrateQcRecord(qc, state)))
   },
 
   createQcForOrder: (order, user = null) => {
@@ -130,7 +136,8 @@ export const qualityService = {
       return delay(hydrateQcRecord(existing, state))
     }
 
-    const companyId = order.company || 1
+    const companyId = order.company || getScopedCompanyId() || 1
+    const companyKey = Number(companyId) === 2 ? 'tej' : 'cmhp'
     const number = commitDocumentNumber('QC', companyId)
     const totalQty = (order.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
 
@@ -139,6 +146,7 @@ export const qualityService = {
       order_id: order.id,
       order_number: order.number,
       company: companyId,
+      companyId: companyKey,
       ordered_qty: totalQty,
       inspected_qty: totalQty,
       accepted_qty: totalQty,
@@ -203,13 +211,16 @@ export const qualityService = {
       // Auto-create QA record if not exists
       const qaExists = state.qaRecords.some((q) => Number(q.order_id) === Number(qc.order_id))
       if (!qaExists) {
-        const qaNumber = commitDocumentNumber('QA', qc.company || 1)
+        const qaCompanyId = qc.company || 1
+        const qaCompanyKey = Number(qaCompanyId) === 2 ? 'tej' : 'cmhp'
+        const qaNumber = commitDocumentNumber('QA', qaCompanyId)
         store.dispatch(
           addQaRecord({
             number: qaNumber,
             qc_id: qcId,
             order_id: qc.order_id,
-            company: qc.company,
+            company: qaCompanyId,
+            companyId: qaCompanyKey,
             ordered_qty: qc.ordered_qty,
             qc_accepted_qty: Number(acceptedQty) || 0,
             qa_approved_qty: Number(acceptedQty) || 0,
@@ -247,7 +258,9 @@ export const qualityService = {
   // Order QA Methods
   getQaRecords: () => {
     const state = store.getState().erp
-    return delay(state.qaRecords.map((qa) => hydrateQaRecord(qa, state)))
+    const companyId = getScopedCompanyId()
+    const rows = (state.qaRecords || []).filter((qa) => !companyId || Number(qa.company) === Number(companyId))
+    return delay(rows.map((qa) => hydrateQaRecord(qa, state)))
   },
 
   submitQaRelease: (qaId, { decision, approvedQty, remarks, parameters, user }) => {
@@ -272,11 +285,22 @@ export const qualityService = {
     )
 
     if (decision === 'APPROVE') {
+      const order = state.orders?.find((o) => Number(o.id) === Number(qa.order_id))
+      const batch = state.batches?.find(
+        (b) => Number(b.order) === Number(qa.order_id) || Number(b.id) === Number(qa.batch_id)
+      )
+
       store.dispatch(
-        setOrderStatus({
-          id: qa.order_id,
-          status: 'READY_TO_INVOICE',
-          qa_status: 'APPROVED',
+        approveQaRelease({
+          qaId,
+          orderId: qa.order_id,
+          batchNumber: batch?.number || order?.batch_no || qa.number,
+          productName: order?.product_name || batch?.product_name || 'Pharmaceutical Formulation',
+          productCode: order?.product_code || batch?.product_code || '',
+          productId: order?.product_id || batch?.product || '',
+          approvedQty: Number(approvedQty) || Number(qa.ordered_qty) || 0,
+          remarks: remarks || '',
+          officer: user?.first_name || user?.username || 'QA Officer',
         })
       )
     } else {

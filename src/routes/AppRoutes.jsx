@@ -334,14 +334,7 @@ export default function AppRoutes() {
           <Route
             path="/hrms/shifts"
             element={
-              <RoleRoute
-                roles={[
-                  'SUPER_ADMIN',
-                  'HR_ADMINISTRATOR',
-                ]}
-              >
-                <Shifts />
-              </RoleRoute>
+              <Shifts />
             }
           />
 
@@ -362,19 +355,15 @@ export default function AppRoutes() {
 
 
           {/* =================================================
-              ADMIN PAYROLL
+              PAYROLL (Admin management or Employee own salary)
               ================================================= */}
 
           <Route
             path="/hrms/payroll"
             element={
-              <RoleRoute
-                adminOnly
-              >
-                <Payroll
-                  initialTab="structures"
-                />
-              </RoleRoute>
+              <Payroll
+                initialTab="structures"
+              />
             }
           />
 

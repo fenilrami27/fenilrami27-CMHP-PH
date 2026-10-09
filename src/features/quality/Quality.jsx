@@ -484,10 +484,10 @@ export default function Quality() {
                     <td>{qa.released_at ? new Date(qa.released_at).toLocaleDateString('en-IN') : '—'}</td>
                     <td>
                       <Button
-                        variant="secondary"
+                        variant={qa.status === 'PENDING' ? 'primary' : 'secondary'}
                         onClick={() => openOrderQa(qa)}
                       >
-                        {qa.status === 'PENDING' ? 'Sign-off' : 'Details'}
+                        {qa.status === 'PENDING' ? 'Take Approval' : 'Details'}
                       </Button>
                     </td>
                   </tr>
@@ -622,12 +622,12 @@ export default function Quality() {
                       </td>
                       <td>
                         <Button
-                          variant="secondary"
+                          variant={batch.qa_status === 'PENDING' ? 'primary' : 'secondary'}
                           disabled={!qcCleared}
                           title={qcCleared ? undefined : 'Awaiting QC approval'}
                           onClick={() => openDecision('qa', batch)}
                         >
-                          Release
+                          {batch.qa_status === 'PENDING' ? 'Take Approval' : 'Review'}
                         </Button>
                       </td>
                     </tr>

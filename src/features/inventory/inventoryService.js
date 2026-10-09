@@ -1,7 +1,6 @@
 import { store } from '../../store/store'
 import { delay } from '../../store/mockApi'
 import {
-  addLocation, editLocation, setLocationStatus,
   addItem, editItem, setItemStatus,
   receiveStock, setLotQcStatus,
   issueStock as issueStockAction,
@@ -22,16 +21,13 @@ function hydrateItem(item, state) {
 function hydrateLot(lot, state) {
   const items = state.items || []
   const uoms = state.uoms || []
-  const locations = state.locations || []
   const item = items.find((i) => i.id === Number(lot.item))
   const uom = item ? uoms.find((u) => u.id === Number(item.uom)) : null
-  const location = locations.find((l) => l.id === Number(lot.location))
   return {
     ...lot,
     item_code: item?.code || '',
     item_name: item?.name || '',
     uom_code: uom?.code || '',
-    location_name: location?.name || '',
   }
 }
 
@@ -55,24 +51,6 @@ export const inventoryService = {
   getCompanies: () => delay(store.getState().erp.companies),
 
   getUoms: () => delay(store.getState().erp.uoms),
-
-  getLocations: () => delay(store.getState().erp.locations),
-  createLocation: (payload) => {
-    store.dispatch(addLocation(payload))
-    return delay(null)
-  },
-  updateLocation: (id, payload) => {
-    store.dispatch(editLocation({ id, payload }))
-    return delay(null)
-  },
-  deactivateLocation: (id) => {
-    store.dispatch(setLocationStatus({ id, is_active: false }))
-    return delay(null)
-  },
-  reactivateLocation: (id) => {
-    store.dispatch(setLocationStatus({ id, is_active: true }))
-    return delay(null)
-  },
 
   getItems: () => {
     const state = store.getState().erp

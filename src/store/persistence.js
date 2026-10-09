@@ -1,8 +1,8 @@
 const ERP_STORAGE_KEY =
-  'cmhp_erp_state_v4'
+  'cmhp_erp_state_v5'
 
 const STORAGE_VERSION =
-  4
+  5
 
 
 function isBrowser() {
@@ -30,17 +30,22 @@ export function loadPersistedERPState() {
   }
 
   try {
-    const raw =
-      localStorage.getItem(
-        ERP_STORAGE_KEY
-      )
+    let raw = localStorage.getItem(ERP_STORAGE_KEY)
+    let isLegacy = false
+
+    if (!raw) {
+      // Check legacy storage keys for migration
+      raw = localStorage.getItem('cmhp_erp_state_v4') || localStorage.getItem('cmhp_erp_state_v3')
+      if (raw) {
+        isLegacy = true
+      }
+    }
 
     if (!raw) {
       return null
     }
 
-    const parsed =
-      safeParse(raw)
+    const parsed = safeParse(raw)
 
     if (
       !parsed ||
@@ -49,16 +54,8 @@ export function loadPersistedERPState() {
       return null
     }
 
-    /*
-     * Support both:
-     *
-     * {
-     *   version: 4,
-     *   data: {...}
-     * }
-     *
-     * and older plain ERP state.
-     */
+    let data = null
+    const version = parsed.version || (isLegacy ? 4 : STORAGE_VERSION)
 
     if (
       parsed.version &&
@@ -75,10 +72,37 @@ export function loadPersistedERPState() {
         return null
       }
 
-      return parsed.data
+      data = parsed.data
+    } else {
+      data = parsed
     }
 
-    return parsed
+    if (data && typeof data === 'object') {
+      // If migrating from an older version (< 5), guarantee products and formulas start completely empty
+      if (version < 5 || isLegacy) {
+        data.products = []
+        data.formulas = []
+        if (data.byCompany?.cmhp) {
+          data.byCompany.cmhp.products = []
+          data.byCompany.cmhp.formulas = []
+        }
+        if (data.byCompany?.tej) {
+          data.byCompany.tej.products = []
+          data.byCompany.tej.formulas = []
+        }
+        // Persist clean version 5 state
+        savePersistedERPState(data)
+      }
+
+      delete data.locations
+      if (!Array.isArray(data.commonProducts)) data.commonProducts = []
+      if (!Array.isArray(data.commonRawMaterials)) data.commonRawMaterials = []
+      if (!Array.isArray(data.stockLedgerEntries)) data.stockLedgerEntries = []
+
+      return data
+    }
+
+    return null
   } catch (error) {
     console.error(
       'CMHP ERP: Failed to load saved data:',

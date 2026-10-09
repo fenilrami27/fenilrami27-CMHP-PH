@@ -112,6 +112,71 @@ function setStatusById(
 }
 
 
+function resolveCompanyKey(state, payload) {
+  if (payload?.companyId === 'tej' || payload?.companyId === 'cmhp') {
+    return payload.companyId
+  }
+  const comp = Number(payload?.company)
+  if (comp === 2) return 'tej'
+  if (comp === 1) return 'cmhp'
+  return state?.activeCompanyKey || (state?.activeCompanyId === 2 ? 'tej' : 'cmhp')
+}
+
+function ensureByCompanyState(state) {
+  if (!state.byCompany) {
+    state.byCompany = { cmhp: {}, tej: {} }
+  }
+  if (!state.byCompany.cmhp) state.byCompany.cmhp = {}
+  if (!state.byCompany.tej) state.byCompany.tej = {}
+}
+
+function addCompanyEntity(state, sliceName, item) {
+  ensureByCompanyState(state)
+  const key = resolveCompanyKey(state, item)
+  const compId = key === 'tej' ? 2 : 1
+  const stamped = {
+    ...item,
+    company: item.company !== undefined ? Number(item.company) : compId,
+    companyId: item.companyId || key,
+  }
+  if (!Array.isArray(state.byCompany[key][sliceName])) {
+    state.byCompany[key][sliceName] = []
+  }
+  state.byCompany[key][sliceName].push(stamped)
+  if (!Array.isArray(state[sliceName])) {
+    state[sliceName] = []
+  }
+  state[sliceName].push(stamped)
+  return stamped
+}
+
+function patchCompanyEntity(state, sliceName, id, payload) {
+  ensureByCompanyState(state)
+  if (state.byCompany?.cmhp?.[sliceName]) {
+    patchById(state.byCompany.cmhp[sliceName], id, payload)
+  }
+  if (state.byCompany?.tej?.[sliceName]) {
+    patchById(state.byCompany.tej[sliceName], id, payload)
+  }
+  if (state[sliceName]) {
+    patchById(state[sliceName], id, payload)
+  }
+}
+
+function deleteCompanyEntity(state, sliceName, id) {
+  ensureByCompanyState(state)
+  if (state.byCompany?.cmhp?.[sliceName]) {
+    deleteById(state.byCompany.cmhp[sliceName], id)
+  }
+  if (state.byCompany?.tej?.[sliceName]) {
+    deleteById(state.byCompany.tej[sliceName], id)
+  }
+  if (state[sliceName]) {
+    deleteById(state[sliceName], id)
+  }
+}
+
+
 /*
 |--------------------------------------------------------------------------
 | INITIAL STATE
@@ -121,7 +186,71 @@ function setStatusById(
 
 export const initialState = {
 
-  activeCompanyId: null,
+  activeCompanyId: 1,
+  activeCompanyKey: 'cmhp',
+
+  byCompany: {
+    cmhp: {
+      products: [],
+      formulas: [],
+      orders: [],
+      batches: [],
+      qcRecords: [],
+      qaRecords: [],
+      invoices: [],
+      payments: [],
+      suppliers: [],
+      purchaseOrders: [],
+      goodsReceipts: [],
+      purchaseBills: [],
+      internalAllocations: [],
+      dispatches: [],
+      salesReturns: [],
+      recalls: [],
+      creditNotes: [],
+      designations: [],
+      shifts: [],
+      holidays: [],
+      leaveTypes: [],
+      attendance: [],
+      leaveRequests: [],
+      salaryStructures: [],
+      payrollRuns: [],
+      payrollAdjustments: [],
+      attendanceRegularizations: [],
+      quotations: [],
+    },
+    tej: {
+      products: [],
+      formulas: [],
+      orders: [],
+      batches: [],
+      qcRecords: [],
+      qaRecords: [],
+      invoices: [],
+      payments: [],
+      suppliers: [],
+      purchaseOrders: [],
+      goodsReceipts: [],
+      purchaseBills: [],
+      internalAllocations: [],
+      dispatches: [],
+      salesReturns: [],
+      recalls: [],
+      creditNotes: [],
+      designations: [],
+      shifts: [],
+      holidays: [],
+      leaveTypes: [],
+      attendance: [],
+      leaveRequests: [],
+      salaryStructures: [],
+      payrollRuns: [],
+      payrollAdjustments: [],
+      attendanceRegularizations: [],
+      quotations: [],
+    },
+  },
 
   /*
   |--------------------------------------------------------------------------
@@ -294,7 +423,10 @@ export const initialState = {
   |--------------------------------------------------------------------------
   */
 
-  locations: [],
+  commonProducts: [],
+  commonRawMaterials: [],
+
+  stockLedgerEntries: [],
 
   items: [],
 
@@ -438,7 +570,17 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-      state.activeCompanyId = action.payload
+      const val = action.payload
+      if (val === 2 || val === '2' || val === 'tej' || val === 'company_b') {
+        state.activeCompanyId = 2
+        state.activeCompanyKey = 'tej'
+      } else if (val === null || val === 'common_inventory') {
+        state.activeCompanyId = null
+        state.activeCompanyKey = null
+      } else {
+        state.activeCompanyId = 1
+        state.activeCompanyKey = 'cmhp'
+      }
     },
 
     editCompany: (
@@ -637,88 +779,340 @@ const erpSlice = createSlice({
 
     /*
     |--------------------------------------------------------------------------
-    | LOCATIONS
+    /*
+    |--------------------------------------------------------------------------
+    | COMMON INVENTORY - PRODUCTS & RAW MATERIALS
     |--------------------------------------------------------------------------
     */
 
-
-    addLocation: (
-      state,
-      action
-    ) => {
-
-      state.locations.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+    addCommonProduct: (state, action) => {
+      if (!state.commonProducts) state.commonProducts = []
+      state.commonProducts.push({
+        id: nextId(),
+        created_at: nowIso(),
+        current_stock: 0,
+        reorder_level: 0,
+        unit_cost: 0,
         ...action.payload,
-
       })
-
     },
 
-
-    editLocation: (
-      state,
-      action
-    ) => {
-
-      patchById(
-
-        state.locations,
-
-        action.payload.id,
-
-        action.payload.payload
-
-      )
-
+    editCommonProduct: (state, action) => {
+      if (!state.commonProducts) state.commonProducts = []
+      patchById(state.commonProducts, action.payload.id, action.payload.payload)
     },
 
-
-    deleteLocation: (
-      state,
-      action
-    ) => {
-
-      deleteById(
-
-        state.locations,
-
-        action.payload.id
-
-      )
-
+    deleteCommonProduct: (state, action) => {
+      if (!state.commonProducts) state.commonProducts = []
+      deleteById(state.commonProducts, action.payload.id)
     },
 
-
-    setLocationStatus: (
-      state,
-      action
-    ) => {
-
-      setStatusById(
-
-        state.locations,
-
-        action.payload.id,
-
-        action.payload.is_active
-
-      )
-
+    bulkImportCommonProducts: (state, action) => {
+      if (!state.commonProducts) state.commonProducts = []
+      const items = Array.isArray(action.payload) ? action.payload : []
+      items.forEach((item) => {
+        state.commonProducts.push({
+          id: nextId(),
+          created_at: nowIso(),
+          current_stock: 0,
+          reorder_level: 0,
+          unit_cost: 0,
+          ...item,
+        })
+      })
     },
 
+    addCommonRawMaterial: (state, action) => {
+      if (!state.commonRawMaterials) state.commonRawMaterials = []
+      state.commonRawMaterials.push({
+        id: nextId(),
+        created_at: nowIso(),
+        current_stock: 0,
+        reorder_level: 0,
+        ...action.payload,
+      })
+    },
+
+    editCommonRawMaterial: (state, action) => {
+      if (!state.commonRawMaterials) state.commonRawMaterials = []
+      patchById(state.commonRawMaterials, action.payload.id, action.payload.payload)
+    },
+
+    deleteCommonRawMaterial: (state, action) => {
+      if (!state.commonRawMaterials) state.commonRawMaterials = []
+      deleteById(state.commonRawMaterials, action.payload.id)
+    },
+
+    bulkImportCommonRawMaterials: (state, action) => {
+      if (!state.commonRawMaterials) state.commonRawMaterials = []
+      const items = Array.isArray(action.payload) ? action.payload : []
+      items.forEach((item) => {
+        state.commonRawMaterials.push({
+          id: nextId(),
+          created_at: nowIso(),
+          current_stock: 0,
+          reorder_level: 0,
+          ...item,
+        })
+      })
+    },
 
     /*
     |--------------------------------------------------------------------------
-    | ITEMS
+    | STOCK LEDGER (EXCEL-STYLE INWARD / OUTWARD / OPENING REGISTER)
     |--------------------------------------------------------------------------
     */
+
+    addStockLedgerEntry: (state, action) => {
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+      const entry = {
+        id: nextId(),
+        created_at: nowIso(),
+        reversed: false,
+        ...action.payload,
+      }
+      state.stockLedgerEntries.push(entry)
+
+      // Auto-sync stock balance with Common Raw Material or Common Product
+      if (entry.item_id || entry.item_code) {
+        const mat = (state.commonRawMaterials || []).find(
+          (m) => String(m.id) === String(entry.item_id) || String(m.code) === String(entry.item_code)
+        )
+        if (mat) {
+          if (entry.type === 'INWARD') {
+            mat.current_stock = (Number(mat.current_stock) || 0) + Number(entry.received_quantity || 0)
+          } else if (entry.type === 'OUTWARD') {
+            mat.current_stock = Math.max(0, (Number(mat.current_stock) || 0) - Number(entry.issued_quantity || 0))
+          }
+        }
+        const prod = (state.commonProducts || []).find(
+          (p) => String(p.id) === String(entry.item_id) || String(p.code) === String(entry.item_code)
+        )
+        if (prod) {
+          if (entry.type === 'INWARD') {
+            prod.current_stock = (Number(prod.current_stock) || 0) + Number(entry.received_quantity || 0)
+          } else if (entry.type === 'OUTWARD') {
+            prod.current_stock = Math.max(0, (Number(prod.current_stock) || 0) - Number(entry.issued_quantity || 0))
+          }
+        }
+        const syncCompanyProduct = (list) => {
+          if (!Array.isArray(list)) return
+          const cp = list.find((p) => String(p.id) === String(entry.item_id) || String(p.code) === String(entry.item_code) || String(p.name) === String(entry.item_name))
+          if (cp) {
+            if (entry.type === 'INWARD') {
+              cp.current_stock = (Number(cp.current_stock) || 0) + Number(entry.received_quantity || 0)
+            } else if (entry.type === 'OUTWARD') {
+              cp.current_stock = Math.max(0, (Number(cp.current_stock) || 0) - Number(entry.issued_quantity || 0))
+            }
+          }
+        }
+        syncCompanyProduct(state.products)
+        syncCompanyProduct(state.byCompany?.cmhp?.products)
+        syncCompanyProduct(state.byCompany?.tej?.products)
+      }
+    },
+
+    startProductionBatchFromOrder: (state, action) => {
+      const {
+        orderId,
+        orderNumber,
+        batchNumber,
+        productId,
+        productCode,
+        productName,
+        plannedQuantity,
+        company,
+        companyKey,
+        materialsToIssue,
+      } = action.payload
+
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+
+      // 1. Issue each raw material to OUTWARD ledger
+      if (Array.isArray(materialsToIssue)) {
+        materialsToIssue.forEach((mat) => {
+          const qty = Number(mat.issuedQuantity || mat.requiredAmount) || 0
+          const entry = {
+            id: nextId(),
+            item_id: mat.id || mat.itemId,
+            item_code: mat.code || mat.itemCode,
+            item_name: mat.name || mat.itemName,
+            type: 'OUTWARD',
+            financial_year: '2026-27',
+            date: nowIso().slice(0, 10),
+            batch_no: batchNumber,
+            name_of_product: productName,
+            issued_quantity: qty,
+            remark: mat.remark || `${qty} KG (${Math.ceil(qty / 25)} Bag)`,
+            created_at: nowIso(),
+            reversed: false,
+          }
+          state.stockLedgerEntries.push(entry)
+
+          // Deduct from common raw materials
+          const rm = (state.commonRawMaterials || []).find(
+            (m) => String(m.id) === String(entry.item_id) || String(m.code) === String(entry.item_code)
+          )
+          if (rm) {
+            rm.current_stock = Math.max(0, (Number(rm.current_stock) || 0) - qty)
+          }
+        })
+      }
+
+      // 2. Create batch
+      const batchPayload = {
+        id: nextId(),
+        number: batchNumber,
+        company: Number(company) || (companyKey === 'tej' ? 2 : 1),
+        companyId: companyKey || (Number(company) === 2 ? 'tej' : 'cmhp'),
+        order: Number(orderId) || null,
+        product: Number(productId) || null,
+        product_name: productName,
+        product_code: productCode,
+        planned_quantity: Number(plannedQuantity) || 0,
+        status: 'IN_PRODUCTION',
+        qc_status: 'PENDING',
+        qa_status: 'PENDING',
+        created_at: nowIso(),
+        material_consumption: (materialsToIssue || []).map((m) => ({
+          item: m.id || m.itemId,
+          item_code: m.code || m.itemCode,
+          item_name: m.name || m.itemName,
+          quantity: Number(m.issuedQuantity || m.requiredAmount) || 0,
+          issued_at: nowIso(),
+        })),
+      }
+      addCompanyEntity(state, 'batches', batchPayload)
+
+      // 3. Update Order status
+      patchCompanyEntity(state, 'orders', orderId, {
+        status: 'IN_PRODUCTION',
+        batch_no: batchNumber,
+        qc_status: 'PENDING',
+      })
+
+      // 4. Create QC inspection record
+      const qcPayload = {
+        id: nextId(),
+        number: `QC-${batchNumber}`,
+        order_id: Number(orderId),
+        order_number: orderNumber,
+        batch_id: batchPayload.id,
+        batch_number: batchNumber,
+        company: Number(company) || 1,
+        companyId: companyKey || 'cmhp',
+        product_name: productName,
+        ordered_qty: Number(plannedQuantity) || 0,
+        inspected_qty: Number(plannedQuantity) || 0,
+        accepted_qty: Number(plannedQuantity) || 0,
+        rejected_qty: 0,
+        status: 'PENDING',
+        created_at: nowIso(),
+        inspection_date: nowIso().slice(0, 10),
+        remarks: 'Auto-routed from production batch formulation',
+      }
+      addCompanyEntity(state, 'qcRecords', qcPayload)
+    },
+
+    setOpeningStockRecord: (state, action) => {
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+      const { item_id, item_code, item_name, financial_year, quantity, no_of_containers, date } = action.payload
+      const existingIdx = state.stockLedgerEntries.findIndex(
+        (e) =>
+          (String(e.item_id) === String(item_id) || String(e.item_code) === String(item_code)) &&
+          e.financial_year === financial_year &&
+          e.type === 'OPENING'
+      )
+      const entry = {
+        id: existingIdx !== -1 ? state.stockLedgerEntries[existingIdx].id : nextId(),
+        item_id,
+        item_code,
+        item_name,
+        type: 'OPENING',
+        financial_year,
+        date: date || '01-04-2026',
+        invoice_no: 'OPENING',
+        supplier: 'STOCK',
+        received_quantity: Number(quantity) || 0,
+        no_of_containers: no_of_containers || '',
+        price: '',
+        reversed: false,
+        created_at: nowIso(),
+      }
+      if (existingIdx !== -1) {
+        state.stockLedgerEntries[existingIdx] = entry
+      } else {
+        state.stockLedgerEntries.push(entry)
+      }
+    },
+
+    reverseStockLedgerEntry: (state, action) => {
+      if (!state.stockLedgerEntries) return
+      const { id, reason } = action.payload
+      const entry = state.stockLedgerEntries.find((e) => String(e.id) === String(id))
+      if (!entry || entry.reversed) return
+
+      entry.reversed = true
+      entry.reversed_at = nowIso()
+      entry.reversal_reason = reason || 'Reversed by user'
+
+      // Revert material/product stock adjustment
+      if (entry.item_id || entry.item_code) {
+        const mat = (state.commonRawMaterials || []).find(
+          (m) => String(m.id) === String(entry.item_id) || String(m.code) === String(entry.item_code)
+        )
+        if (mat) {
+          if (entry.type === 'INWARD') {
+            mat.current_stock = Math.max(0, (Number(mat.current_stock) || 0) - Number(entry.received_quantity || 0))
+          } else if (entry.type === 'OUTWARD') {
+            mat.current_stock = (Number(mat.current_stock) || 0) + Number(entry.issued_quantity || 0)
+          }
+        }
+      }
+    },
+
+    adjustStockLedgerPhysical: (state, action) => {
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+      const { item_id, item_code, item_name, financial_year, date, physical_stock, system_stock, variance, reason } = action.payload
+      const entry = {
+        id: nextId(),
+        item_id,
+        item_code,
+        item_name,
+        type: 'ADJUSTMENT',
+        financial_year,
+        date: date || nowIso().slice(0, 10),
+        invoice_no: 'ADJUSTMENT',
+        supplier: 'PHYSICAL VERIFICATION',
+        physical_stock: Number(physical_stock),
+        system_stock: Number(system_stock),
+        variance: Number(variance),
+        remark: reason || 'Physical stock count adjustment',
+        reversed: false,
+        created_at: nowIso(),
+      }
+      state.stockLedgerEntries.push(entry)
+
+      const mat = (state.commonRawMaterials || []).find(
+        (m) => String(m.id) === String(item_id) || String(m.code) === String(item_code)
+      )
+      if (mat) {
+        mat.current_stock = Number(physical_stock)
+      }
+    },
+
+    bulkImportStockLedgerEntries: (state, action) => {
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+      const items = Array.isArray(action.payload) ? action.payload : []
+      items.forEach((item) => {
+        state.stockLedgerEntries.push({
+          id: nextId(),
+          created_at: nowIso(),
+          reversed: false,
+          ...item,
+        })
+      })
+    },
 
 
     addItem: (
@@ -822,19 +1216,9 @@ const erpSlice = createSlice({
       }
 
 
-      if (!p.location) {
-
-        return
-
-      }
-
-
       if (!p.lot_number) {
-
         return
-
       }
-
 
       if (
         !Number.isFinite(
@@ -842,18 +1226,13 @@ const erpSlice = createSlice({
         ) ||
         quantity <= 0
       ) {
-
         return
-
       }
-
 
       const lotId =
         nextId()
 
-
       state.lots.push({
-
         id:
           lotId,
 
@@ -864,11 +1243,6 @@ const erpSlice = createSlice({
 
         lot_number:
           p.lot_number,
-
-        location:
-          Number(
-            p.location
-          ),
 
         qc_status:
           'PENDING',
@@ -1319,78 +1693,61 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-
-      state.products.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+      addCompanyEntity(state, 'products', {
+        id: nextId(),
+        is_active: true,
         ...action.payload,
-
       })
-
     },
-
 
     editProduct: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.products,
-
+      patchCompanyEntity(
+        state,
+        'products',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteProduct: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.products,
-
+      deleteCompanyEntity(
+        state,
+        'products',
         action.payload.id
-
       )
-
-      state.formulas = state.formulas.filter(
-        (f) => String(f.product_id) !== String(action.payload.id)
-      )
-
+      ensureByCompanyState(state)
+      const filterFn = (f) => String(f.product_id) !== String(action.payload.id)
+      if (state.byCompany?.cmhp?.formulas) {
+        state.byCompany.cmhp.formulas = state.byCompany.cmhp.formulas.filter(filterFn)
+      }
+      if (state.byCompany?.tej?.formulas) {
+        state.byCompany.tej.formulas = state.byCompany.tej.formulas.filter(filterFn)
+      }
+      state.formulas = state.formulas.filter(filterFn)
     },
-
 
     saveProductLastSelection: (
       state,
       action
     ) => {
-
       const { productId, formulaId, revisionId } = action.payload || {}
-
-      const prod = state.products.find(
-        (p) => String(p.id) === String(productId)
-      )
-
-      if (prod) {
-        if (formulaId !== undefined) prod.last_formula_id = formulaId
-        if (revisionId !== undefined) prod.last_revision_id = revisionId
+      ensureByCompanyState(state)
+      const updateProd = (p) => {
+        if (p && String(p.id) === String(productId)) {
+          if (formulaId !== undefined) p.last_formula_id = formulaId
+          if (revisionId !== undefined) p.last_revision_id = revisionId
+        }
       }
-
+      ;(state.products || []).forEach(updateProd)
+      ;(state.byCompany?.cmhp?.products || []).forEach(updateProd)
+      ;(state.byCompany?.tej?.products || []).forEach(updateProd)
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -1398,60 +1755,37 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addCustomer: (
       state,
       action
     ) => {
-
       state.customers.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+        id: nextId(),
+        is_active: true,
         ...action.payload,
-
       })
-
     },
-
 
     editCustomer: (
       state,
       action
     ) => {
-
       patchById(
-
         state.customers,
-
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteCustomer: (
       state,
       action
     ) => {
-
       deleteById(
-
         state.customers,
-
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -1459,49 +1793,45 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addFormula: (
       state,
       action
     ) => {
-
-      state.formulas.push({
-
-        id:
-          nextId(),
-
+      addCompanyEntity(state, 'formulas', {
+        id: nextId(),
         revisions: [],
-
         ...action.payload,
-
       })
-
     },
-
 
     saveFormula: (
       state,
       action
     ) => {
-
-      const { id, product_id, name, base_quantity, base_unit, revisions } = action.payload || {}
-
-      const existing = state.formulas.find(
+      const { id, product_id, name, base_quantity, base_unit, revisions, company, companyId } = action.payload || {}
+      const existing = (state.formulas || []).find(
         (f) => String(f.id) === String(id)
       )
 
       if (existing) {
-        if (name !== undefined) existing.name = name
-        if (base_quantity !== undefined) existing.base_quantity = Number(base_quantity)
-        if (base_unit !== undefined) existing.base_unit = base_unit
-        if (revisions !== undefined) existing.revisions = revisions
+        const patchData = {}
+        if (name !== undefined) patchData.name = name
+        if (base_quantity !== undefined) patchData.base_quantity = Number(base_quantity)
+        if (base_unit !== undefined) patchData.base_unit = base_unit
+        if (revisions !== undefined) patchData.revisions = revisions
+        patchCompanyEntity(state, 'formulas', id, patchData)
       } else {
-        state.formulas.push({
+        const prod = (state.products || []).find((p) => String(p.id) === String(product_id))
+        const comp = company || prod?.company
+        const compKey = companyId || prod?.companyId
+        addCompanyEntity(state, 'formulas', {
           id: id || nextId(),
           product_id: Number(product_id) || product_id,
           name: name || 'Standard Formula',
           base_quantity: Number(base_quantity) || 100,
           base_unit: base_unit || 'g',
+          company: comp,
+          companyId: compKey,
           revisions: revisions || [
             {
               id: 'rev-00',
@@ -1513,105 +1843,81 @@ const erpSlice = createSlice({
           ],
         })
       }
-
     },
-
 
     editFormula: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.formulas,
-
+      patchCompanyEntity(
+        state,
+        'formulas',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteFormula: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.formulas,
-
+      deleteCompanyEntity(
+        state,
+        'formulas',
         action.payload.id
-
       )
-
     },
-
 
     addFormulaRevision: (
       state,
       action
     ) => {
-
       const { formulaId, revision } = action.payload || {}
-
-      const formula = state.formulas.find(
-        (f) => String(f.id) === String(formulaId)
-      )
-
-      if (formula) {
-        if (!Array.isArray(formula.revisions)) {
-          formula.revisions = []
+      ensureByCompanyState(state)
+      const pushRev = (f) => {
+        if (f && String(f.id) === String(formulaId)) {
+          if (!Array.isArray(f.revisions)) f.revisions = []
+          f.revisions.push(revision)
         }
-        formula.revisions.push(revision)
       }
-
+      ;(state.formulas || []).forEach(pushRev)
+      ;(state.byCompany?.cmhp?.formulas || []).forEach(pushRev)
+      ;(state.byCompany?.tej?.formulas || []).forEach(pushRev)
     },
-
 
     saveRevisionMaterials: (
       state,
       action
     ) => {
-
       const { formulaId, revisionId, materials } = action.payload || {}
-
-      const formula = state.formulas.find(
-        (f) => String(f.id) === String(formulaId)
-      )
-
-      if (formula && Array.isArray(formula.revisions)) {
-        const rev = formula.revisions.find(
-          (r) => String(r.id) === String(revisionId)
-        )
-        if (rev) {
-          rev.materials = materials || []
+      ensureByCompanyState(state)
+      const saveMat = (f) => {
+        if (f && String(f.id) === String(formulaId) && Array.isArray(f.revisions)) {
+          const rev = f.revisions.find((r) => String(r.id) === String(revisionId))
+          if (rev) {
+            rev.materials = materials || []
+          }
         }
       }
-
+      ;(state.formulas || []).forEach(saveMat)
+      ;(state.byCompany?.cmhp?.formulas || []).forEach(saveMat)
+      ;(state.byCompany?.tej?.formulas || []).forEach(saveMat)
     },
-
 
     deleteFormulaRevision: (
       state,
       action
     ) => {
-
       const { formulaId, revisionId } = action.payload || {}
-
-      const formula = state.formulas.find(
-        (f) => String(f.id) === String(formulaId)
-      )
-
-      if (formula && Array.isArray(formula.revisions)) {
-        formula.revisions = formula.revisions.filter(
-          (r) => String(r.id) !== String(revisionId)
-        )
+      ensureByCompanyState(state)
+      const delRev = (f) => {
+        if (f && String(f.id) === String(formulaId) && Array.isArray(f.revisions)) {
+          f.revisions = f.revisions.filter((r) => String(r.id) !== String(revisionId))
+        }
       }
-
+      ;(state.formulas || []).forEach(delRev)
+      ;(state.byCompany?.cmhp?.formulas || []).forEach(delRev)
+      ;(state.byCompany?.tej?.formulas || []).forEach(delRev)
     },
 
 
@@ -1681,58 +1987,36 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-
-      state.orders.push({
-
-        id:
-          nextId(),
-
-        status:
-          'CONFIRMED',
-
-        lines:
-          [],
-
+      addCompanyEntity(state, 'orders', {
+        id: nextId(),
+        status: 'CONFIRMED',
+        lines: [],
         ...action.payload,
-
       })
-
     },
-
 
     editOrder: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.orders,
-
+      patchCompanyEntity(
+        state,
+        'orders',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteOrder: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.orders,
-
+      deleteCompanyEntity(
+        state,
+        'orders',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -1740,335 +2024,154 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addBatch: (
       state,
       action
     ) => {
-
-      state.batches.push({
-
-        id:
-          nextId(),
-
-        produced_quantity:
-          0,
-
-        qc_status:
-          'PENDING',
-
-        qa_status:
-          'PENDING',
-
-        status:
-          'IN_PROGRESS',
-
-        material_consumption:
-          [],
-
-        qc_history:
-          [],
-
-        qa_history:
-          [],
-
+      addCompanyEntity(state, 'batches', {
+        id: nextId(),
+        produced_quantity: 0,
+        qc_status: 'PENDING',
+        qa_status: 'PENDING',
+        status: 'IN_PROGRESS',
+        material_consumption: [],
+        qc_history: [],
+        qa_history: [],
         ...action.payload,
-
       })
-
     },
-
 
     editBatch: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.batches,
-
+      patchCompanyEntity(
+        state,
+        'batches',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteBatch: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.batches,
-
+      deleteCompanyEntity(
+        state,
+        'batches',
         action.payload.id
-
       )
-
     },
-
 
     consumeBatchMaterial: (
       state,
       action
     ) => {
-
       const {
         batchId,
         lot,
         quantity,
-      } =
-        action.payload
+      } = action.payload
 
+      const qty = Number(quantity)
+      const findBatch = (list) => (list || []).find((x) => Number(x.id) === Number(batchId))
+      const batch = findBatch(state.batches)
+      const lotObj = (state.lots || []).find((x) => Number(x.id) === Number(lot))
 
-      const qty =
-        Number(
-          quantity
-        )
+      if (!batch || !lotObj || !Number.isFinite(qty) || qty <= 0) return
 
+      const available = Number(lotObj.available_quantity) || 0
+      if (qty > available) return
 
-      const batch =
-        state.batches.find(
-          (x) =>
-            Number(x.id) ===
-            Number(batchId)
-        )
+      lotObj.available_quantity = available - qty
 
-
-      const lotObj =
-        state.lots.find(
-          (x) =>
-            Number(x.id) ===
-            Number(lot)
-        )
-
-
-      if (
-        !batch ||
-        !lotObj
-      ) {
-
-        return
-
+      const consumptionRecord = {
+        item: lotObj.item,
+        lot: Number(lot),
+        lot_number: lotObj.lot_number || '',
+        quantity: qty,
+        issued_at: nowIso(),
       }
 
-
-      if (
-        !Number.isFinite(qty) ||
-        qty <= 0
-      ) {
-
-        return
-
+      const updateBatchConsumption = (b) => {
+        if (b) {
+          if (!Array.isArray(b.material_consumption)) b.material_consumption = []
+          b.material_consumption.push(consumptionRecord)
+        }
       }
 
-
-      const available =
-        Number(
-          lotObj.available_quantity
-        ) || 0
-
-
-      if (
-        qty >
-        available
-      ) {
-
-        return
-
-      }
-
-
-      lotObj.available_quantity =
-        available -
-        qty
-
-
-      batch.material_consumption.push({
-
-        item:
-          lotObj.item,
-
-        lot:
-          Number(
-            lot
-          ),
-
-        lot_number:
-          lotObj.lot_number ||
-          '',
-
-        quantity:
-          qty,
-
-        issued_at:
-          nowIso(),
-
-      })
-
+      updateBatchConsumption(batch)
+      updateBatchConsumption(findBatch(state.byCompany?.cmhp?.batches))
+      updateBatchConsumption(findBatch(state.byCompany?.tej?.batches))
 
       state.transactions.unshift({
-
-        id:
-          nextId(),
-
-        transaction_type:
-          'ISSUE',
-
-        item:
-          lotObj.item,
-
-        lot:
-          Number(
-            lot
-          ),
-
-        quantity:
-          qty,
-
-        company:
-          batch.company ||
-          null,
-
-        reference_note:
-          `Consumed by batch ${
-            batch.number || ''
-          }`,
-
-        created_by:
-          'system',
-
-        created_at:
-          nowIso(),
-
+        id: nextId(),
+        transaction_type: 'ISSUE',
+        item: lotObj.item,
+        lot: Number(lot),
+        quantity: qty,
+        company: batch.company || null,
+        reference_note: `Consumed by batch ${batch.number || ''}`,
+        created_by: 'system',
+        created_at: nowIso(),
       })
-
     },
-
 
     setBatchQc: (
       state,
       action
     ) => {
-
-      const {
-        batchId,
-        decision,
-        remarks,
-      } =
-        action.payload
-
-
-      const batch =
-        state.batches.find(
-          (x) =>
-            Number(x.id) ===
-            Number(batchId)
-        )
-
-
-      if (!batch) {
-
-        return
-
+      const { batchId, decision, remarks } = action.payload
+      const qcStatus = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
+      const qcEntry = {
+        decision: qcStatus,
+        remarks: remarks || '',
+        by: 'Current user',
+        at: nowIso(),
       }
 
+      const updateB = (b) => {
+        if (b) {
+          b.qc_status = qcStatus
+          if (!Array.isArray(b.qc_history)) b.qc_history = []
+          b.qc_history.push(qcEntry)
+        }
+      }
 
-      batch.qc_status =
-        decision ===
-        'APPROVE'
-          ? 'APPROVED'
-          : 'REJECTED'
-
-
-      batch.qc_history.push({
-
-        decision:
-          batch.qc_status,
-
-        remarks:
-          remarks || '',
-
-        by:
-          'Current user',
-
-        at:
-          nowIso(),
-
-      })
-
+      updateB((state.batches || []).find((x) => Number(x.id) === Number(batchId)))
+      updateB((state.byCompany?.cmhp?.batches || []).find((x) => Number(x.id) === Number(batchId)))
+      updateB((state.byCompany?.tej?.batches || []).find((x) => Number(x.id) === Number(batchId)))
     },
-
 
     setBatchQa: (
       state,
       action
     ) => {
-
-      const {
-        batchId,
-        decision,
-        remarks,
-      } =
-        action.payload
-
-
-      const batch =
-        state.batches.find(
-          (x) =>
-            Number(x.id) ===
-            Number(batchId)
-        )
-
-
-      if (!batch) {
-
-        return
-
+      const { batchId, decision, remarks } = action.payload
+      const qaStatus = decision === 'RELEASE' ? 'RELEASED' : 'HOLD'
+      const qaEntry = {
+        decision: qaStatus,
+        remarks: remarks || '',
+        by: 'Current user',
+        at: nowIso(),
       }
 
-
-      batch.qa_status =
-        decision ===
-        'RELEASE'
-          ? 'RELEASED'
-          : 'HOLD'
-
-
-      batch.qa_history.push({
-
-        decision:
-          batch.qa_status,
-
-        remarks:
-          remarks || '',
-
-        by:
-          'Current user',
-
-        at:
-          nowIso(),
-
-      })
-
-
-      if (
-        batch.qa_status ===
-        'RELEASED'
-      ) {
-
-        batch.status =
-          'COMPLETED'
-
+      const updateB = (b) => {
+        if (b) {
+          b.qa_status = qaStatus
+          if (!Array.isArray(b.qa_history)) b.qa_history = []
+          b.qa_history.push(qaEntry)
+          if (qaStatus === 'RELEASED') {
+            b.status = 'COMPLETED'
+          }
+        }
       }
 
+      updateB((state.batches || []).find((x) => Number(x.id) === Number(batchId)))
+      updateB((state.byCompany?.cmhp?.batches || []).find((x) => Number(x.id) === Number(batchId)))
+      updateB((state.byCompany?.tej?.batches || []).find((x) => Number(x.id) === Number(batchId)))
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -2076,124 +2179,72 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addInvoice: (
       state,
       action
     ) => {
-
-      state.invoices.push({
-
-        id:
-          nextId(),
-
-        status:
-          'DRAFT',
-
+      addCompanyEntity(state, 'invoices', {
+        id: nextId(),
+        status: 'ISSUED',
         ...action.payload,
-
       })
-
     },
-
 
     editInvoice: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.invoices,
-
+      patchCompanyEntity(
+        state,
+        'invoices',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteInvoice: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.invoices,
-
+      deleteCompanyEntity(
+        state,
+        'invoices',
         action.payload.id
-
       )
-
     },
-
 
     setInvoiceStatus: (
       state,
       action
     ) => {
-
-      const {
-        id,
-        status,
-        paid_on,
-      } =
-        action.payload
-
-
-      const invoice =
-        state.invoices.find(
-          (x) =>
-            Number(x.id) ===
-            Number(id)
-        )
-
-
-      if (!invoice) {
-
-        return
-
-      }
-
-
-      invoice.status =
-        status
-
-
-      if (paid_on) {
-
-        invoice.paid_on =
-          paid_on
-
-      }
-
+      const { id, status, paid_on } = action.payload
+      patchCompanyEntity(state, 'invoices', id, {
+        ...(status && { status }),
+        ...(paid_on && { paid_on }),
+      })
     },
 
     setOrderStatus: (
       state,
       action
     ) => {
-      const order = state.orders.find(
-        (o) => Number(o.id) === Number(action.payload.id)
-      )
-      if (order) {
-        order.status = action.payload.status
-        if (action.payload.qc_status) order.qc_status = action.payload.qc_status
-        if (action.payload.qa_status) order.qa_status = action.payload.qa_status
-        if (action.payload.invoiced_qty !== undefined) order.invoiced_qty = action.payload.invoiced_qty
-      }
+      const { id, status, qc_status, qa_status, invoiced_qty } = action.payload
+      patchCompanyEntity(state, 'orders', id, {
+        ...(status && { status }),
+        ...(qc_status && { qc_status }),
+        ...(qa_status && { qa_status }),
+        ...(invoiced_qty !== undefined && { invoiced_qty }),
+      })
     },
 
     addQcRecord: (
       state,
       action
     ) => {
-      state.qcRecords.push({
+      addCompanyEntity(state, 'qcRecords', {
         id: nextId(),
         created_at: new Date().toISOString(),
+        status: 'PENDING',
         ...action.payload,
       })
     },
@@ -2202,8 +2253,9 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-      patchById(
-        state.qcRecords,
+      patchCompanyEntity(
+        state,
+        'qcRecords',
         action.payload.id,
         action.payload.payload
       )
@@ -2213,9 +2265,10 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-      state.qaRecords.push({
+      addCompanyEntity(state, 'qaRecords', {
         id: nextId(),
         created_at: new Date().toISOString(),
+        status: 'PENDING',
         ...action.payload,
       })
     },
@@ -2224,18 +2277,87 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-      patchById(
-        state.qaRecords,
+      patchCompanyEntity(
+        state,
+        'qaRecords',
         action.payload.id,
         action.payload.payload
       )
+    },
+
+    approveQaRelease: (state, action) => {
+      const {
+        qaId,
+        orderId,
+        batchNumber,
+        productName,
+        productCode,
+        productId,
+        approvedQty,
+        remarks,
+        officer,
+      } = action.payload
+
+      // 1. Mark QA Record Approved
+      patchCompanyEntity(state, 'qaRecords', qaId, {
+        status: 'APPROVED',
+        qa_approved_qty: Number(approvedQty) || 0,
+        remarks: remarks || '',
+        released_at: nowIso(),
+        release_officer: officer || 'QA Officer',
+      })
+
+      // 2. Add INWARD Finished Goods to Stock Ledger
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+      const fgEntry = {
+        id: nextId(),
+        item_id: productId,
+        item_code: productCode,
+        item_name: productName,
+        type: 'INWARD',
+        financial_year: '2026-27',
+        date: nowIso().slice(0, 10),
+        invoice_no: batchNumber || 'QA-RELEASE',
+        supplier: 'Production Batch Release',
+        received_quantity: Number(approvedQty) || 0,
+        no_of_containers: `${Number(approvedQty) || 0} Units`,
+        price: '—',
+        created_at: nowIso(),
+        reversed: false,
+      }
+      state.stockLedgerEntries.push(fgEntry)
+
+      // 3. Increment Finished Goods in commonProducts & products
+      const p = (state.commonProducts || []).find(
+        (x) => String(x.id) === String(productId) || (productCode && String(x.code) === String(productCode)) || String(x.name) === String(productName)
+      )
+      if (p) {
+        p.current_stock = (Number(p.current_stock) || 0) + (Number(approvedQty) || 0)
+      }
+      const syncCompProd = (list) => {
+        if (!Array.isArray(list)) return
+        const cp = list.find((x) => String(x.id) === String(productId) || (productCode && String(x.code) === String(productCode)) || String(x.name) === String(productName))
+        if (cp) cp.current_stock = (Number(cp.current_stock) || 0) + (Number(approvedQty) || 0)
+      }
+      syncCompProd(state.products)
+      syncCompProd(state.byCompany?.cmhp?.products)
+      syncCompProd(state.byCompany?.tej?.products)
+
+      // 4. Update Order status to READY_TO_INVOICE
+      if (orderId) {
+        patchCompanyEntity(state, 'orders', orderId, {
+          status: 'READY_TO_INVOICE',
+          qa_status: 'APPROVED',
+          qa_approved_qty: Number(approvedQty) || 0,
+        })
+      }
     },
 
     addPaymentRecord: (
       state,
       action
     ) => {
-      state.payments.push({
+      addCompanyEntity(state, 'payments', {
         id: nextId(),
         created_at: new Date().toISOString(),
         ...action.payload,
@@ -2249,78 +2371,51 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addSupplier: (
       state,
       action
     ) => {
-
-      state.suppliers.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+      addCompanyEntity(state, 'suppliers', {
+        id: nextId(),
+        is_active: true,
         ...action.payload,
-
       })
-
     },
-
 
     editSupplier: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.suppliers,
-
+      patchCompanyEntity(
+        state,
+        'suppliers',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteSupplier: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.suppliers,
-
+      deleteCompanyEntity(
+        state,
+        'suppliers',
         action.payload.id
-
       )
-
     },
-
 
     setSupplierStatus: (
       state,
       action
     ) => {
-
-      setStatusById(
-
-        state.suppliers,
-
+      patchCompanyEntity(
+        state,
+        'suppliers',
         action.payload.id,
-
-        action.payload.is_active
-
+        { is_active: action.payload.is_active }
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -2328,134 +2423,72 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addPurchaseOrder: (
       state,
       action
     ) => {
-
-      state.purchaseOrders.push({
-
-        id:
-          nextId(),
-
-        status:
-          'DRAFT',
-
-        lines:
-          [],
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'purchaseOrders', {
+        id: nextId(),
+        status: 'DRAFT',
+        lines: [],
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     editPurchaseOrder: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.purchaseOrders,
-
+      patchCompanyEntity(
+        state,
+        'purchaseOrders',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deletePurchaseOrder: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.purchaseOrders,
-
+      deleteCompanyEntity(
+        state,
+        'purchaseOrders',
         action.payload.id
-
       )
-
     },
-
 
     approvePurchaseOrder: (
       state,
       action
     ) => {
-
-      const po =
-        state.purchaseOrders.find(
-          (x) =>
-            Number(x.id) ===
-            Number(
-              action.payload.id
-            )
-        )
-
-
-      if (!po) {
-
-        return
-
-      }
-
-
-      po.status =
-        'APPROVED'
-
-      po.approved_at =
-        nowIso()
-
-      po.approved_by =
-        action.payload.actor_name ||
-        'Current user'
-
+      patchCompanyEntity(
+        state,
+        'purchaseOrders',
+        action.payload.id,
+        {
+          status: 'APPROVED',
+          approved_at: nowIso(),
+          approved_by: action.payload.actor_name || 'Current user',
+        }
+      )
     },
-
 
     cancelPurchaseOrder: (
       state,
       action
     ) => {
-
-      const po =
-        state.purchaseOrders.find(
-          (x) =>
-            Number(x.id) ===
-            Number(
-              action.payload.id
-            )
-        )
-
-
-      if (!po) {
-
-        return
-
-      }
-
-
-      po.status =
-        'CANCELLED'
-
-      po.cancelled_at =
-        nowIso()
-
-      po.cancelled_by =
-        action.payload.actor_name ||
-        'Current user'
-
+      patchCompanyEntity(
+        state,
+        'purchaseOrders',
+        action.payload.id,
+        {
+          status: 'CANCELLED',
+          cancelled_at: nowIso(),
+          cancelled_by: action.payload.actor_name || 'Current user',
+        }
+      )
     },
 
 
@@ -2465,63 +2498,40 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addGoodsReceipt: (
       state,
       action
     ) => {
-
-      state.goodsReceipts.push({
-
-        id:
-          nextId(),
-
-        status:
-          'RECEIVED',
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'goodsReceipts', {
+        id: nextId(),
+        status: 'RECEIVED',
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     editGoodsReceipt: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.goodsReceipts,
-
+      patchCompanyEntity(
+        state,
+        'goodsReceipts',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteGoodsReceipt: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.goodsReceipts,
-
+      deleteCompanyEntity(
+        state,
+        'goodsReceipts',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -2529,199 +2539,177 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addPurchaseBill: (
       state,
       action
     ) => {
-
-      state.purchaseBills.push({
-
-        id:
-          nextId(),
-
-        status:
-          'DRAFT',
-
-        paid_amount:
-          0,
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'purchaseBills', {
+        id: nextId(),
+        status: 'DRAFT',
+        paid_amount: 0,
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     editPurchaseBill: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.purchaseBills,
-
+      patchCompanyEntity(
+        state,
+        'purchaseBills',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deletePurchaseBill: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.purchaseBills,
-
+      deleteCompanyEntity(
+        state,
+        'purchaseBills',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
-    | INTERNAL ALLOCATION
+    | INTERNAL ALLOCATIONS
     |--------------------------------------------------------------------------
     */
-
 
     addInternalAllocation: (
       state,
       action
     ) => {
-
-      state.internalAllocations.push({
-
-        id:
-          nextId(),
-
-        status:
-          'ALLOCATED',
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'internalAllocations', {
+        id: nextId(),
+        status: 'ALLOCATED',
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     deleteInternalAllocation: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.internalAllocations,
-
+      deleteCompanyEntity(
+        state,
+        'internalAllocations',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
-    | DISPATCH
+    | DISPATCHES
     |--------------------------------------------------------------------------
     */
-
 
     addDispatch: (
       state,
       action
     ) => {
-
-      state.dispatches.push({
-
-        id:
-          nextId(),
-
-        status:
-          'DRAFT',
-
-        created_at:
-          nowIso(),
-
-        ...action.payload,
-
+      const dispatchId = nextId()
+      const payload = action.payload || {}
+      addCompanyEntity(state, 'dispatches', {
+        id: dispatchId,
+        status: 'DISPATCHED',
+        created_at: nowIso(),
+        ...payload,
       })
 
-    },
+      // Auto-issue Finished Goods to OUTWARD stock ledger and update order
+      const orderId = payload.order_id || payload.order
+      const order = (state.orders || []).find((o) => Number(o.id) === Number(orderId))
+      const batch = (state.batches || []).find((b) => Number(b.id) === Number(payload.batch))
+      const prodName = payload.product_name || order?.product_name || batch?.product_name || 'Pharmaceutical Product'
+      const prodId = payload.product_id || order?.product_id || batch?.product
+      const prodCode = payload.product_code || order?.product_code || batch?.product_code
+      const qty = Number(payload.quantity || order?.batch_size || 1)
 
+      if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+      const outEntry = {
+        id: nextId(),
+        item_id: prodId,
+        item_code: prodCode,
+        item_name: prodName,
+        type: 'OUTWARD',
+        financial_year: '2026-27',
+        date: payload.dispatch_date || nowIso().slice(0, 10),
+        batch_no: payload.batch_number || batch?.number || order?.batch_no || 'DISPATCH',
+        name_of_product: prodName,
+        issued_quantity: qty,
+        remark: `Dispatched under DC #${payload.dispatch_number || dispatchId}`,
+        created_at: nowIso(),
+        reversed: false,
+      }
+      state.stockLedgerEntries.push(outEntry)
+
+      // Deduct Finished Goods from commonProducts and products
+      const p = (state.commonProducts || []).find(
+        (x) => String(x.id) === String(prodId) || (prodCode && String(x.code) === String(prodCode)) || String(x.name) === String(prodName)
+      )
+      if (p) {
+        p.current_stock = Math.max(0, (Number(p.current_stock) || 0) - qty)
+      }
+      const syncCompProd = (list) => {
+        if (!Array.isArray(list)) return
+        const cp = list.find((x) => String(x.id) === String(prodId) || (prodCode && String(x.code) === String(prodCode)) || String(x.name) === String(prodName))
+        if (cp) cp.current_stock = Math.max(0, (Number(cp.current_stock) || 0) - qty)
+      }
+      syncCompProd(state.products)
+      syncCompProd(state.byCompany?.cmhp?.products)
+      syncCompProd(state.byCompany?.tej?.products)
+
+      // Update Order status to DISPATCHED
+      if (orderId) {
+        patchCompanyEntity(state, 'orders', orderId, {
+          status: 'DISPATCHED',
+          dispatch_id: dispatchId,
+          dispatch_number: payload.dispatch_number,
+          dispatched_at: nowIso(),
+        })
+      }
+    },
 
     editDispatch: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.dispatches,
-
+      patchCompanyEntity(
+        state,
+        'dispatches',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteDispatch: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.dispatches,
-
+      deleteCompanyEntity(
+        state,
+        'dispatches',
         action.payload.id
-
       )
-
     },
-
 
     setDispatchStatus: (
       state,
       action
     ) => {
-
-      const dispatch =
-        state.dispatches.find(
-          (x) =>
-            Number(x.id) ===
-            Number(
-              action.payload.id
-            )
-        )
-
-
-      if (dispatch) {
-
-        dispatch.status =
-          action.payload.status
-
-      }
-
+      patchCompanyEntity(
+        state,
+        'dispatches',
+        action.payload.id,
+        { status: action.payload.status }
+      )
     },
 
 
@@ -2731,80 +2719,44 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addSalesReturn: (
       state,
       action
     ) => {
-
-      state.salesReturns.push({
-
-        id:
-          nextId(),
-
-        status:
-          'PENDING',
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'salesReturns', {
+        id: nextId(),
+        status: 'PENDING',
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     decideSalesReturn: (
       state,
       action
     ) => {
-
-      const row =
-        state.salesReturns.find(
-          (x) =>
-            Number(x.id) ===
-            Number(
-              action.payload.id
-            )
-        )
-
-
-      if (!row) {
-
-        return
-
-      }
-
-
-      row.status =
-        action.payload.status
-
-      row.decision_reason =
-        action.payload.reason ||
-        ''
-
-      row.decided_at =
-        nowIso()
-
+      patchCompanyEntity(
+        state,
+        'salesReturns',
+        action.payload.id,
+        {
+          status: action.payload.status,
+          decision_reason: action.payload.reason || action.payload.decision_notes || '',
+          decided_at: nowIso(),
+        }
+      )
     },
-
 
     deleteSalesReturn: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.salesReturns,
-
+      deleteCompanyEntity(
+        state,
+        'salesReturns',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -2812,125 +2764,61 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addRecall: (
       state,
       action
     ) => {
-
-      state.recalls.push({
-
-        id:
-          nextId(),
-
-        status:
-          'OPEN',
-
-        returned_quantity:
-          0,
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'recalls', {
+        id: nextId(),
+        status: 'OPEN',
+        returned_quantity: 0,
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     logRecallReturn: (
       state,
       action
     ) => {
+      const qty = Number(action.payload.quantity) || 0
+      if (qty <= 0) return
 
-      const recall =
-        state.recalls.find(
-          (x) =>
-            Number(x.id) ===
-            Number(
-              action.payload.id
-            )
-        )
-
-
-      if (!recall) {
-
-        return
-
+      const updateR = (r) => {
+        if (r && Number(r.id) === Number(action.payload.id)) {
+          r.returned_quantity = (Number(r.returned_quantity) || 0) + qty
+        }
       }
-
-
-      const qty =
-        Number(
-          action.payload.quantity
-        ) || 0
-
-
-      if (
-        qty <= 0
-      ) {
-
-        return
-
-      }
-
-
-      recall.returned_quantity =
-        Number(
-          recall.returned_quantity
-        ) +
-        qty
-
+      ;(state.recalls || []).forEach(updateR)
+      ;(state.byCompany?.cmhp?.recalls || []).forEach(updateR)
+      ;(state.byCompany?.tej?.recalls || []).forEach(updateR)
     },
-
 
     closeRecall: (
       state,
       action
     ) => {
-
-      const recall =
-        state.recalls.find(
-          (x) =>
-            Number(x.id) ===
-            Number(
-              action.payload.id
-            )
-        )
-
-
-      if (!recall) {
-
-        return
-
-      }
-
-
-      recall.status =
-        'CLOSED'
-
-      recall.closed_at =
-        nowIso()
-
+      patchCompanyEntity(
+        state,
+        'recalls',
+        action.payload.id,
+        {
+          status: 'CLOSED',
+          closed_at: nowIso(),
+        }
+      )
     },
-
 
     deleteRecall: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.recalls,
-
+      deleteCompanyEntity(
+        state,
+        'recalls',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -2938,43 +2826,27 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addCreditNote: (
       state,
       action
     ) => {
-
-      state.creditNotes.push({
-
-        id:
-          nextId(),
-
-        status:
-          'DRAFT',
-
-        created_at:
-          nowIso(),
-
+      addCompanyEntity(state, 'creditNotes', {
+        id: nextId(),
+        status: 'DRAFT',
+        created_at: nowIso(),
         ...action.payload,
-
       })
-
     },
-
 
     deleteCreditNote: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.creditNotes,
-
+      deleteCompanyEntity(
+        state,
+        'creditNotes',
         action.payload.id
-
       )
-
     },
 
 
@@ -2984,78 +2856,51 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addDesignation: (
       state,
       action
     ) => {
-
-      state.designations.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+      addCompanyEntity(state, 'designations', {
+        id: nextId(),
+        is_active: true,
         ...action.payload,
-
       })
-
     },
-
 
     editDesignation: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.designations,
-
+      patchCompanyEntity(
+        state,
+        'designations',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteDesignation: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.designations,
-
+      deleteCompanyEntity(
+        state,
+        'designations',
         action.payload.id
-
       )
-
     },
-
 
     setDesignationStatus: (
       state,
       action
     ) => {
-
-      setStatusById(
-
-        state.designations,
-
+      patchCompanyEntity(
+        state,
+        'designations',
         action.payload.id,
-
-        action.payload.is_active
-
+        { is_active: action.payload.is_active }
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -3063,78 +2908,51 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addShift: (
       state,
       action
     ) => {
-
-      state.shifts.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+      addCompanyEntity(state, 'shifts', {
+        id: nextId(),
+        is_active: true,
         ...action.payload,
-
       })
-
     },
-
 
     editShift: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.shifts,
-
+      patchCompanyEntity(
+        state,
+        'shifts',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteShift: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.shifts,
-
+      deleteCompanyEntity(
+        state,
+        'shifts',
         action.payload.id
-
       )
-
     },
-
 
     setShiftStatus: (
       state,
       action
     ) => {
-
-      setStatusById(
-
-        state.shifts,
-
+      patchCompanyEntity(
+        state,
+        'shifts',
         action.payload.id,
-
-        action.payload.is_active
-
+        { is_active: action.payload.is_active }
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -3142,57 +2960,38 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addHoliday: (
       state,
       action
     ) => {
-
-      state.holidays.push({
-
-        id:
-          nextId(),
-
+      addCompanyEntity(state, 'holidays', {
+        id: nextId(),
         ...action.payload,
-
       })
-
     },
-
 
     editHoliday: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.holidays,
-
+      patchCompanyEntity(
+        state,
+        'holidays',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteHoliday: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.holidays,
-
+      deleteCompanyEntity(
+        state,
+        'holidays',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -3200,76 +2999,50 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addLeaveType: (
       state,
       action
     ) => {
-
-      state.leaveTypes.push({
-
-        id:
-          nextId(),
-
-        is_active:
-          true,
-
+      addCompanyEntity(state, 'leaveTypes', {
+        id: nextId(),
+        is_active: true,
         ...action.payload,
-
       })
-
     },
-
 
     editLeaveType: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.leaveTypes,
-
+      patchCompanyEntity(
+        state,
+        'leaveTypes',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteLeaveType: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.leaveTypes,
-
+      deleteCompanyEntity(
+        state,
+        'leaveTypes',
         action.payload.id
-
       )
-
     },
-
 
     setLeaveTypeStatus: (
       state,
       action
     ) => {
-
-      setStatusById(
-
-        state.leaveTypes,
-
+      patchCompanyEntity(
+        state,
+        'leaveTypes',
         action.payload.id,
-
-        action.payload.is_active
-
+        { is_active: action.payload.is_active }
       )
-
     },
 
 
@@ -3279,278 +3052,108 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     checkIn: (
       state,
       action
     ) => {
-
-      const {
-        user,
-        company,
-        shift,
-      } =
-        action.payload
-
-
-      const today =
-        nowIso()
-          .slice(
-            0,
-            10
-          )
-
-
-      const existing =
-        state.attendance.find(
-          (record) =>
-
-            Number(
-              record.user
-            ) ===
-            Number(
-              user
-            ) &&
-
-            record.date ===
-            today
-        )
-
+      const { user, company, shift } = action.payload
+      const today = nowIso().slice(0, 10)
+      const existing = (state.attendance || []).find(
+        (record) => Number(record.user) === Number(user) && record.date === today
+      )
 
       if (existing) {
-
-        if (
-          !existing.check_in
-        ) {
-
-          existing.check_in =
-            nowIso()
-
-          existing.status =
-            existing.status ||
-            'PRESENT'
-
+        if (!existing.check_in) {
+          patchCompanyEntity(state, 'attendance', existing.id, {
+            check_in: nowIso(),
+            status: existing.status || 'PRESENT',
+          })
         }
-
         return
-
       }
 
-
-      state.attendance.push({
-
-        id:
-          nextId(),
-
-        user:
-          Number(
-            user
-          ),
-
-        company:
-          company
-            ? Number(
-                company
-              )
-            : null,
-
-        shift:
-          shift
-            ? Number(
-                shift
-              )
-            : null,
-
-        date:
-          today,
-
-        check_in:
-          nowIso(),
-
-        check_out:
-          null,
-
-        working_hours:
-          null,
-
-        status:
-          'PRESENT',
-
-        note:
-          '',
-
+      addCompanyEntity(state, 'attendance', {
+        id: nextId(),
+        user: Number(user),
+        company: company ? Number(company) : undefined,
+        shift: shift ? Number(shift) : null,
+        date: today,
+        check_in: nowIso(),
+        check_out: null,
+        working_hours: null,
+        status: 'PRESENT',
+        note: '',
       })
-
     },
-
 
     checkOut: (
       state,
       action
     ) => {
+      const { user } = action.payload
+      const today = nowIso().slice(0, 10)
+      const record = (state.attendance || []).find(
+        (r) => Number(r.user) === Number(user) && r.date === today
+      )
 
-      const {
-        user,
-      } =
-        action.payload
-
-
-      const today =
-        nowIso()
-          .slice(
-            0,
-            10
-          )
-
-
-      const record =
-        state.attendance.find(
-          (r) =>
-
-            Number(
-              r.user
-            ) ===
-            Number(
-              user
-            ) &&
-
-            r.date ===
-            today
-        )
-
-
-      if (
-        !record ||
-        !record.check_in ||
-        record.check_out
-      ) {
-
+      if (!record || !record.check_in || record.check_out) {
         return
-
       }
 
+      const checkOutTime = nowIso()
+      const hours = (new Date(checkOutTime) - new Date(record.check_in)) / (1000 * 60 * 60)
 
-      record.check_out =
-        nowIso()
-
-
-      const hours =
-        (
-          new Date(
-            record.check_out
-          ) -
-          new Date(
-            record.check_in
-          )
-        ) /
-        (
-          1000 *
-          60 *
-          60
-        )
-
-
-      record.working_hours =
-        Math.round(
-          hours * 100
-        ) /
-        100
-
+      patchCompanyEntity(state, 'attendance', record.id, {
+        check_out: checkOutTime,
+        working_hours: Math.round(hours * 100) / 100,
+      })
     },
-
 
     markAttendance: (
       state,
       action
     ) => {
-
-      const p =
-        action.payload
-
-
-      const existing =
-        state.attendance.find(
-          (r) =>
-
-            Number(
-              r.user
-            ) ===
-            Number(
-              p.user
-            ) &&
-
-            r.date ===
-            p.date
-        )
-
+      const p = action.payload
+      const existing = (state.attendance || []).find(
+        (r) => Number(r.user) === Number(p.user) && r.date === p.date
+      )
 
       if (existing) {
-
-        Object.assign(
-          existing,
-          p
-        )
-
+        patchCompanyEntity(state, 'attendance', existing.id, p)
         return
-
       }
 
-
-      state.attendance.push({
-
-        id:
-          nextId(),
-
-        check_in:
-          null,
-
-        check_out:
-          null,
-
-        working_hours:
-          null,
-
-        note:
-          '',
-
+      addCompanyEntity(state, 'attendance', {
+        id: nextId(),
+        check_in: null,
+        check_out: null,
+        working_hours: null,
+        note: '',
         ...p,
-
       })
-
     },
-
 
     editAttendance: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.attendance,
-
+      patchCompanyEntity(
+        state,
+        'attendance',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteAttendance: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.attendance,
-
+      deleteCompanyEntity(
+        state,
+        'attendance',
         action.payload.id
-
       )
-
     },
 
 
@@ -3560,117 +3163,53 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     applyLeave: (
       state,
       action
     ) => {
-
-      state.leaveRequests.push({
-
-        id:
-          nextId(),
-
-        status:
-          'PENDING',
-
-        applied_at:
-          nowIso(),
-
-        decided_by:
-          null,
-
-        decided_at:
-          null,
-
-        decision_note:
-          '',
-
+      addCompanyEntity(state, 'leaveRequests', {
+        id: nextId(),
+        status: 'PENDING',
+        applied_at: nowIso(),
+        decided_by: null,
+        decided_at: null,
+        decision_note: '',
         ...action.payload,
-
       })
-
     },
-
 
     decideLeave: (
       state,
       action
     ) => {
-
-      const {
-        id,
+      const { id, status, decided_by, decision_note } = action.payload
+      patchCompanyEntity(state, 'leaveRequests', id, {
         status,
-        decided_by,
-        decision_note,
-      } =
-        action.payload
-
-
-      patchById(
-
-        state.leaveRequests,
-
-        id,
-
-        {
-
-          status,
-
-          decided_by:
-            decided_by ||
-            null,
-
-          decided_at:
-            nowIso(),
-
-          decision_note:
-            decision_note ||
-            '',
-
-        }
-
-      )
-
+        decided_by: decided_by || null,
+        decided_at: nowIso(),
+        decision_note: decision_note || '',
+      })
     },
-
 
     cancelLeave: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.leaveRequests,
-
-        action.payload.id,
-
-        {
-          status:
-            'CANCELLED',
-        }
-
-      )
-
+      patchCompanyEntity(state, 'leaveRequests', action.payload.id, {
+        status: 'CANCELLED',
+      })
     },
-
 
     deleteLeaveRequest: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.leaveRequests,
-
+      deleteCompanyEntity(
+        state,
+        'leaveRequests',
         action.payload.id
-
       )
-
     },
-
 
     /*
     |--------------------------------------------------------------------------
@@ -3678,55 +3217,37 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
-
     addSalaryStructure: (
       state,
       action
     ) => {
-
-      state.salaryStructures.push({
-
-        id:
-          nextId(),
-
+      addCompanyEntity(state, 'salaryStructures', {
+        id: nextId(),
         ...action.payload,
-
       })
-
     },
-
 
     editSalaryStructure: (
       state,
       action
     ) => {
-
-      patchById(
-
-        state.salaryStructures,
-
+      patchCompanyEntity(
+        state,
+        'salaryStructures',
         action.payload.id,
-
         action.payload.payload
-
       )
-
     },
-
 
     deleteSalaryStructure: (
       state,
       action
     ) => {
-
-      deleteById(
-
-        state.salaryStructures,
-
+      deleteCompanyEntity(
+        state,
+        'salaryStructures',
         action.payload.id
-
       )
-
     },
 
   },
@@ -3774,15 +3295,22 @@ export const {
   setUserStatus,
 
 
-  // locations
+  // common inventory products & materials
+  addCommonProduct,
+  editCommonProduct,
+  deleteCommonProduct,
+  bulkImportCommonProducts,
+  addCommonRawMaterial,
+  editCommonRawMaterial,
+  deleteCommonRawMaterial,
+  bulkImportCommonRawMaterials,
 
-  addLocation,
-
-  editLocation,
-
-  deleteLocation,
-
-  setLocationStatus,
+  // stock ledger (Excel-style)
+  addStockLedgerEntry,
+  setOpeningStockRecord,
+  reverseStockLedgerEntry,
+  adjustStockLedgerPhysical,
+  bulkImportStockLedgerEntries,
 
 
   // items
@@ -3859,6 +3387,8 @@ export const {
 
   addBatch,
 
+  startProductionBatchFromOrder,
+
   editBatch,
 
   deleteBatch,
@@ -3889,6 +3419,8 @@ export const {
   addQaRecord,
 
   editQaRecord,
+
+  approveQaRelease,
 
   addPaymentRecord,
 

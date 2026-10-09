@@ -18,6 +18,7 @@ import {
   setOrderStatus,
 
   addBatch,
+  startProductionBatchFromOrder,
   editBatch,
 
   consumeBatchMaterial as consumeBatchMaterialAction,
@@ -459,105 +460,46 @@ export const operationsService = {
   },
 
   /* ========================================================
-     CUSTOMERS
+     CUSTOMERS (SHARED)
      ======================================================== */
 
   getCustomers: () => {
-
-    const state =
-      store.getState().erp
-
-
-    return delay(
-      companyRows(
-        state.customers
-      )
-    )
-
+    const state = store.getState().erp
+    return delay(Array.isArray(state.customers) ? state.customers : [])
   },
 
-
-  createCustomer: (
-    payload
-  ) => {
-
-    const scoped = enforceCompanyPayload(payload)
-
-    store.dispatch(
-      addCustomer(
-        scoped
-      )
-    )
-
+  createCustomer: (payload) => {
+    const safePayload = { ...payload }
+    store.dispatch(addCustomer(safePayload))
     recordAudit({
       action: 'customer/created',
       entityType: 'Customer',
-      entityId: scoped.code || scoped.name,
-      payload: { name: scoped.name, gstin: scoped.gstin, state: scoped.state },
+      entityId: safePayload.code || safePayload.name,
+      payload: { name: safePayload.name, gstin: safePayload.gstin, state: safePayload.state },
     })
-
     return delay(null)
-
   },
 
-
-  updateCustomer: (
-    id,
-    payload
-  ) => {
-
-    const state =
-      store.getState().erp
-
-
-    assertCompanyRecord(
-      state.customers,
-      id
-    )
-
-
-    const safePayload = {
-      ...payload,
-    }
-
-
-    delete safePayload.company
-
-
+  updateCustomer: (id, payload) => {
+    const safePayload = { ...payload }
     store.dispatch(
       editCustomer({
         id,
-        payload:
-          safePayload,
+        payload: safePayload,
       })
     )
-
     recordAudit({
       action: 'customer/updated',
       entityType: 'Customer',
       entityId: payload.code || id,
       payload: safePayload,
     })
-
     return delay(null)
-
   },
 
-
-  deleteCustomer: (
-    id
-  ) => {
-
-    const state =
-      store.getState().erp
-
-
-    assertCompanyRecord(
-      state.customers,
-      id
-    )
-
-    const existing = state.customers.find((c) => Number(c.id) === Number(id))
+  deleteCustomer: (id) => {
+    const state = store.getState().erp
+    const existing = state.customers?.find((c) => Number(c.id) === Number(id))
 
     store.dispatch(
       deleteCustomer({
@@ -573,7 +515,6 @@ export const operationsService = {
     })
 
     return delay(null)
-
   },
 
 
@@ -1100,6 +1041,23 @@ export const operationsService = {
 
     return delay(null)
 
+  },
+
+  produceBatchFromOrder: (payload) => {
+    store.dispatch(startProductionBatchFromOrder(payload))
+    recordAudit({
+      action: 'production/batchCreatedFromOrder',
+      entityType: 'Batch',
+      entityId: payload.batchNumber,
+      payload: {
+        orderId: payload.orderId,
+        orderNumber: payload.orderNumber,
+        productName: payload.productName,
+        plannedQuantity: payload.plannedQuantity,
+        materialsIssued: payload.materialsToIssue?.length || 0,
+      },
+    })
+    return delay(null)
   },
 
 }

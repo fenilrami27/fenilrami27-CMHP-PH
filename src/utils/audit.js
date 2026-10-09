@@ -226,8 +226,10 @@ export function recordAudit({ action, payload, state }) {
   })
 }
 
-export function getAuditRows() {
-  return readLogsFromStorage()
+export function getAuditRows(targetCompany = null) {
+  const all = readLogsFromStorage()
+  if (!targetCompany) return all
+  return all.filter((l) => Number(l.company_id) === Number(targetCompany))
 }
 
 export function getEntityAuditLogs(entityType, entityId) {

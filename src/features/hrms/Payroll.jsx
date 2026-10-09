@@ -61,6 +61,7 @@ import {
 import '../companies/Companies.css'
 import './Hrms.css'
 import './Payroll.css'
+import MySalary from './MySalary'
 
 
 const EMPTY_FORM = {
@@ -1466,7 +1467,6 @@ export default function Payroll() {
 
   const [
     statutoryConfig,
-    setStatutoryConfig,
   ] = useState(() =>
     loadJson(STATUTORY_CONFIG_KEY, DEFAULT_STATUTORY)
   )
@@ -1477,11 +1477,6 @@ export default function Payroll() {
   ] = useState(() =>
     loadJson(PAYROLL_RUNS_KEY, [])
   )
-
-  const [
-    statutorySuccess,
-    setStatutorySuccess,
-  ] = useState('')
 
 
   const load =
@@ -2730,30 +2725,8 @@ export default function Payroll() {
   }
 
 
-  if (
-    !canManage
-  ) {
-
-    return (
-
-      <div className="hr-page">
-
-        <section className="company-panel company-no-access">
-
-          <h1>
-            Payroll
-          </h1>
-
-          <p>
-            Your current role does not
-            have access to payroll management.
-          </p>
-
-        </section>
-
-      </div>
-
-    )
+  if (!canManage) {
+    return <MySalary />
   }
 
 
@@ -2921,24 +2894,6 @@ export default function Payroll() {
           >
             Monthly Payroll
           </button>
-
-          <button
-            type="button"
-            className={
-              tab ===
-              'statutory'
-                ? 'hr-tab active'
-                : 'hr-tab'
-            }
-            onClick={() =>
-              setTab(
-                'statutory'
-              )
-            }
-          >
-            Statutory Rules (PF / ESI / PT)
-          </button>
-
         </div>
 
 
@@ -3722,187 +3677,6 @@ export default function Payroll() {
 
           </>
 
-        )}
-
-        {tab === 'statutory' && (
-          <div style={{ padding: '20px 0' }}>
-            <div style={{ marginBottom: 20 }}>
-              <h3 style={{ margin: '0 0 6px 0', fontSize: 18, color: '#0f172a' }}>
-                Statutory Deductions & Contributions Configuration
-              </h3>
-              <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>
-                Configure Employee Provident Fund (EPF), Employee State Insurance (ESIC), and Gujarat Professional Tax (PT). These rules calculate automatically during monthly payroll and can be customized or toggled on/off at any time.
-              </p>
-            </div>
-
-            {statutorySuccess && (
-              <Alert type="success">
-                {statutorySuccess}
-              </Alert>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 24 }}>
-              {/* EPF Card */}
-              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
-                  <h4 style={{ margin: 0, fontSize: 16, color: '#0369a1' }}>
-                    🏢 Provident Fund (EPF)
-                  </h4>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    <input
-                      type="checkbox"
-                      checked={statutoryConfig.pfEnabled}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, pfEnabled: e.target.checked }))}
-                    />
-                    {statutoryConfig.pfEnabled ? 'Active' : 'Disabled'}
-                  </label>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                      Employee Contribution (%)
-                    </label>
-                    <input
-                      className="field-input"
-                      type="number"
-                      step="0.1"
-                      value={statutoryConfig.pfEmployeeRate}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, pfEmployeeRate: Number(e.target.value) || 0 }))}
-                      disabled={!statutoryConfig.pfEnabled}
-                    />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Standard Indian statutory rate: 12%</span>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                      Statutory Wage Ceiling Cap (₹)
-                    </label>
-                    <input
-                      className="field-input"
-                      type="number"
-                      value={statutoryConfig.pfWageCap}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, pfWageCap: Number(e.target.value) || 0 }))}
-                      disabled={!statutoryConfig.pfEnabled}
-                    />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Default EPFO cap: ₹15,000/mo (Set 0 for uncapped full basic)</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ESIC Card */}
-              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
-                  <h4 style={{ margin: 0, fontSize: 16, color: '#0369a1' }}>
-                    🏥 Employee State Insurance (ESIC)
-                  </h4>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    <input
-                      type="checkbox"
-                      checked={statutoryConfig.esiEnabled}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, esiEnabled: e.target.checked }))}
-                    />
-                    {statutoryConfig.esiEnabled ? 'Active' : 'Disabled'}
-                  </label>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                      Employee Contribution (%)
-                    </label>
-                    <input
-                      className="field-input"
-                      type="number"
-                      step="0.05"
-                      value={statutoryConfig.esiEmployeeRate}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, esiEmployeeRate: Number(e.target.value) || 0 }))}
-                      disabled={!statutoryConfig.esiEnabled}
-                    />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Standard statutory employee rate: 0.75%</span>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                      Eligibility Gross Wage Limit (₹)
-                    </label>
-                    <input
-                      className="field-input"
-                      type="number"
-                      value={statutoryConfig.esiGrossLimit}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, esiGrossLimit: Number(e.target.value) || 0 }))}
-                      disabled={!statutoryConfig.esiEnabled}
-                    />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Applicable to employees earning gross ≤ ₹21,000/mo</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Professional Tax (PT) Card */}
-              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
-                  <h4 style={{ margin: 0, fontSize: 16, color: '#0369a1' }}>
-                    🏛️ Professional Tax (PT - Gujarat)
-                  </h4>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    <input
-                      type="checkbox"
-                      checked={statutoryConfig.ptEnabled}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, ptEnabled: e.target.checked }))}
-                    />
-                    {statutoryConfig.ptEnabled ? 'Active' : 'Disabled'}
-                  </label>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                      Monthly Exemption Slab Threshold (₹)
-                    </label>
-                    <input
-                      className="field-input"
-                      type="number"
-                      value={statutoryConfig.ptSlabThreshold}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, ptSlabThreshold: Number(e.target.value) || 0 }))}
-                      disabled={!statutoryConfig.ptEnabled}
-                    />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Gujarat PT: ₹0 deduction if salary ≤ ₹12,000</span>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 }}>
-                      Monthly Deduction Amount (₹)
-                    </label>
-                    <input
-                      className="field-input"
-                      type="number"
-                      value={statutoryConfig.ptAmount}
-                      onChange={(e) => setStatutoryConfig(c => ({ ...c, ptAmount: Number(e.target.value) || 0 }))}
-                      disabled={!statutoryConfig.ptEnabled}
-                    />
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Standard Gujarat PT: ₹200 per month</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <Button
-                onClick={() => {
-                  saveJson(STATUTORY_CONFIG_KEY, statutoryConfig)
-                  recordAudit({
-                    action: 'hr/statutoryConfigUpdated',
-                    entityType: 'PayrollSettings',
-                    payload: statutoryConfig,
-                  })
-                  setStatutorySuccess('Statutory deduction configuration saved successfully.')
-                  setTimeout(() => setStatutorySuccess(''), 4000)
-                }}
-              >
-                💾 Save Statutory Configuration
-              </Button>
-            </div>
-          </div>
         )}
 
       </section>

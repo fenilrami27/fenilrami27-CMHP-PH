@@ -14,6 +14,12 @@ import {
 } from '../../store/erpSlice'
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
 import {
+  selectProducts,
+  selectFormulas,
+  selectActiveCompanyId,
+  selectActiveCompanyKey,
+} from '../../utils/companySelectors'
+import {
   SUPPORTED_UNITS,
   calculateBatchScaleFactor,
   calculateRevisionRequirements,
@@ -37,33 +43,14 @@ const DOSAGE_FORMS = [
   'Emulsion',
 ]
 
-const COMMON_RAW_MATERIALS = [
-  'Paracetamol IP/BP (Active API)',
-  'Amoxicillin Trihydrate Compacted (API)',
-  'Omeprazole Base BP (Active API)',
-  'Microcrystalline Cellulose (Avicel PH-101)',
-  'Microcrystalline Cellulose (Avicel PH-102)',
-  'Maize Starch BP (Binder & Disintegrant)',
-  'Povidone K-30 (Wet Granulating Binder)',
-  'Croscarmellose Sodium (Superdisintegrant)',
-  'Crosspovidone XL (Superdisintegrant)',
-  'Magnesium Stearate (Lubricant)',
-  'Talc Purified USP (Glidant & Anti-tacking)',
-  'Colloidal Silicon Dioxide (Aerosil 200)',
-  'Lactose Monohydrate',
-  'Sucrose Extra Fine (Sweetener)',
-  'Sodium Benzoate (Preservative)',
-  'Sodium Citrate Dihydrate (Buffer)',
-  'Xanthan Gum (Suspending Agent)',
-  'Hypromellose (HPMC 2910)',
-  'Methacrylic Acid Copolymer Type C',
-  'Triethyl Citrate (Plasticizer)',
-  'Purified Water USP',
-]
+const COMMON_RAW_MATERIALS = []
 
 export default function Products() {
   const dispatch = useDispatch()
-  const { products = [], formulas = [] } = useSelector((state) => state.erp)
+  const products = useSelector(selectProducts)
+  const formulas = useSelector(selectFormulas)
+  const activeCompanyId = useSelector(selectActiveCompanyId)
+  const activeCompanyKey = useSelector(selectActiveCompanyKey)
 
   // Navigation & View Mode
   const [activeView, setActiveView] = useState('list') // 'list' | 'formula'
@@ -290,7 +277,7 @@ export default function Products() {
 
   const handleOpenAddProduct = () => {
     setModalError('')
-    const generatedCode = previewDocumentNumber('PRODUCT')
+    const generatedCode = previewDocumentNumber('PRODUCT', activeCompanyId)
     setProductForm({
       name: '',
       code: generatedCode,
@@ -333,7 +320,7 @@ export default function Products() {
     }
 
     if (productModalMode === 'add') {
-      const finalCode = commitDocumentNumber('PRODUCT')
+      const finalCode = commitDocumentNumber('PRODUCT', activeCompanyId)
       dispatch(
         addProduct({
           name: productForm.name.trim(),
@@ -342,6 +329,8 @@ export default function Products() {
           strength: productForm.strength.trim(),
           pack_size: productForm.pack_size.trim(),
           description: productForm.description.trim(),
+          company: activeCompanyId,
+          companyId: activeCompanyKey,
         })
       )
       setNotification({
@@ -412,6 +401,8 @@ export default function Products() {
         name: newFormulaData.name.trim(),
         base_quantity: bQty,
         base_unit: newFormulaData.base_unit,
+        company: activeCompanyId,
+        companyId: activeCompanyKey,
         revisions: [
           {
             id: defaultRevId,
@@ -640,30 +631,31 @@ export default function Products() {
         <Alert type={notification.type}>{notification.message}</Alert>
       )}
 
+      {/* Top Photo Banner (Consistent with all ERP pages) */}
+      <div className="products-header top-banner">
+        <div>
+          <span className="page-hero-pill">PHARMACEUTICAL FORMULATION</span>
+          <h1>Products &amp; Formulations</h1>
+          <p>
+            Pharma-grade product master, master formula records (MFR), revisions, and live batch scaling.
+          </p>
+        </div>
+      </div>
+
       {/* =========================================================
           VIEW 1: PRODUCT LIST
           ========================================================= */}
       {activeView === 'list' && (
         <>
-          {/* Header */}
-          <div className="products-header">
-            <div className="products-header-title">
-              <h1>
-                <span>💊</span> Products & Formulations
-              </h1>
-              <p>
-                Pharma-grade product master, master formula records (MFR), revisions, and live batch scaling.
-              </p>
+          {/* Top Stats Overview */}
+          <div className="products-stats-row">
+            <div className="product-stat-badge">
+              <span className="num">{products.length}</span>
+              <span className="label">Total Products</span>
             </div>
-            <div className="products-stats-row">
-              <div className="product-stat-badge">
-                <span className="num">{products.length}</span>
-                <span className="label">Total Products</span>
-              </div>
-              <div className="product-stat-badge">
-                <span className="num">{formulas.length}</span>
-                <span className="label">Master Formulas</span>
-              </div>
+            <div className="product-stat-badge">
+              <span className="num">{formulas.length}</span>
+              <span className="label">Master Formulas</span>
             </div>
           </div>
 
@@ -818,6 +810,17 @@ export default function Products() {
       {/* =========================================================
           VIEW 2: FORMULA FLOW & LIVE BATCH CALCULATION
           ========================================================= */}
+      {activeView === 'formula' && !activeProduct && (
+        <div className="products-card">
+          <div className="products-empty-state">
+            <span className="products-empty-icon">📦</span>
+            <h3>No Product Selected</h3>
+            <p>Please select a product from the product list to view or configure its Master Formulas.</p>
+            <Button onClick={() => setActiveView('list')}>← Back to Products List</Button>
+          </div>
+        </div>
+      )}
+
       {activeView === 'formula' && activeProduct && (
         <div className="formula-flow-panel">
           {/* Active Product Banner */}
@@ -1132,6 +1135,23 @@ export default function Products() {
           )}
 
           {/* STEP 2: RAW MATERIALS */}
+          {formulaStep === 2 && (!activeFormula || !activeRevision) && (
+            <div className="formula-step-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>🧪</div>
+              <h3 style={{ fontSize: '18px', color: '#123f61', marginBottom: '8px' }}>
+                No Master Formula or Revision Selected
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '14px', maxWidth: '480px', margin: '0 auto 20px auto' }}>
+                Please select or create an approved Master Formula and Revision in Step 1 before specifying raw materials.
+              </p>
+              <div>
+                <Button onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1: Formula &amp; Revision
+                </Button>
+              </div>
+            </div>
+          )}
+
           {formulaStep === 2 && activeFormula && activeRevision && (
             <div className="formula-step-card">
               <div className="formula-step-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -1159,7 +1179,7 @@ export default function Products() {
                       type="text"
                       className="field-input"
                       list="common-materials-list"
-                      placeholder="e.g. Paracetamol IP, Maize Starch, etc."
+                      placeholder="Enter raw material name (API, binder, excipient...)"
                       value={materialForm.name}
                       onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })}
                     />
@@ -1438,7 +1458,17 @@ export default function Products() {
                     </tr>
                   </thead>
                   <tbody>
-                    {calculatedMaterials.length === 0 ? (
+                    {!requiredBatchQty || Number(requiredBatchQty) <= 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                          <div style={{ fontSize: '24px', marginBottom: '8px' }}>⚖️</div>
+                          <div style={{ fontWeight: 600, color: '#123f61', marginBottom: '4px' }}>
+                            Enter Batch Quantity to Run Calculation
+                          </div>
+                          <div>Specify a batch quantity above to calculate stoichiometric requirements for this revision.</div>
+                        </td>
+                      </tr>
+                    ) : calculatedMaterials.length === 0 ? (
                       <tr>
                         <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                           No raw materials defined in <strong>{activeRevision.name}</strong>. Add materials in Step 2 to generate live batch requirements.
@@ -1546,7 +1576,7 @@ export default function Products() {
               <input
                 type="text"
                 className="pharma-input"
-                placeholder="e.g. Paracetamol Tablets"
+                placeholder="Enter product name"
                 value={productForm.name}
                 onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
                 required

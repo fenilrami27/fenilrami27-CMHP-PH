@@ -292,11 +292,133 @@ export default function Shifts() {
   const paginatedShifts = filteredShifts.slice((page - 1) * pageSize, page * pageSize)
 
   if (!canManage) {
+    const myEmployee =
+      employees.find(
+        (emp) =>
+          Number(emp.id) === Number(user?.id) ||
+          emp.username === user?.username
+      ) || user
+
+    const fullName =
+      myEmployee?.display_name ||
+      `${myEmployee?.first_name || ''} ${myEmployee?.last_name || ''}`.trim() ||
+      myEmployee?.full_name ||
+      myEmployee?.username ||
+      'Employee'
+
+    const designation =
+      myEmployee?.designation_name ||
+      myEmployee?.designation?.title ||
+      myEmployee?.designation ||
+      myEmployee?.profile?.designation ||
+      'Staff Member'
+
+    const myShiftId =
+      myEmployee?.shift?.id ??
+      myEmployee?.shift ??
+      myEmployee?.profile?.shift
+
+    const myShift =
+      shifts.find((s) => Number(s.id) === Number(myShiftId)) ||
+      (typeof myEmployee?.shift === 'object' ? myEmployee?.shift : null)
+
+    const shiftName = myShift?.name || 'General Shift'
+    const shiftTimings =
+      myShift?.start_time && myShift?.end_time
+        ? `${myShift.start_time} - ${myShift.end_time}`
+        : '09:00 AM - 05:00 PM'
+
     return (
       <div className="hr-page">
-        <section className="company-panel">
-          <h1>Shifts</h1>
-          <p>Your current role does not have access to shift masters.</p>
+        <div className="hr-header">
+          <div>
+            <span className="dash-pill" style={{ marginBottom: 6, display: 'inline-block' }}>
+              HRMS
+            </span>
+            <h1>My Assigned Shift</h1>
+            <p>Your work shift schedule, timings, and designation details.</p>
+          </div>
+        </div>
+
+        <section className="company-panel" style={{ maxWidth: 640 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+              padding: '24px 28px',
+              background: '#ffffff',
+              borderRadius: 14,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 4px 12px rgba(15, 23, 42, 0.05)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  background: '#f0fdf4',
+                  color: '#16a34a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 24,
+                  fontWeight: 700,
+                }}
+              >
+                {fullName.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 20, color: '#0f172a' }}>{fullName}</h2>
+                <div style={{ fontSize: 14, color: '#64748b', marginTop: 2, fontWeight: 500 }}>
+                  Designation: <strong style={{ color: '#0284c7' }}>{designation}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 16,
+                padding: '16px 20px',
+                background: '#f8fafc',
+                borderRadius: 10,
+                border: '1px solid #f1f5f9',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Shift Name
+                </span>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginTop: 4 }}>
+                  {shiftName}
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Shift Timings
+                </span>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a', marginTop: 4 }}>
+                  🕒 {shiftTimings}
+                </div>
+              </div>
+
+              {myShift?.weekly_off && (
+                <div>
+                  <span style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>
+                    Weekly Off
+                  </span>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#475569', marginTop: 4 }}>
+                    {myShift.weekly_off}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </section>
       </div>
     )

@@ -25,6 +25,7 @@ import {
 } from '../../utils/workspace'
 
 import { setActiveCompanyId } from '../../store/erpSlice'
+import useWorkspace from '../../hooks/useWorkspace'
 
 import './WorkspaceSelection.css'
 
@@ -58,6 +59,9 @@ export default function WorkspaceSelection() {
     logout,
   } = useAuth()
 
+  const {
+    setActiveWorkspace,
+  } = useWorkspace()
 
   const navigate =
     useNavigate()
@@ -130,6 +134,12 @@ export default function WorkspaceSelection() {
     setSelectedWorkspace(
       workspace.id
     )
+
+    if (setActiveWorkspace) {
+      setActiveWorkspace(
+        workspace.id
+      )
+    }
 
 
     if (

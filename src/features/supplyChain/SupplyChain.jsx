@@ -58,7 +58,6 @@ const emptyGRN = {
   supplier: '',
   po: '',
   item: '',
-  location: '',
   lot_number: '',
   quantity: '',
   manufacture_date: '',
@@ -199,9 +198,6 @@ export default function SupplyChain() {
   const [items, setItems] =
     useState([])
 
-  const [locations, setLocations] =
-    useState([])
-
   const [lots, setLots] =
     useState([])
 
@@ -312,7 +308,6 @@ export default function SupplyChain() {
         companyResponse,
         supplierResponse,
         itemResponse,
-        locationResponse,
         lotResponse,
         customerResponse,
         batchResponse,
@@ -332,8 +327,6 @@ export default function SupplyChain() {
         supplyChainService.getSuppliers(),
 
         supplyChainService.getItems(),
-
-        supplyChainService.getLocations(),
 
         supplyChainService.getLots(),
 
@@ -369,10 +362,6 @@ export default function SupplyChain() {
 
       setItems(
         itemResponse.data || []
-      )
-
-      setLocations(
-        locationResponse.data || []
       )
 
       setLots(
@@ -653,12 +642,6 @@ export default function SupplyChain() {
         )
       }
 
-      if (!grnForm.location) {
-        throw new Error(
-          'Please select a storage location.'
-        )
-      }
-
       if (!grnForm.quantity) {
         throw new Error(
           'Please enter quantity.'
@@ -801,6 +784,13 @@ export default function SupplyChain() {
         throw new Error(
           'Please select a company.'
         )
+      }
+
+      if (dispatchForm.batch) {
+        const selBatch = batches.find((b) => String(b.id) === String(dispatchForm.batch))
+        if (selBatch && selBatch.qa_status !== 'RELEASED' && selBatch.qa_status !== 'APPROVED') {
+          throw new Error(`Cannot dispatch Batch ${selBatch.number}: Batch has not passed QA release sign-off yet.`)
+        }
       }
 
       const finalDispatchNum = commitDocumentNumber('DELIVERY', dispatchForm.company || getScopedCompanyId())
@@ -2325,39 +2315,6 @@ export default function SupplyChain() {
 
 
                 <Field
-                  label="Storage Location"
-                  required
-                >
-                  <Select
-                    value={grnForm.location}
-                    onChange={(e) =>
-                      setGrnForm({
-                        ...grnForm,
-                        location:
-                          e.target.value,
-                      })
-                    }
-                    required
-                  >
-                    <option value="">
-                      Select location
-                    </option>
-
-                    {locations.map(
-                      (location) => (
-                        <option
-                          key={location.id}
-                          value={location.id}
-                        >
-                          {location.code} - {location.name}
-                        </option>
-                      )
-                    )}
-                  </Select>
-                </Field>
-
-
-                <Field
                   label="Lot Number"
                   required
                 >
@@ -2825,17 +2782,18 @@ export default function SupplyChain() {
                       Select batch
                     </option>
 
-                    {batches.map(
-                      (batch) => (
+                    {batches.map((batch) => {
+                      const isQaPassed = batch.qa_status === 'RELEASED' || batch.qa_status === 'APPROVED'
+                      return (
                         <option
                           key={batch.id}
                           value={batch.id}
+                          disabled={!isQaPassed}
                         >
-                          {batch.number ||
-                            `BATCH-${batch.id}`}
+                          {batch.number || `BATCH-${batch.id}`} {isQaPassed ? '✓ (QA Released)' : '⏳ (Awaiting QA)'}
                         </option>
                       )
-                    )}
+                    })}
                   </Select>
                 </Field>
 

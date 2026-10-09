@@ -16,7 +16,6 @@ const QC_CHIP = {
 
 const emptyReceipt = {
   item: '',
-  location: '',
   lot_number: '',
   supplier_name: '',
   manufacture_date: '',
@@ -31,7 +30,6 @@ const listData = (response) =>
 export default function StockTab({ role }) {
   const [lots, setLots] = useState([])
   const [items, setItems] = useState([])
-  const [locations, setLocations] = useState([])
   const [error, setError] = useState('')
   const [showReceipt, setShowReceipt] = useState(false)
   const [receiptForm, setReceiptForm] = useState(emptyReceipt)
@@ -39,17 +37,13 @@ export default function StockTab({ role }) {
 
   const load = async () => {
     try {
-      const [lotsResponse, itemsResponse, locationsResponse] = await Promise.all([
+      const [lotsResponse, itemsResponse] = await Promise.all([
         inventoryService.getLots(),
         inventoryService.getItems(),
-        inventoryService.getLocations(),
       ])
 
       setLots(listData(lotsResponse))
       setItems(listData(itemsResponse).filter((item) => item.is_active !== false))
-      setLocations(
-        listData(locationsResponse).filter((location) => location.is_active !== false)
-      )
     } catch (err) {
       setError(getErrorMessage(err))
     }
@@ -69,8 +63,8 @@ export default function StockTab({ role }) {
   const submitReceipt = async (event) => {
     event.preventDefault()
 
-    if (!receiptForm.item || !receiptForm.location) {
-      setError('Select an active item and storage location.')
+    if (!receiptForm.item) {
+      setError('Select an active item.')
       return
     }
 
@@ -123,8 +117,7 @@ export default function StockTab({ role }) {
 
   const canReceipt =
     can(role, 'create') &&
-    items.length > 0 &&
-    locations.length > 0
+    items.length > 0
 
   return (
     <div className="inv-panel">
@@ -134,7 +127,7 @@ export default function StockTab({ role }) {
 
           {can(role, 'create') && !canReceipt && (
             <p style={{ marginTop: 4, fontSize: 12, color: '#7d92aa' }}>
-              Create at least one active material and storage location before recording a receipt.
+              Create at least one active material before recording a receipt.
             </p>
           )}
         </div>
@@ -160,7 +153,6 @@ export default function StockTab({ role }) {
             <tr>
               <th>Item</th>
               <th>Lot #</th>
-              <th>Location</th>
               <th>QC status</th>
               <th>Expiry</th>
               <th>Available qty</th>
@@ -175,7 +167,6 @@ export default function StockTab({ role }) {
                   {lot.item_code} — {lot.item_name}
                 </td>
                 <td>{lot.lot_number}</td>
-                <td>{lot.location_name}</td>
                 <td>
                   <span className={`inv-chip ${QC_CHIP[lot.qc_status]}`}>
                     {lot.qc_status}
@@ -252,27 +243,6 @@ export default function StockTab({ role }) {
                   {items.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.code} — {item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="field">
-                <label className="field-label">Location</label>
-
-                <select
-                  className="field-input"
-                  value={receiptForm.location}
-                  onChange={(event) =>
-                    setReceiptForm({ ...receiptForm, location: event.target.value })
-                  }
-                  required
-                >
-                  <option value="">Select location</option>
-
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.code} — {location.name}
                     </option>
                   ))}
                 </select>

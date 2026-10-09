@@ -12,6 +12,12 @@ import { invoiceService } from './invoiceService'
 import { previewDocumentNumber } from '../../utils/documentNumbers'
 import { formatINR, numberToWordsINR, formatDateIN, formatDateTimeIN } from '../../utils/formatters'
 import { getEntityAuditLogs, recordAudit } from '../../utils/audit'
+import {
+  ReceiptIcon,
+  WalletIcon,
+  ClockIcon,
+  AlertIcon,
+} from '../../components/icons'
 import useAuth from '../../hooks/useAuth'
 import './Invoice.css'
 
@@ -184,15 +190,37 @@ export default function Invoice() {
       .filter((i) => i.status !== 'PAID' && i.status !== 'CANCELLED')
       .reduce((sum, i) => sum + (Number(i.balance_due !== undefined ? i.balance_due : i.total) || 0), 0)
 
+    const today = new Date().toISOString().slice(0, 10)
+    const overdueInvoices = invoices.filter((i) => {
+      if (i.status === 'PAID' || i.status === 'CANCELLED') return false
+      if (i.status === 'OVERDUE') return true
+      return Boolean(i.due_date && i.due_date < today)
+    })
+
+    const overdueAmount = overdueInvoices.reduce(
+      (sum, i) => sum + (Number(i.balance_due !== undefined ? i.balance_due : i.total) || 0),
+      0
+    )
+
     const activeCount = invoices.filter(
       (i) => i.status !== 'CANCELLED'
+    ).length
+
+    const paidCount = invoices.filter((i) => i.status === 'PAID').length
+    const overdueCount = overdueInvoices.length
+    const pendingCount = invoices.filter(
+      (i) => i.status !== 'PAID' && i.status !== 'CANCELLED' && !overdueInvoices.includes(i)
     ).length
 
     return {
       totalInvoiced,
       paid,
       outstanding,
+      overdueAmount,
       activeCount,
+      paidCount,
+      pendingCount,
+      overdueCount,
     }
   }, [invoices])
 
@@ -640,21 +668,48 @@ export default function Invoice() {
       {success && <Alert type="success">{success}</Alert>}
 
       <div className="inv-kpis">
-        <div className="inv-kpi-card">
-          <span>Total Invoiced</span>
-          <strong>₹{formatINR(kpis.totalInvoiced)}</strong>
+        <div className="inv-kpi-card kpi-total">
+          <div className="inv-kpi-top">
+            <div className="inv-kpi-icon blue">
+              <ReceiptIcon size={18} />
+            </div>
+            <span className="inv-kpi-label">Total Invoiced</span>
+          </div>
+          <div className="inv-kpi-value">{formatINR(kpis.totalInvoiced)}</div>
+          <span className="inv-kpi-subtext">{kpis.activeCount} active invoices</span>
         </div>
-        <div className="inv-kpi-card">
-          <span>Collected / Paid</span>
-          <strong style={{ color: '#059669' }}>₹{formatINR(kpis.paid)}</strong>
+
+        <div className="inv-kpi-card kpi-paid">
+          <div className="inv-kpi-top">
+            <div className="inv-kpi-icon green">
+              <WalletIcon size={18} />
+            </div>
+            <span className="inv-kpi-label">Collected / Paid</span>
+          </div>
+          <div className="inv-kpi-value text-green">{formatINR(kpis.paid)}</div>
+          <span className="inv-kpi-subtext">{kpis.paidCount} fully settled</span>
         </div>
-        <div className="inv-kpi-card">
-          <span>Outstanding Balance</span>
-          <strong style={{ color: '#dc2626' }}>₹{formatINR(kpis.outstanding)}</strong>
+
+        <div className="inv-kpi-card kpi-pending">
+          <div className="inv-kpi-top">
+            <div className="inv-kpi-icon orange">
+              <ClockIcon size={18} />
+            </div>
+            <span className="inv-kpi-label">Pending / Outstanding</span>
+          </div>
+          <div className="inv-kpi-value text-orange">{formatINR(kpis.outstanding)}</div>
+          <span className="inv-kpi-subtext">{kpis.pendingCount} pending payment</span>
         </div>
-        <div className="inv-kpi-card">
-          <span>Active Invoices</span>
-          <strong>{kpis.activeCount}</strong>
+
+        <div className="inv-kpi-card kpi-overdue">
+          <div className="inv-kpi-top">
+            <div className="inv-kpi-icon red">
+              <AlertIcon size={18} />
+            </div>
+            <span className="inv-kpi-label">Overdue Amount</span>
+          </div>
+          <div className="inv-kpi-value text-red">{formatINR(kpis.overdueAmount)}</div>
+          <span className="inv-kpi-subtext">{kpis.overdueCount} require follow-up</span>
         </div>
       </div>
 
@@ -1348,18 +1403,18 @@ export default function Invoice() {
           {/* TAB 2: PAYMENTS & BALANCE */}
           {activeViewTab === 'payments' && (
             <div style={{ padding: '8px 0' }}>
-              <div className="inv-kpis" style={{ marginBottom: '16px' }}>
-                <div className="inv-kpi-card">
+              <div className="inv-modal-kpis" style={{ marginBottom: '16px' }}>
+                <div className="inv-modal-kpi-card">
                   <span>Total Billed</span>
-                  <strong>₹{formatINR(viewing.total)}</strong>
+                  <strong>{formatINR(viewing.total)}</strong>
                 </div>
-                <div className="inv-kpi-card">
+                <div className="inv-modal-kpi-card">
                   <span>Total Received</span>
-                  <strong style={{ color: '#059669' }}>₹{formatINR(viewing.total_paid || 0)}</strong>
+                  <strong style={{ color: '#059669' }}>{formatINR(viewing.total_paid || 0)}</strong>
                 </div>
-                <div className="inv-kpi-card">
+                <div className="inv-modal-kpi-card">
                   <span>Balance Due</span>
-                  <strong style={{ color: '#dc2626' }}>₹{formatINR(viewing.balance_due !== undefined ? viewing.balance_due : viewing.total)}</strong>
+                  <strong style={{ color: '#dc2626' }}>{formatINR(viewing.balance_due !== undefined ? viewing.balance_due : viewing.total)}</strong>
                 </div>
               </div>
 

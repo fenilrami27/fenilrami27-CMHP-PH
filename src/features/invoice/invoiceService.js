@@ -143,13 +143,18 @@ export const invoiceService = {
 
   getInvoice: (id) => {
     const state = store.getState().erp
+    const companyId = getScopedCompanyId()
     const invoice = state.invoices.find((row) => Number(row.id) === Number(id))
-    return delay(invoice ? hydrateInvoice(invoice, state) : null)
+    if (!invoice || (companyId && Number(invoice.company) !== Number(companyId))) {
+      return delay(null)
+    }
+    return delay(hydrateInvoice(invoice, state))
   },
 
   createInvoice: (payload, user = null) => {
     const scoped = enforceCompanyPayload(payload)
     const companyId = Number(scoped.company) || 1
+    const companyKey = companyId === 2 ? 'tej' : 'cmhp'
     const invoiceNumber = payload.number || commitDocumentNumber('INVOICE', companyId)
 
     const rawTotal = (payload.lines || []).reduce((sum, l) => {
@@ -162,6 +167,7 @@ export const invoiceService = {
       ...scoped,
       number: invoiceNumber,
       company: companyId,
+      companyId: companyKey,
       customer: Number(scoped.customer),
       order: scoped.order ? Number(scoped.order) : null,
       batch: scoped.batch ? Number(scoped.batch) : null,
@@ -220,6 +226,7 @@ export const invoiceService = {
       invoice_id: invoice.id,
       invoice_number: invoice.number,
       company: invoice.company,
+      companyId: Number(invoice.company) === 2 ? 'tej' : 'cmhp',
       customer: invoice.customer,
       amount: payAmount,
       mode: mode || 'NEFT',

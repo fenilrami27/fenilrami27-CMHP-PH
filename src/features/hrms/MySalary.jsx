@@ -38,6 +38,7 @@ import {
 import {
   getPayrollPayment,
 } from './payrollPayments'
+import { logAudit } from '../../utils/audit'
 
 import './Hrms.css'
 import './MySalary.css'
@@ -876,25 +877,19 @@ function printSalarySlip({
   month,
   companyName,
 }) {
-
-  if (!payment) {
-
-    throw new Error(
-      'Salary slip is available only after the salary is marked as paid.'
-    )
-
+  const effectivePayment = payment || {
+    status: 'ISSUED',
+    paidAt: new Date().toISOString(),
   }
-
 
   const html =
     buildSlipHtml({
       employee,
       structure,
-      payment,
+      payment: effectivePayment,
       month,
       companyName,
     })
-
 
   const popup =
     window.open(
@@ -903,24 +898,17 @@ function printSalarySlip({
       'width=950,height=900'
     )
 
-
   if (!popup) {
-
     throw new Error(
       'Please allow popups to open the salary slip.'
     )
-
   }
 
-
   popup.document.open()
-
   popup.document.write(
     html
   )
-
   popup.document.close()
-
 }
 
 
@@ -935,24 +923,21 @@ function downloadSalarySlip({
   month,
   companyName,
 }) {
-
-  if (!payment) {
-
-    throw new Error(
-      'Salary slip is available only after the salary is marked as paid.'
-    )
-
+  const effectivePayment = payment || {
+    status: 'ISSUED',
+    paidAt: new Date().toISOString(),
   }
-
 
   const html =
     buildSlipHtml({
       employee,
       structure,
-      payment,
+      payment: effectivePayment,
       month,
       companyName,
     })
+
+
 
 
   /*
@@ -1808,35 +1793,33 @@ export default function MySalary() {
 
                 <Button
                   onClick={() => {
-
                     try {
-
                       downloadSalarySlip({
-
                         employee,
-
                         structure,
-
                         payment,
-
                         month,
-
                         companyName,
-
                       })
 
+                      logAudit({
+                        module: 'HRMS',
+                        entity_type: 'Salary Slip',
+                        entity_id: employee?.employee_id || employee?.id || '—',
+                        action: 'DOWNLOAD_SALARY_SLIP',
+                        description: `Downloaded salary slip for ${getEmployeeName(employee)} for ${month}`,
+                        company: employee?.primary_company,
+                        remarks: `Month: ${month}`,
+                      })
                     } catch (err) {
-
                       setError(
                         err?.message ||
                         'Unable to download salary slip.'
                       )
-
                     }
-
                   }}
                   disabled={
-                    !payment
+                    !structure && !employee
                   }
                 >
                   Download Salary Slip
@@ -1846,35 +1829,33 @@ export default function MySalary() {
                 <Button
                   variant="secondary"
                   onClick={() => {
-
                     try {
-
                       printSalarySlip({
-
                         employee,
-
                         structure,
-
                         payment,
-
                         month,
-
                         companyName,
-
                       })
 
+                      logAudit({
+                        module: 'HRMS',
+                        entity_type: 'Salary Slip',
+                        entity_id: employee?.employee_id || employee?.id || '—',
+                        action: 'DOWNLOAD_SALARY_SLIP',
+                        description: `Printed/Saved PDF salary slip for ${getEmployeeName(employee)} for ${month}`,
+                        company: employee?.primary_company,
+                        remarks: `Month: ${month}`,
+                      })
                     } catch (err) {
-
                       setError(
                         err?.message ||
                         'Unable to open salary slip.'
                       )
-
                     }
-
                   }}
                   disabled={
-                    !payment
+                    !structure && !employee
                   }
                 >
                   Print / Save PDF

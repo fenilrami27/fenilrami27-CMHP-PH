@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSelector } from 'react-redux'
 import { getAuditRows } from '../../utils/audit'
+import { selectActiveCompanyId } from '../../utils/companySelectors'
 import useAuth from '../../hooks/useAuth'
 import Button from '../../components/Button'
 import Modal from '../inventory/components/Modal'
@@ -36,6 +38,7 @@ const ACTION_OPTIONS = [
 
 export default function AuditLog() {
   const { user } = useAuth()
+  const activeCompanyId = useSelector(selectActiveCompanyId)
   const [logs, setLogs] = useState([])
   const [search, setSearch] = useState('')
   const [moduleFilter, setModuleFilter] = useState('ALL')
@@ -47,12 +50,12 @@ export default function AuditLog() {
   const pageSize = 20
 
   const load = () => {
-    setLogs(getAuditRows())
+    setLogs(getAuditRows(activeCompanyId))
   }
 
   useEffect(() => {
     load()
-  }, [])
+  }, [activeCompanyId])
 
   // Filtered & Sorted logs
   const filteredLogs = useMemo(() => {

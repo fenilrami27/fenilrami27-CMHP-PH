@@ -28,7 +28,6 @@ export const DOCUMENT_CONFIGS = {
   VENDOR: { prefix: 'VEND', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
   ITEM: { prefix: 'ITM', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
   PRODUCT: { prefix: 'PRD', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
-  LOCATION: { prefix: 'LOC', padding: 4, isFY: false, includeYear: false, scopedByCompany: false },
 
   // Commercial & Sales
   INVOICE: { prefix: 'INV', padding: 4, isFY: true, includeYear: true, scopedByCompany: true },
@@ -49,6 +48,7 @@ export const DOCUMENT_CONFIGS = {
   PURCHASE_ORDER: { prefix: 'PO', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
   GRN: { prefix: 'GRN', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
   BILL: { prefix: 'BILL', padding: 4, isFY: true, includeYear: true, scopedByCompany: true },
+  DELIVERY: { prefix: 'DSP', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },
 
   // HRMS
   LEAVE_REQUEST: { prefix: 'LR', padding: 4, isFY: false, includeYear: true, scopedByCompany: true },

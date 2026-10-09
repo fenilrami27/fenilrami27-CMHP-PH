@@ -16,6 +16,14 @@ import { companyService } from '../companyService'
 import useAuth from '../../../hooks/useAuth'
 import useWorkspace from '../../../hooks/useWorkspace'
 import { previewDocumentNumber, commitDocumentNumber } from '../../../utils/documentNumbers'
+import { logAudit } from '../../../utils/audit'
+import { store } from '../../../store/store'
+import {
+  addSalaryStructure,
+  editSalaryStructure,
+  addShift,
+  addDesignation,
+} from '../../../store/erpSlice'
 
 
 const ALL_ROLES = [
@@ -56,6 +64,13 @@ const EMPTY_FORM = {
   joining_date: '',
   employment_status: 'ACTIVE',
   can_access_common_inventory: false,
+  basic_salary: '',
+  allowances: '',
+  deductions: '',
+  shift: '',
+  shift_name: '',
+  shift_start_time: '09:00',
+  shift_end_time: '18:00',
 }
 
 
@@ -186,6 +201,8 @@ export default function UserAccessTab() {
   const [users, setUsers] = useState([])
   const [companies, setCompanies] = useState([])
   const [departments, setDepartments] = useState([])
+  const [shifts, setShifts] = useState([])
+  const [salaryStructures, setSalaryStructures] = useState([])
 
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState(null)
@@ -273,6 +290,10 @@ export default function UserAccessTab() {
             department.is_active !== false
         )
       )
+
+      const erp = store.getState().erp
+      setShifts((erp.shifts || []).filter((s) => s.is_active !== false))
+      setSalaryStructures(erp.salaryStructures || [])
 
     } catch (err) {
 
@@ -418,6 +439,13 @@ export default function UserAccessTab() {
     setForm({
       ...createEmptyForm(effectiveCompanyId),
       employee_id: generatedEmpId,
+      basic_salary: '',
+      allowances: '',
+      deductions: '',
+      shift: '',
+      shift_name: '',
+      shift_start_time: '09:00',
+      shift_end_time: '18:00',
     })
 
     setModalOpen(true)
@@ -450,6 +478,13 @@ export default function UserAccessTab() {
               : existingCompanyIds
           )
 
+    const erp = store.getState().erp
+    const userStructure = (erp.salaryStructures || []).find(
+      (s) => Number(s.user) === Number(user.id)
+    )
+    const userShift = (erp.shifts || []).find(
+      (s) => Number(s.id) === Number(user.shift)
+    )
 
     setForm({
 
@@ -499,6 +534,27 @@ export default function UserAccessTab() {
         Boolean(
           user.can_access_common_inventory
         ),
+
+      basic_salary:
+        userStructure?.basic ?? user.basic_salary ?? user.monthly_salary ?? '',
+
+      allowances:
+        userStructure?.allowances ?? user.allowances ?? '',
+
+      deductions:
+        userStructure?.deductions ?? user.deductions ?? '',
+
+      shift:
+        user.shift ?? userShift?.id ?? '',
+
+      shift_name:
+        userShift?.name ?? '',
+
+      shift_start_time:
+        userShift?.start_time ?? '09:00',
+
+      shift_end_time:
+        userShift?.end_time ?? '18:00',
 
     })
 
@@ -700,6 +756,55 @@ export default function UserAccessTab() {
         )
       }
 
+      const basicNum = Number(form.basic_salary) || 0
+      const allowancesNum = Number(form.allowances) || 0
+      const deductionsNum = Number(form.deductions) || 0
+      const monthlyNum = Math.max(basicNum + allowancesNum - deductionsNum, 0)
+
+      let effectiveShiftId = form.shift && form.shift !== 'CUSTOM' ? Number(form.shift) : null
+      const erpState = store.getState().erp
+
+      if (!effectiveShiftId && form.shift_name?.trim()) {
+        const existingShift = (erpState.shifts || []).find(
+          (s) =>
+            s.name?.toLowerCase() === form.shift_name.trim().toLowerCase() &&
+            Number(s.company) === Number(effectiveCompanyId)
+        )
+        if (existingShift) {
+          effectiveShiftId = existingShift.id
+        } else {
+          store.dispatch(
+            addShift({
+              name: form.shift_name.trim(),
+              start_time: form.shift_start_time || '09:00',
+              end_time: form.shift_end_time || '18:00',
+              company: Number(effectiveCompanyId),
+              is_active: true,
+            })
+          )
+          const freshShifts = store.getState().erp.shifts || []
+          effectiveShiftId = freshShifts[freshShifts.length - 1]?.id || null
+        }
+      }
+
+      if (form.designation?.trim()) {
+        const desigTitle = form.designation.trim()
+        const existingDesig = (erpState.designations || []).find(
+          (d) =>
+            d.title?.toLowerCase() === desigTitle.toLowerCase() &&
+            Number(d.company) === Number(effectiveCompanyId)
+        )
+        if (!existingDesig) {
+          store.dispatch(
+            addDesignation({
+              title: desigTitle,
+              company: Number(effectiveCompanyId),
+              is_active: true,
+            })
+          )
+        }
+      }
+
       const payload = {
         username:
           form.username.trim(),
@@ -737,6 +842,11 @@ export default function UserAccessTab() {
             : Boolean(
                 selectedUser?.can_access_common_inventory
               ),
+        basic_salary: basicNum,
+        allowances: allowancesNum,
+        deductions: deductionsNum,
+        monthly_salary: monthlyNum,
+        shift: effectiveShiftId,
       }
 
       if (
@@ -795,6 +905,39 @@ export default function UserAccessTab() {
           company:
             effectiveCompanyId,
         })
+
+        const createdUser = (store.getState().erp.users || []).find(
+          (u) => u.username === payload.username
+        )
+
+        if (createdUser) {
+          store.dispatch(
+            addSalaryStructure({
+              user: Number(createdUser.id),
+              company: Number(effectiveCompanyId),
+              basic: basicNum,
+              allowances: allowancesNum,
+              deductions: deductionsNum,
+              effective_from: form.joining_date || new Date().toISOString().slice(0, 10),
+            })
+          )
+        }
+
+        logAudit({
+          module: 'HRMS',
+          entity_type: 'User',
+          entity_id: finalEmployeeId || form.username,
+          action: 'USER_CREATED',
+          description: `Created user ${form.username} (${finalEmployeeId})`,
+          changes: [
+            { field: 'username', new_value: form.username },
+            { field: 'role', new_value: form.role },
+            { field: 'basic_salary', new_value: basicNum },
+            { field: 'shift', new_value: effectiveShiftId },
+            { field: 'designation', new_value: form.designation },
+          ],
+          company: effectiveCompanyId,
+        })
       }
 
       /*
@@ -822,6 +965,83 @@ export default function UserAccessTab() {
           selectedUser.id,
           payload
         )
+
+        const existingStructure = (store.getState().erp.salaryStructures || []).find(
+          (s) => Number(s.user) === Number(selectedUser.id)
+        )
+
+        if (existingStructure) {
+          store.dispatch(
+            editSalaryStructure({
+              id: existingStructure.id,
+              payload: {
+                basic: basicNum,
+                allowances: allowancesNum,
+                deductions: deductionsNum,
+              },
+            })
+          )
+        } else {
+          store.dispatch(
+            addSalaryStructure({
+              user: Number(selectedUser.id),
+              company: Number(effectiveCompanyId),
+              basic: basicNum,
+              allowances: allowancesNum,
+              deductions: deductionsNum,
+              effective_from: form.joining_date || new Date().toISOString().slice(0, 10),
+            })
+          )
+        }
+
+        const oldBasic = Number(selectedUser.basic_salary ?? existingStructure?.basic ?? selectedUser.monthly_salary ?? 0)
+        const oldShift = selectedUser.shift
+        const oldDesignation = selectedUser.designation || ''
+
+        logAudit({
+          module: 'HRMS',
+          entity_type: 'User',
+          entity_id: selectedUser.employee_id || selectedUser.id,
+          action: 'USER_EDITED',
+          description: `Updated user ${selectedUser.username}`,
+          company: effectiveCompanyId,
+        })
+
+        if (oldBasic !== basicNum) {
+          logAudit({
+            module: 'HRMS',
+            entity_type: 'Employee',
+            entity_id: selectedUser.employee_id || selectedUser.id,
+            action: 'SALARY_CHANGED',
+            description: `Salary changed for ${selectedUser.username}`,
+            changes: [{ field: 'basic_salary', old_value: oldBasic, new_value: basicNum }],
+            company: effectiveCompanyId,
+          })
+        }
+
+        if (Number(oldShift) !== Number(effectiveShiftId)) {
+          logAudit({
+            module: 'HRMS',
+            entity_type: 'Employee',
+            entity_id: selectedUser.employee_id || selectedUser.id,
+            action: 'SHIFT_CHANGED',
+            description: `Shift changed for ${selectedUser.username}`,
+            changes: [{ field: 'shift', old_value: oldShift, new_value: effectiveShiftId }],
+            company: effectiveCompanyId,
+          })
+        }
+
+        if (oldDesignation !== form.designation.trim()) {
+          logAudit({
+            module: 'HRMS',
+            entity_type: 'Employee',
+            entity_id: selectedUser.employee_id || selectedUser.id,
+            action: 'DESIGNATION_CHANGED',
+            description: `Designation changed for ${selectedUser.username}`,
+            changes: [{ field: 'designation', old_value: oldDesignation, new_value: form.designation.trim() }],
+            company: effectiveCompanyId,
+          })
+        }
       }
 
       setModalOpen(false)
@@ -1980,6 +2200,129 @@ export default function UserAccessTab() {
 
                   )}
 
+                  <div className="company-field">
+                    <label htmlFor="user-shift">
+                      Assigned Shift
+                    </label>
+                    <select
+                      id="user-shift"
+                      name="shift"
+                      value={form.shift}
+                      onChange={handleChange}
+                      className="company-input"
+                    >
+                      <option value="">Select shift</option>
+                      {shifts.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.start_time} - {s.end_time})
+                        </option>
+                      ))}
+                      <option value="CUSTOM">+ Custom Shift</option>
+                    </select>
+                  </div>
+
+                  {(form.shift === 'CUSTOM' || (!form.shift && form.shift_name)) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 10, gridColumn: 'span 2' }}>
+                      <Input
+                        label="Shift Name"
+                        name="shift_name"
+                        value={form.shift_name}
+                        onChange={handleChange}
+                        placeholder="e.g. General Shift"
+                      />
+                      <Input
+                        label="Start Time"
+                        type="time"
+                        name="shift_start_time"
+                        value={form.shift_start_time}
+                        onChange={handleChange}
+                      />
+                      <Input
+                        label="End Time"
+                        type="time"
+                        name="shift_end_time"
+                        value={form.shift_end_time}
+                        onChange={handleChange}
+                      />
+                    </div>
+                  )}
+
+                </div>
+
+              </div>
+
+
+              {/* =================================================
+                  SALARY & PAYROLL (HRMS AUTO-SYNC)
+                  ================================================= */}
+
+              <div className="company-form-section">
+
+                <div className="user-section-heading">
+
+                  <div>
+
+                    <span className="user-section-number">
+                      03
+                    </span>
+
+                    <div>
+
+                      <h4>
+                        Salary &amp; Payroll Details
+                      </h4>
+
+                      <p>
+                        Auto-syncs to HRMS Payroll salary structure for the active company.
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+                <div className="company-form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+
+                  <Input
+                    label="Basic Salary (₹)"
+                    type="number"
+                    min="0"
+                    name="basic_salary"
+                    value={form.basic_salary}
+                    onChange={handleChange}
+                    placeholder="e.g. 25000"
+                  />
+
+                  <Input
+                    label="Allowances (₹)"
+                    type="number"
+                    min="0"
+                    name="allowances"
+                    value={form.allowances}
+                    onChange={handleChange}
+                    placeholder="e.g. 5000"
+                  />
+
+                  <Input
+                    label="Deductions (₹)"
+                    type="number"
+                    min="0"
+                    name="deductions"
+                    value={form.deductions}
+                    onChange={handleChange}
+                    placeholder="e.g. 1800"
+                  />
+
+                </div>
+
+                <div style={{ marginTop: 12, padding: '12px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#166534', fontWeight: 500 }}>
+                    Monthly Net Salary:
+                  </span>
+                  <strong style={{ fontSize: 16, color: '#15803d' }}>
+                    ₹{Math.max((Number(form.basic_salary) || 0) + (Number(form.allowances) || 0) - (Number(form.deductions) || 0), 0).toLocaleString('en-IN')}
+                  </strong>
                 </div>
 
               </div>
@@ -1996,7 +2339,7 @@ export default function UserAccessTab() {
                   <div>
 
                     <span className="user-section-number">
-                      03
+                      04
                     </span>
 
                     <div>
@@ -2133,7 +2476,7 @@ export default function UserAccessTab() {
                   <div>
 
                     <span className="user-section-number">
-                      04
+                      05
                     </span>
 
                     <div>

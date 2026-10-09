@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 import {
   NavLink,
@@ -35,6 +35,9 @@ import WorkspaceSwitcher
 
 import {
   WORKSPACES,
+  getCurrentWorkspace,
+  getSelectedWorkspace,
+  requiresWorkspaceSelection,
 } from '../utils/workspace'
 
 import './MainLayout.css'
@@ -126,7 +129,7 @@ const NAV_SECTIONS = [
     items: [
 
       {
-        label: 'Overview',
+        label: 'Dashboard',
         path: '/inventory',
         icon: InventoryIcon,
         accent: '#8b7cf6',
@@ -134,15 +137,15 @@ const NAV_SECTIONS = [
       },
 
       {
-        label: 'Stock & Lots',
-        path: '/inventory/stock',
-        icon: InventoryIcon,
+        label: 'Products',
+        path: '/inventory/products',
+        icon: FlaskIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
       },
 
       {
-        label: 'Materials',
+        label: 'Raw Materials',
         path: '/inventory/materials',
         icon: InventoryIcon,
         accent: '#8b7cf6',
@@ -150,8 +153,16 @@ const NAV_SECTIONS = [
       },
 
       {
-        label: 'Locations',
-        path: '/inventory/locations',
+        label: 'Orders',
+        path: '/inventory/orders',
+        icon: ClipboardIcon,
+        accent: '#8b7cf6',
+        commonInventoryOnly: true,
+      },
+
+      {
+        label: 'Stock & Lots',
+        path: '/inventory/stock',
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
@@ -166,7 +177,7 @@ const NAV_SECTIONS = [
       },
 
       {
-        label: 'Consumption Ledger',
+        label: 'Stock Ledger',
         path: '/inventory/ledger',
         icon: InventoryIcon,
         accent: '#8b7cf6',
@@ -229,7 +240,6 @@ const NAV_SECTIONS = [
         icon: ClockIcon,
         accent: '#f472b6',
         companyOnly: true,
-        requiresHrmsMasters: true,
       },
 
       {
@@ -315,7 +325,9 @@ function visibleSections(
 ) {
 
   const role =
-    user?.profile?.role
+    user?.profile?.role ||
+    user?.role ||
+    ''
 
 
   const commonInventory =
@@ -327,41 +339,8 @@ function visibleSections(
     activeWorkspace ===
     WORKSPACES.COMPANY_A ||
     activeWorkspace ===
-    WORKSPACES.COMPANY_B
-
-
-  /*
-   * COMPANY ACCESS
-   */
-
-  const companyAccess =
-    user?.is_superuser ||
-    role === 'SUPER_ADMIN' ||
-    role === 'MANAGEMENT' ||
-    role === 'HR_ADMINISTRATOR' ||
-    role === 'HR_MANAGER'
-
-
-  /*
-   * HR MANAGEMENT ACCESS
-   */
-
-  const hrmsManageAccess =
-    user?.is_superuser ||
-    role === 'SUPER_ADMIN' ||
-    role === 'HR_ADMINISTRATOR' ||
-    role === 'HR_MANAGER' ||
-    role === 'MANAGEMENT'
-
-
-  /*
-   * HR MASTER ACCESS
-   */
-
-  const hrmsMastersAccess =
-    user?.is_superuser ||
-    role === 'SUPER_ADMIN' ||
-    role === 'HR_ADMINISTRATOR'
+    WORKSPACES.COMPANY_B ||
+    (!commonInventory && Boolean(activeWorkspace))
 
 
   /*
@@ -373,6 +352,37 @@ function visibleSections(
       user?.is_superuser
     ) ||
     role === 'SUPER_ADMIN'
+
+
+  /*
+   * COMPANY ACCESS
+   */
+
+  const companyAccess =
+    isAdmin ||
+    role === 'MANAGEMENT' ||
+    role === 'HR_ADMINISTRATOR' ||
+    role === 'HR_MANAGER'
+
+
+  /*
+   * HR MANAGEMENT ACCESS
+   */
+
+  const hrmsManageAccess =
+    isAdmin ||
+    role === 'HR_ADMINISTRATOR' ||
+    role === 'HR_MANAGER' ||
+    role === 'MANAGEMENT'
+
+
+  /*
+   * HR MASTER ACCESS
+   */
+
+  const hrmsMastersAccess =
+    isAdmin ||
+    role === 'HR_ADMINISTRATOR'
 
 
   return NAV_SECTIONS
@@ -625,6 +635,7 @@ export default function MainLayout() {
   const {
     activeWorkspace,
     activeOption,
+    setActiveWorkspace,
   } = useWorkspace()
 
 
@@ -643,6 +654,31 @@ export default function MainLayout() {
   ] = useState(false)
 
 
+  const effectiveWorkspace =
+    activeWorkspace ||
+    getCurrentWorkspace(user) ||
+    getSelectedWorkspace() ||
+    WORKSPACES.COMPANY_A
+
+
+  useEffect(() => {
+    if (user && effectiveWorkspace && effectiveWorkspace !== activeWorkspace && setActiveWorkspace) {
+      setActiveWorkspace(effectiveWorkspace)
+    }
+  }, [user, effectiveWorkspace, activeWorkspace, setActiveWorkspace])
+
+
+  useEffect(() => {
+    if (!user) {
+      navigate('/login', { replace: true })
+      return
+    }
+    if (!effectiveWorkspace && requiresWorkspaceSelection(user)) {
+      navigate('/workspace-select', { replace: true })
+    }
+  }, [user, effectiveWorkspace, navigate])
+
+
   const displayName =
     user?.first_name ||
     user?.username ||
@@ -658,14 +694,23 @@ export default function MainLayout() {
   const sections =
     visibleSections(
       user,
-      activeWorkspace
+      effectiveWorkspace
     )
 
 
   const companyLogo =
     getCompanyLogo(
-      activeWorkspace
+      effectiveWorkspace
     )
+
+
+  const currentCompanyName =
+    activeOption?.name ||
+    (effectiveWorkspace === WORKSPACES.COMPANY_B
+      ? 'Tej Biocare'
+      : effectiveWorkspace === WORKSPACES.COMMON
+      ? 'Common Inventory'
+      : 'CMHP Pharma')
 
 
   const sidebarClass = [
@@ -709,8 +754,7 @@ export default function MainLayout() {
               <img
                 src={companyLogo}
                 alt={
-                  activeOption?.name ||
-                  ''
+                  currentCompanyName
                 }
                 style={{
                   width: '100%',
@@ -739,7 +783,7 @@ export default function MainLayout() {
             <div className="sidebar-name-row">
 
               <span className="sidebar-name">
-                CMHP Pharma
+                {currentCompanyName}
               </span>
 
             </div>
