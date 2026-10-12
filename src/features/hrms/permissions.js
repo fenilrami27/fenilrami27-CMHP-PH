@@ -108,11 +108,14 @@ function hasPermission(
   user,
   permission
 ) {
+  const role = String(user?.profile?.role || user?.role || '').trim().toUpperCase()
 
   return (
-    user?.is_superuser ||
+    Boolean(user?.is_superuser) ||
+    role === 'SUPER_ADMIN' ||
+    role === 'ADMIN' ||
     (
-      MATRIX[user?.profile?.role] || []
+      MATRIX[role] || []
     ).includes(permission)
   )
 }

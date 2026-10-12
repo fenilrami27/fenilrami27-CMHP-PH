@@ -345,11 +345,20 @@ export default function AppRoutes() {
               <RoleRoute
                 roles={[
                   'SUPER_ADMIN',
+                  'MANAGEMENT',
                   'HR_ADMINISTRATOR',
+                  'HR_MANAGER',
                 ]}
               >
                 <Designations />
               </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/hrms/designation"
+            element={
+              <Navigate to="/hrms/designations" replace />
             }
           />
 

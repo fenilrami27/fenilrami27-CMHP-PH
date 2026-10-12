@@ -1,6 +1,7 @@
 import { useSelector } from 'react-redux'
 import CommonOrdersTab from '../inventory/tabs/CommonOrdersTab'
 import { selectActiveCompanyId } from '../../utils/companySelectors'
+import HeroBanner from '../../components/HeroBanner'
 import '../inventory/Inventory.css'
 import './Orders.css'
 
@@ -11,28 +12,11 @@ export default function Orders({ role }) {
 
   return (
     <div className="orders-page inv">
-      <div className="inv-header">
-        <span
-          style={{
-            display: 'inline-block',
-            padding: '3px 10px',
-            borderRadius: 12,
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            marginBottom: 8,
-            background: isTej ? '#e0e7ff' : '#fef3c7',
-            color: isTej ? '#3730a3' : '#92400e',
-          }}
-        >
-          {companyName} Workspace
-        </span>
-        <h1>{companyName} Sales Orders</h1>
-        <p style={{ margin: '6px 0 0', color: '#5a738e', fontSize: 14 }}>
-          Manage sales orders, check raw material availability, auto-calculate formula requirements and schedule production batches.
-        </p>
-      </div>
+      <HeroBanner
+        eyebrow={`${companyName} Workspace`}
+        title={`${companyName} Sales Orders`}
+        subtitle="Manage sales orders, check raw material availability, auto-calculate formula requirements and schedule production batches."
+      />
 
       <CommonOrdersTab role={role} isCompanyScoped={true} />
     </div>

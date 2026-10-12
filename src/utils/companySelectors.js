@@ -103,6 +103,7 @@ export const selectDispatches = (state) => selectCompanySlice(state, 'dispatches
 export const selectSalesReturns = (state) => selectCompanySlice(state, 'salesReturns')
 export const selectRecalls = (state) => selectCompanySlice(state, 'recalls')
 export const selectCreditNotes = (state) => selectCompanySlice(state, 'creditNotes')
+export const selectFormulaApprovals = (state) => selectCompanySlice(state, 'formulaApprovals')
 
 // HRMS Selectors
 export const selectDesignations = (state) => selectCompanySlice(state, 'designations')

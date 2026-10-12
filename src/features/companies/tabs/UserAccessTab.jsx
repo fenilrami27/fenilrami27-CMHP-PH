@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Alert from '../../../components/Alert'
 import Button from '../../../components/Button'
 import Input from '../../../components/Input'
+import PageHeader from '../../../components/PageHeader'
 import { getErrorMessage } from '../../../utils/errors'
 import {
   validEmail,
@@ -219,6 +220,8 @@ export default function UserAccessTab() {
   const [successMessage, setSuccessMessage] = useState('')
 
   const [search, setSearch] = useState('')
+  const [filterRole, setFilterRole] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
 
 
   /*
@@ -1200,35 +1203,19 @@ export default function UserAccessTab() {
           .trim()
           .toLowerCase()
 
-
-      if (!query) {
-        return companyScopedUsers
-      }
-
-
       return companyScopedUsers.filter(
         (user) => {
 
-          return [
-
+          const matchesQuery = !query || [
             user.username,
-
             user.first_name,
-
             user.last_name,
-
             user.email,
-
             user.employee_id,
-
             user.designation,
-
             user.role_label,
-
             user.role,
-
             user.department?.name,
-
           ]
             .filter(Boolean)
             .some(
@@ -1238,12 +1225,18 @@ export default function UserAccessTab() {
                   .includes(query)
             )
 
+          const matchesRole = !filterRole || user.role === filterRole
+          const matchesStatus = !filterStatus || user.employment_status === filterStatus
+
+          return matchesQuery && matchesRole && matchesStatus
         }
       )
 
     }, [
       companyScopedUsers,
       search,
+      filterRole,
+      filterStatus,
     ])
 
 
@@ -1317,45 +1310,54 @@ export default function UserAccessTab() {
     <div className="user-management-page">
 
 
-      {/* =====================================================
-          HEADER
-          ===================================================== */}
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Workspace' },
+          { label: activeCompany?.name || activeCompanyName || 'Company' },
+          { label: 'User Management' },
+        ]}
+        title="User Accounts & Access Control"
+        subtitle="Create, edit, and configure role assignments, salary structures, and department access."
+        statusPill={{ label: `${activeCompany?.name || activeCompanyName} Scope`, variant: 'info' }}
+        primaryAction={{
+          label: '+ Add User',
+          onClick: openCreateUser,
+        }}
+        secondaryActions={[
+          { label: 'Refresh Directory', onClick: loadData },
+        ]}
+      />
 
-      <div className="company-tab-header user-management-header">
-
-        <div>
-
-          <div className="user-management-eyebrow">
-            {activeCompany?.name ||
-              activeCompanyName}
-          </div>
-
-          <h2>
-            User Management
-          </h2>
-
-          <p>
-            Create, edit and manage users
-            for the active company workspace.
-          </p>
-
+      {/* KPI Summary Cards */}
+      <div className="um-kpi-grid">
+        <div className="um-kpi-card">
+          <div className="um-kpi-label">Total Users</div>
+          <div className="um-kpi-value">{companyScopedUsers.length}</div>
+          <div className="um-kpi-subtext">Active workspace accounts</div>
         </div>
-
-
-        <Button
-          type="button"
-          onClick={
-            openCreateUser
-          }
-        >
-          + Add user
-        </Button>
-
+        <div className="um-kpi-card">
+          <div className="um-kpi-label">Active Status</div>
+          <div className="um-kpi-value">
+            {companyScopedUsers.filter((u) => u.employment_status === 'ACTIVE').length}
+          </div>
+          <div className="um-kpi-subtext">Currently active employees</div>
+        </div>
+        <div className="um-kpi-card">
+          <div className="um-kpi-label">Management Roles</div>
+          <div className="um-kpi-value">
+            {companyScopedUsers.filter((u) => ['SUPER_ADMIN', 'MANAGEMENT', 'HR_ADMINISTRATOR', 'HR_MANAGER', 'DEPARTMENT_MANAGER', 'STORES_MANAGER'].includes(u.role)).length}
+          </div>
+          <div className="um-kpi-subtext">Administrative & manager users</div>
+        </div>
+        <div className="um-kpi-card">
+          <div className="um-kpi-label">Departments</div>
+          <div className="um-kpi-value">{departments.length}</div>
+          <div className="um-kpi-subtext">Configured functional units</div>
+        </div>
       </div>
 
-
       {/* =====================================================
-          ERROR
+          ERROR / SUCCESS
           ===================================================== */}
 
       {error && (
@@ -1387,43 +1389,69 @@ export default function UserAccessTab() {
 
 
       {/* =====================================================
-          SEARCH / SUMMARY
+          SEARCH / FILTER BAR
           ===================================================== */}
 
-      <div className="company-toolbar user-management-toolbar">
-
-        <div className="user-management-search">
-
-          <Input
-            label=""
-            name="search"
+      <div className="um-filter-bar">
+        <div className="um-search-box">
+          <input
+            type="text"
             value={search}
-            onChange={
-              (event) =>
-                setSearch(
-                  event.target.value
-                )
-            }
-            placeholder="Search users..."
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search users by name, email, employee ID, role, or department..."
           />
-
+          {search && (
+            <button
+              type="button"
+              className="um-clear-search"
+              onClick={() => setSearch('')}
+            >
+              ×
+            </button>
+          )}
         </div>
 
-
-        <div className="user-management-count">
-
-          <strong>
-            {filteredUsers.length}
-          </strong>
-
-          <span>
-            {filteredUsers.length === 1
-              ? 'user'
-              : 'users'}
-          </span>
-
+        <div className="um-select-filter">
+          <select
+            value={filterRole}
+            onChange={(e) => setFilterRole(e.target.value)}
+          >
+            <option value="">All Roles</option>
+            {ALL_ROLES.map(([val, lbl]) => (
+              <option key={val} value={val}>{lbl}</option>
+            ))}
+          </select>
         </div>
 
+        <div className="um-select-filter">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="">All Statuses</option>
+            {EMPLOYMENT_STATUS.map(([val, lbl]) => (
+              <option key={val} value={val}>{lbl}</option>
+            ))}
+          </select>
+        </div>
+
+        {(search || filterRole || filterStatus) && (
+          <button
+            type="button"
+            className="um-clear-btn"
+            onClick={() => {
+              setSearch('')
+              setFilterRole('')
+              setFilterStatus('')
+            }}
+          >
+            Clear Filters
+          </button>
+        )}
+
+        <div className="um-count-pill">
+          <strong>{filteredUsers.length}</strong> {filteredUsers.length === 1 ? 'user' : 'users'}
+        </div>
       </div>
 
 

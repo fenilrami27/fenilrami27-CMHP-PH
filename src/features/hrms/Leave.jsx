@@ -4,6 +4,7 @@ import useAuth from '../../hooks/useAuth'
 import Alert from '../../components/Alert'
 import Button from '../../components/Button'
 import Input from '../../components/Input'
+import PageHeader from '../../components/PageHeader'
 import Modal from '../inventory/components/Modal'
 import { getErrorMessage } from '../../utils/errors'
 
@@ -76,13 +77,25 @@ export default function Leave() {
   const [myRequests, setMyRequests] = useState([])
   const [teamRequests, setTeamRequests] = useState([])
   const [holidays, setHolidays] = useState([])
+  const [employees, setEmployees] = useState([])
+
+  // Tab & Modal navigation
+  const [activeTab, setActiveTab] = useState('requests') // 'requests' | 'balances' | 'types' | 'calendar'
+  const [applyModalOpen, setApplyModalOpen] = useState(false)
+  const [detailModalRequest, setDetailModalRequest] = useState(null)
+  const [requestScope, setRequestScope] = useState(canApprove ? 'team' : 'mine')
+
+  // Search & Filters
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [selectedEmpId, setSelectedEmpId] = useState(String(user?.id || ''))
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
 
   const [applyForm, setApplyForm] = useState(EMPTY_APPLY_FORM)
   const [applying, setApplying] = useState(false)
   const [applyError, setApplyError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
-
-  const [statusFilter, setStatusFilter] = useState('PENDING')
   const [teamError, setTeamError] = useState('')
 
   const [typeModalOpen, setTypeModalOpen] = useState(false)
@@ -93,28 +106,30 @@ export default function Leave() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-
   const loadAll = async () => {
     setLoading(true)
     setError('')
 
     try {
-      const [typesResponse, mineResponse, holidaysResponse] = await Promise.all([
+      const promises = [
         hrService.getLeaveTypes(scopedCompanies),
         hrService.getMyLeaveRequests(user.id),
         hrService.getHolidays(scopedCompanies),
-      ])
-
-      setLeaveTypes(Array.isArray(typesResponse?.data) ? typesResponse.data : [])
-      setMyRequests(Array.isArray(mineResponse?.data) ? mineResponse.data : [])
-      setHolidays(Array.isArray(holidaysResponse?.data) ? holidaysResponse.data : [])
+      ]
 
       if (canApprove) {
-        const teamResponse = await hrService.getLeaveRequests(
-          scopedCompanies,
-          statusFilter || null
-        )
-        setTeamRequests(Array.isArray(teamResponse?.data) ? teamResponse.data : [])
+        promises.push(hrService.getLeaveRequests(scopedCompanies, null))
+        promises.push(hrService.getEmployees(scopedCompanies))
+      }
+
+      const results = await Promise.all(promises)
+      setLeaveTypes(Array.isArray(results[0]?.data) ? results[0].data : [])
+      setMyRequests(Array.isArray(results[1]?.data) ? results[1].data : [])
+      setHolidays(Array.isArray(results[2]?.data) ? results[2].data : [])
+
+      if (canApprove) {
+        setTeamRequests(Array.isArray(results[3]?.data) ? results[3].data : [])
+        setEmployees(Array.isArray(results[4]?.data) ? results[4].data : [])
       }
     } catch (err) {
       setError(getErrorMessage(err))
@@ -123,25 +138,10 @@ export default function Leave() {
     }
   }
 
-
   useEffect(() => {
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => {
-    if (!canApprove) return
-    setTeamError('')
-    hrService
-      .getLeaveRequests(scopedCompanies, statusFilter || null)
-      .then((response) => {
-        setTeamRequests(Array.isArray(response?.data) ? response.data : [])
-      })
-      .catch((err) => {
-        setTeamError(getErrorMessage(err))
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter])
 
 
   const activeLeaveTypes = leaveTypes.filter(
@@ -421,352 +421,557 @@ export default function Leave() {
   }
 
 
+  // Filtered Requests for Tab 1
+  const allRequests = requestScope === 'team' ? teamRequests : myRequests
+
+  const filteredRequests = useMemo(() => {
+    return allRequests
+      .filter((req) => {
+        if (statusFilter !== 'ALL') {
+          return req.status === statusFilter
+        }
+        return true
+      })
+      .filter((req) => {
+        if (typeFilter !== 'ALL') {
+          return Number(req.leave_type) === Number(typeFilter)
+        }
+        return true
+      })
+      .filter((req) => {
+        if (!search.trim()) return true
+        const q = search.toLowerCase()
+        return [
+          req.employee_name,
+          req.employee_code,
+          req.leave_type_name,
+          req.reason,
+          req.from_date,
+          req.to_date,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(q)
+      })
+      .sort((a, b) => (b.created_at || b.from_date || '').localeCompare(a.created_at || a.from_date || ''))
+  }, [allRequests, statusFilter, typeFilter, search])
+
+  const hasActiveFilters = Boolean(search || statusFilter !== 'ALL' || typeFilter !== 'ALL')
+  const resetFilters = () => {
+    setSearch('')
+    setStatusFilter('ALL')
+    setTypeFilter('ALL')
+  }
+
+  // KPI Metrics
+  const kpiStats = useMemo(() => {
+    const total = allRequests.length
+    const pending = allRequests.filter((r) => r.status === 'PENDING').length
+    const approved = allRequests.filter((r) => r.status === 'APPROVED').length
+    const totalRemaining = Object.values(balances).reduce((acc, b) => acc + (b.balance || 0), 0)
+    return { total, pending, approved, totalRemaining }
+  }, [allRequests, balances])
+
+  // Calendar tab days
+  const calendarDays = useMemo(() => {
+    const [year, month] = selectedMonth.split('-').map(Number)
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const days = []
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStr = `${selectedMonth}-${String(d).padStart(2, '0')}`
+      days.push(dayStr)
+    }
+    return days
+  }, [selectedMonth])
+
   return (
     <div className="hr-page">
-      <div className="hr-header">
-        <div>
-          <span className="dash-pill" style={{ marginBottom: 6, display: 'inline-block' }}>
-            HRMS
-          </span>
-          <h1>Leave Management</h1>
-          <p>
-            Configurable leave policies, live balance tracking, half-day options,
-            holidays/weekly-offs auto-exclusion, and attendance synchronization on approval.
-          </p>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'HRMS', to: '/hrms' },
+          { label: 'Leave' }
+        ]}
+        title="Leave Management"
+        subtitle="Manage leave balances, submit vacation or sick leave, process team approvals, and configure leave policies."
+        primaryAction={{
+          label: '+ Apply Leave',
+          onClick: () => {
+            setApplyError('')
+            setApplyModalOpen(true)
+          },
+        }}
+      />
+
+      {/* KPI METRIC CARDS */}
+      <div className="hr-kpis-grid" style={{ marginBottom: 20 }}>
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head"><span className="hr-kpi-title">Total Requests</span><span>📋</span></div>
+          <div className="hr-kpi-val">{kpiStats.total}</div>
+          <div className="hr-kpi-sub">{requestScope === 'team' ? 'Team applications' : 'My applications'}</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head"><span className="hr-kpi-title">Pending Action</span><span>⏳</span></div>
+          <div className="hr-kpi-val" style={{ color: '#d97706' }}>{kpiStats.pending}</div>
+          <div className="hr-kpi-sub">Awaiting manager approval</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head"><span className="hr-kpi-title">Approved Leaves</span><span>✅</span></div>
+          <div className="hr-kpi-val" style={{ color: '#16a34a' }}>{kpiStats.approved}</div>
+          <div className="hr-kpi-sub">Synced to attendance roster</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head"><span className="hr-kpi-title">Available Leave Balance</span><span>🌴</span></div>
+          <div className="hr-kpi-val" style={{ color: '#0284c7' }}>{kpiStats.totalRemaining} days</div>
+          <div className="hr-kpi-sub">Paid quota available to take</div>
         </div>
       </div>
 
       {error && <Alert type="error">{error}</Alert>}
+      {teamError && <Alert type="error">{teamError}</Alert>}
       {successMsg && (
-        <Alert type="success" message={successMsg} onDismiss={() => setSuccessMsg('')} />
+        <div style={{ marginBottom: 16 }}>
+          <Alert type="success" message={successMsg} onDismiss={() => setSuccessMsg('')} />
+        </div>
       )}
 
-      {/* LEAVE BALANCE SUMMARY CARDS */}
-      <section className="company-panel" style={{ marginBottom: 20 }}>
-        <div className="company-toolbar">
-          <div>
-            <h2>My Leave Balances ({currentYear})</h2>
-            <p>Annual quotas and remaining balances</p>
-          </div>
-        </div>
+      {/* 4 MAIN NAVIGATION TABS */}
+      <div className="hr-tabs" style={{ marginBottom: 20 }}>
+        <button
+          type="button"
+          className={activeTab === 'requests' ? 'hr-tab active' : 'hr-tab'}
+          onClick={() => setActiveTab('requests')}
+        >
+          Leave Requests ({allRequests.filter((r) => r.status === 'PENDING').length} pending)
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'balances' ? 'hr-tab active' : 'hr-tab'}
+          onClick={() => setActiveTab('balances')}
+        >
+          Leave Balances
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'types' ? 'hr-tab active' : 'hr-tab'}
+          onClick={() => setActiveTab('types')}
+        >
+          Leave Types Master
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'calendar' ? 'hr-tab active' : 'hr-tab'}
+          onClick={() => setActiveTab('calendar')}
+        >
+          Leave Calendar
+        </button>
+      </div>
 
-        <div className="hr-kpis" style={{ marginTop: 12 }}>
-          {Object.keys(balances).length === 0 ? (
-            <div className="company-empty" style={{ gridColumn: 'span 4', padding: 20 }}>
-              No leave policies configured yet. HR administrators can configure leave types below.
+      {/* =========================================================
+          TAB 1: REQUESTS
+          ========================================================= */}
+      {activeTab === 'requests' && (
+        <div className="hr-table-card">
+          <div className="hr-toolbar">
+            <div className="hr-search-box">
+              <span className="hr-search-icon">🔍</span>
+              <input
+                type="text"
+                placeholder="Search employee, reason, leave type..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
-          ) : (
-            Object.values(balances).map((bal) => (
-              <div key={bal.code} className="hr-kpi-card">
-                <span className="hr-kpi-label">
-                  {bal.name} {bal.paid ? '(Paid)' : '(Unpaid)'}
-                </span>
-                <strong className="hr-kpi-value" style={{ color: '#0284c7' }}>
-                  {bal.balance} <span style={{ fontSize: 13, color: '#64748b' }}>/ {bal.quota} days</span>
-                </strong>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                  Taken: {bal.taken} days
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
 
-      {/* APPLY FOR LEAVE */}
-      <section className="company-panel">
-        <div className="company-toolbar">
-          <div>
-            <h2>Apply for leave</h2>
-            <p>Submit a new leave request</p>
-          </div>
-        </div>
-
-        {applyError && <Alert type="error">{applyError}</Alert>}
-
-        <form onSubmit={submitApply}>
-          <div className="company-form-grid">
-            <div className="field">
-              <label className="field-label">Leave type</label>
+            <div className="hr-filter-item">
               <select
-                className="field-input"
-                value={applyForm.leave_type}
-                onChange={(e) => setApplyForm({ ...applyForm, leave_type: e.target.value })}
-                required
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option value="">Select leave type</option>
-                {activeLeaveTypes.map((type) => {
-                  const bal = balances[type.id]?.balance ?? type.max_days_per_year
-                  return (
-                    <option key={type.id} value={type.id}>
-                      {type.name} &mdash; {type.paid ? `Paid (${bal} days left)` : 'Unpaid'}
-                    </option>
-                  )
-                })}
+                <option value="ALL">All Statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
               </select>
             </div>
 
-            <div className="field">
-              <label className="field-label">From date</label>
-              <input
-                className="field-input"
-                type="date"
-                value={applyForm.from_date}
-                onChange={(e) => setApplyForm({ ...applyForm, from_date: e.target.value })}
-                required
-              />
+            <div className="hr-filter-item">
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+              >
+                <option value="ALL">All Leave Types</option>
+                {leaveTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.code})
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="field">
-              <label className="field-label">To date</label>
-              <input
-                className="field-input"
-                type="date"
-                value={applyForm.to_date}
-                onChange={(e) => setApplyForm({ ...applyForm, to_date: e.target.value })}
-                required
-              />
-            </div>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="hr-clear-filter"
+                onClick={resetFilters}
+              >
+                ✕ Clear filters
+              </button>
+            )}
 
-            <div className="field">
-              <Input
-                label="Reason for leave"
-                placeholder="Reason or medical note..."
-                value={applyForm.reason}
-                onChange={(e) => setApplyForm({ ...applyForm, reason: e.target.value })}
-              />
-            </div>
-
-            <div className="field" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-              <input
-                type="checkbox"
-                id="is_half_day"
-                checked={applyForm.is_half_day}
-                onChange={(e) => setApplyForm({ ...applyForm, is_half_day: e.target.checked })}
-                style={{ width: 18, height: 18 }}
-              />
-              <label htmlFor="is_half_day" style={{ fontSize: 13, color: '#173b59', cursor: 'pointer', fontWeight: 600 }}>
-                Half Day Leave (counts as 0.5 day)
-              </label>
-            </div>
+            {canApprove && (
+              <div className="hr-toolbar-actions">
+                <div className="hr-view-toggle">
+                  <button
+                    type="button"
+                    className={`hr-view-toggle-btn ${requestScope === 'team' ? 'active' : ''}`}
+                    onClick={() => setRequestScope('team')}
+                  >
+                    👥 Team Approvals
+                  </button>
+                  <button
+                    type="button"
+                    className={`hr-view-toggle-btn ${requestScope === 'mine' ? 'active' : ''}`}
+                    onClick={() => setRequestScope('mine')}
+                  >
+                    👤 My Requests
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {applyForm.from_date && applyForm.to_date && (
-            <p className="user-admin-help" style={{ marginTop: 12, fontWeight: 600, color: '#0369a1' }}>
-              ℹ️ Calculated Net Working Days: {requestedDays} day(s) requested (excluding Sundays &amp; official holidays).
-            </p>
-          )}
-
-          <div style={{ marginTop: 16 }}>
-            <Button type="submit" loading={applying} loadingText="Submitting...">
-              Submit request
-            </Button>
-          </div>
-        </form>
-      </section>
-
-      {/* MY REQUESTS */}
-      <section className="company-panel" style={{ marginTop: 20 }}>
-        <div className="company-toolbar">
-          <div>
-            <h2>My leave requests</h2>
-            <p>{myRequests.length} request{myRequests.length === 1 ? '' : 's'} recorded</p>
-          </div>
-        </div>
-
-        <div className="company-table-wrap">
-          <table className="company-table">
-            <thead>
-              <tr>
-                <th>Leave type</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Days</th>
-                <th>Status</th>
-                <th>Reason</th>
-                <th className="company-actions">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {myRequests.map((request) => (
-                <tr key={request.id}>
-                  <td><strong>{request.leave_type_name || request.leave_type || '—'}</strong></td>
-                  <td>{request.from_date}</td>
-                  <td>{request.to_date}</td>
-                  <td><strong>{request.days}</strong></td>
-                  <td>
-                    <span className={`leave-status leave-${String(request.status || '').toLowerCase()}`}>
-                      {request.status}
-                    </span>
-                  </td>
-                  <td>{request.reason || '—'}</td>
-                  <td className="company-actions">
-                    {request.status === 'PENDING' && (
-                      <button
-                        type="button"
-                        className="company-link danger"
-                        onClick={() => cancelMine(request)}
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-
-              {myRequests.length === 0 && (
-                <tr>
-                  <td colSpan="7" className="company-empty">
-                    You have not applied for any leave yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* TEAM APPROVALS */}
-      {canApprove && (
-        <section className="company-panel" style={{ marginTop: 20 }}>
-          <div className="company-toolbar">
-            <div>
-              <h2>Team Approvals</h2>
-              <p>Review and decide pending leave requests for your team</p>
-            </div>
-
-            <select
-              className="field-input"
-              style={{ maxWidth: 180 }}
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="PENDING">Pending only</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="CANCELLED">Cancelled</option>
-              <option value="">All statuses</option>
-            </select>
-          </div>
-
-          {teamError && <Alert type="error">{teamError}</Alert>}
-
-          <div className="company-table-wrap">
-            <table className="company-table">
+          <div className="hr-table-scroll">
+            <table className="hr-table">
               <thead>
                 <tr>
                   <th>Employee</th>
-                  <th>Leave type</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Days</th>
+                  <th>Leave Type</th>
+                  <th>Dates (From &ndash; To)</th>
+                  <th>Working Days</th>
                   <th>Status</th>
                   <th>Reason</th>
-                  <th className="company-actions">Actions</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-
               <tbody>
-                {teamRequests.map((request) => (
-                  <tr key={request.id}>
-                    <td>
-                      <strong>{request.employee_name}</strong>
-                      <span className="company-address">{request.employee_code}</span>
-                    </td>
-                    <td>{request.leave_type_name || '—'}</td>
-                    <td>{request.from_date}</td>
-                    <td>{request.to_date}</td>
-                    <td><strong>{request.days}</strong></td>
-                    <td>
-                      <span className={`leave-status leave-${String(request.status || '').toLowerCase()}`}>
-                        {request.status}
-                      </span>
-                    </td>
-                    <td>{request.reason || '—'}</td>
-                    <td className="company-actions">
-                      {request.status === 'PENDING' && (
-                        <>
+                {filteredRequests.map((request) => {
+                  const statusLower = String(request.status || '').toLowerCase()
+                  const badgeClass =
+                    request.status === 'APPROVED'
+                      ? 'approved'
+                      : request.status === 'PENDING'
+                      ? 'pending'
+                      : request.status === 'REJECTED'
+                      ? 'rejected'
+                      : 'neutral'
+
+                  return (
+                    <tr key={request.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div className="hr-emp-avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
+                            {(request.employee_name?.[0] || 'E').toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>
+                              {request.employee_name || user.username}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              {request.employee_code || `EMP-${request.user}`}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td>
+                        <strong style={{ color: '#1e293b' }}>
+                          {request.leave_type_name || 'Leave'}
+                        </strong>
+                        {request.is_half_day && (
+                          <span className="hr-badge half-day" style={{ marginLeft: 6, fontSize: 10 }}>
+                            Half Day
+                          </span>
+                        )}
+                      </td>
+
+                      <td>
+                        <div>{request.from_date} &rarr; {request.to_date}</div>
+                      </td>
+
+                      <td>
+                        <strong style={{ fontSize: 13, color: '#0f172a' }}>
+                          {request.days} day{request.days === 1 ? '' : 's'}
+                        </strong>
+                      </td>
+
+                      <td>
+                        <span className={`hr-badge ${badgeClass}`}>
+                          {request.status}
+                        </span>
+                      </td>
+
+                      <td>
+                        <span style={{ fontSize: 12, color: '#475569' }}>
+                          {request.reason || '—'}
+                        </span>
+                      </td>
+
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
                           <button
                             type="button"
                             className="company-link"
-                            onClick={() => decide(request, 'APPROVED')}
+                            onClick={() => setDetailModalRequest(request)}
                           >
-                            Approve
+                            Details
                           </button>
-                          <button
-                            type="button"
-                            className="company-link danger"
-                            onClick={() => decide(request, 'REJECTED')}
-                          >
-                            Reject
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
 
-                {teamRequests.length === 0 && (
+                          {canApprove && request.status === 'PENDING' && requestScope === 'team' && (
+                            <>
+                              <button
+                                type="button"
+                                className="company-link"
+                                style={{ color: '#16a34a' }}
+                                onClick={() => decide(request, 'APPROVED')}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                className="company-link danger"
+                                onClick={() => decide(request, 'REJECTED')}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+
+                          {request.status === 'PENDING' && requestScope === 'mine' && (
+                            <button
+                              type="button"
+                              className="company-link danger"
+                              onClick={() => cancelMine(request)}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {filteredRequests.length === 0 && (
                   <tr>
-                    <td colSpan="8" className="company-empty">
-                      No leave requests found for this filter.
+                    <td colSpan="7">
+                      <div className="hr-empty-state">
+                        <div className="hr-empty-icon">🏖️</div>
+                        <div className="hr-empty-title">No leave requests found</div>
+                        <div className="hr-empty-desc">
+                          {allRequests.length === 0
+                            ? 'No leave requests recorded yet. Click "+ Apply Leave" to request time off.'
+                            : 'No leave requests match the selected filters.'}
+                        </div>
+                        {hasActiveFilters && (
+                          <Button variant="secondary" style={{ marginTop: 12 }} onClick={resetFilters}>
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
       )}
 
-      {/* LEAVE TYPES MASTER */}
-      {canManage && (
-        <section className="company-panel" style={{ marginTop: 20 }}>
-          <div className="company-toolbar">
+      {/* =========================================================
+          TAB 2: LEAVE BALANCES WITH PROGRESS BARS
+          ========================================================= */}
+      {activeTab === 'balances' && (
+        <div className="hr-table-card" style={{ padding: 22 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <div>
-              <h2>Leave Types Master</h2>
-              <p>Organization leave quota and policy configurations</p>
+              <h3 style={{ margin: 0, fontSize: 16, color: '#0f172a', fontWeight: 800 }}>
+                Leave Balance Entitlements ({currentYear})
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#64748b' }}>
+                Annual quota breakdown with consumed days and available balance.
+              </p>
             </div>
 
-            <Button onClick={openCreateType}>+ Add leave type</Button>
+            <Button onClick={() => setApplyModalOpen(true)}>+ Apply for Leave</Button>
           </div>
 
-          <div className="company-table-wrap">
-            <table className="company-table">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: 18,
+            }}
+          >
+            {Object.values(balances).map((bal) => {
+              const usedPct = bal.quota > 0 ? Math.min(100, Math.round((bal.taken / bal.quota) * 100)) : 0
+              const remainingPct = 100 - usedPct
+
+              return (
+                <div
+                  key={bal.code}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 14,
+                    padding: 18,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 14,
+                    boxShadow: '0 2px 10px rgba(36, 93, 128, 0.04)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: 15, fontWeight: 750, color: '#1e293b' }}>
+                        {bal.name}
+                      </h4>
+                      <span style={{ fontSize: 11, color: '#64748b' }}>
+                        Code: <strong>{bal.code}</strong> &middot; {bal.paid ? 'Paid' : 'Unpaid'}
+                      </span>
+                    </div>
+
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        background: bal.balance > 0 ? '#dcfce7' : '#fee2e2',
+                        color: bal.balance > 0 ? '#15803d' : '#b91c1c',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {bal.balance > 0 ? `${bal.balance} left` : 'Exhausted'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                      <span style={{ fontSize: 24, fontWeight: 800, color: '#0284c7' }}>
+                        {bal.balance}
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 4 }}>
+                          / {bal.quota} days
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                        {usedPct}% used
+                      </span>
+                    </div>
+
+                    {/* PROGRESS BAR */}
+                    <div
+                      style={{
+                        width: '100%',
+                        height: 8,
+                        background: '#f1f5f9',
+                        borderRadius: 999,
+                        overflow: 'hidden',
+                        display: 'flex',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${usedPct}%`,
+                          background: usedPct > 80 ? '#dc2626' : '#f59e0b',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                      <div
+                        style={{
+                          width: `${remainingPct}%`,
+                          background: '#0284c7',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 12,
+                      color: '#475569',
+                      paddingTop: 10,
+                      borderTop: '1px solid #f1f5f9',
+                    }}
+                  >
+                    <span>Consumed: <strong>{bal.taken} days</strong></span>
+                    <span>Remaining: <strong>{bal.balance} days</strong></span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          TAB 3: LEAVE TYPES MASTER
+          ========================================================= */}
+      {activeTab === 'types' && (
+        <div className="hr-table-card">
+          <div className="hr-toolbar">
+            <div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 750, color: '#1e293b' }}>
+                Leave Policy Master
+              </h3>
+              <p style={{ margin: '2px 0 0 0', fontSize: 12, color: '#64748b' }}>
+                Configure company-wide quotas, paid/unpaid classification, and carry-forward rules.
+              </p>
+            </div>
+
+            {canManage && (
+              <Button onClick={openCreateType}>+ Add Leave Type</Button>
+            )}
+          </div>
+
+          <div className="hr-table-scroll">
+            <table className="hr-table">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <th>Leave Name</th>
                   <th>Code</th>
                   <th>Type</th>
-                  <th>Quota (Days/Year)</th>
+                  <th>Annual Quota</th>
                   <th>Carry Forward</th>
                   <th>Status</th>
-                  <th className="company-actions">Actions</th>
+                  {canManage && <th style={{ textAlign: 'right' }}>Actions</th>}
                 </tr>
               </thead>
-
               <tbody>
-                {leaveTypes.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="company-empty" style={{ textAlign: 'center', padding: '36px' }}>
-                      No leave types configured. Click "+ Add leave type" to set up your organization's policies.
+                {leaveTypes.map((type) => (
+                  <tr key={`${type.code}-${type.id}`}>
+                    <td><strong>{type.name}</strong></td>
+                    <td><span className="company-code">{type.code}</span></td>
+                    <td>
+                      <span className={`hr-badge ${type.paid ? 'present' : 'neutral'}`}>
+                        {type.paid ? 'Paid' : 'Unpaid'}
+                      </span>
                     </td>
-                  </tr>
-                ) : (
-                  leaveTypes.map((type) => (
-                    <tr key={`${type.code}-${type.id}`}>
-                      <td><strong>{type.name}</strong></td>
-                      <td><span className="company-code">{type.code}</span></td>
-                      <td>{type.paid ? 'Paid' : 'Unpaid'}</td>
-                      <td><strong>{type.max_days_per_year}</strong></td>
-                      <td>{type.carry_forward ? 'Yes' : 'No'}</td>
-                      <td>
-                        <span className={type.is_active ? 'company-status active' : 'company-status inactive'}>
-                          {type.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="company-actions">
+                    <td><strong>{type.max_days_per_year} days/yr</strong></td>
+                    <td>{type.carry_forward ? '✅ Allowed' : '❌ Expiring'}</td>
+                    <td>
+                      <span className={`hr-badge ${type.is_active ? 'active' : 'inactive'}`}>
+                        {type.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    {canManage && (
+                      <td style={{ textAlign: 'right' }}>
                         <button
                           type="button"
                           className={type.is_active ? 'company-link danger' : 'company-link'}
@@ -775,19 +980,295 @@ export default function Leave() {
                           {type.is_active ? 'Deactivate' : 'Reactivate'}
                         </button>
                       </td>
-                    </tr>
-                  ))
-                )}
+                    )}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
       )}
 
-      {/* ADD LEAVE TYPE MODAL */}
+      {/* =========================================================
+          TAB 4: LEAVE CALENDAR
+          ========================================================= */}
+      {activeTab === 'calendar' && (
+        <div className="hr-table-card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 750, color: '#1e293b' }}>
+                Team Leave Calendar
+              </h3>
+              <p style={{ margin: '2px 0 0 0', fontSize: 12, color: '#64748b' }}>
+                Approved leaves scheduled for month {selectedMonth}.
+              </p>
+            </div>
+
+            <input
+              type="month"
+              className="company-select"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+            />
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, 1fr)',
+              gap: 10,
+            }}
+          >
+            {calendarDays.map((dayStr) => {
+              const dayNum = parseInt(dayStr.slice(8), 10)
+              const dayLeaves = (canApprove ? teamRequests : myRequests).filter(
+                (r) => r.status === 'APPROVED' && dayStr >= r.from_date && dayStr <= r.to_date
+              )
+              const isWeekend = new Date(dayStr).getDay() === 0
+
+              return (
+                <div
+                  key={dayStr}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    padding: 8,
+                    background: dayLeaves.length > 0 ? '#eff6ff' : isWeekend ? '#f1f5f9' : '#ffffff',
+                    minHeight: 74,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                      {dayNum}
+                    </span>
+                    {isWeekend && <span style={{ fontSize: 10, color: '#94a3b8' }}>Sun</span>}
+                  </div>
+
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {dayLeaves.map((l) => (
+                      <div
+                        key={l.id}
+                        title={`${l.employee_name || 'Me'} - ${l.leave_type_name} (${l.reason || ''})`}
+                        style={{
+                          background: '#bfdbfe',
+                          color: '#1e40af',
+                          borderRadius: 4,
+                          padding: '2px 4px',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        🌴 {l.employee_name || 'Me'} ({l.leave_type_name?.slice(0, 4) || 'LV'})
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          APPLY FOR LEAVE MODAL
+          ========================================================= */}
+      {applyModalOpen && (
+        <Modal
+          title="Apply for Leave"
+          onClose={() => setApplyModalOpen(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setApplyModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button loading={applying} onClick={submitApply}>
+                Submit Leave Application
+              </Button>
+            </>
+          }
+        >
+          {applyError && (
+            <div style={{ marginBottom: 14 }}>
+              <Alert type="error">{applyError}</Alert>
+            </div>
+          )}
+
+          <form onSubmit={submitApply}>
+            <div className="company-form-grid">
+              <div className="field">
+                <label className="field-label">Leave Type</label>
+                <select
+                  className="field-input"
+                  value={applyForm.leave_type}
+                  onChange={(e) => setApplyForm({ ...applyForm, leave_type: e.target.value })}
+                  required
+                >
+                  <option value="">Select leave policy...</option>
+                  {activeLeaveTypes.map((type) => {
+                    const bal = balances[type.id]?.balance ?? type.max_days_per_year
+                    return (
+                      <option key={type.id} value={type.id}>
+                        {type.name} &mdash; {type.paid ? `Paid (${bal} days left)` : 'Unpaid'}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="field-label">From Date</label>
+                <input
+                  type="date"
+                  className="field-input"
+                  value={applyForm.from_date}
+                  onChange={(e) => setApplyForm({ ...applyForm, from_date: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label">To Date</label>
+                <input
+                  type="date"
+                  className="field-input"
+                  value={applyForm.to_date}
+                  onChange={(e) => setApplyForm({ ...applyForm, to_date: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field" style={{ gridColumn: 'span 2' }}>
+                <Input
+                  label="Reason for Leave"
+                  placeholder="Provide reason or medical justification..."
+                  value={applyForm.reason}
+                  onChange={(e) => setApplyForm({ ...applyForm, reason: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field" style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                <input
+                  type="checkbox"
+                  id="is_half_day_modal"
+                  checked={applyForm.is_half_day}
+                  onChange={(e) => setApplyForm({ ...applyForm, is_half_day: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <label htmlFor="is_half_day_modal" style={{ fontSize: 13, color: '#173b59', cursor: 'pointer', fontWeight: 600 }}>
+                  Half Day Application (Counts as 0.5 working day)
+                </label>
+              </div>
+            </div>
+
+            {applyForm.from_date && applyForm.to_date && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: '10px 14px',
+                  background: '#eff6ff',
+                  borderRadius: 8,
+                  border: '1px solid #bfdbfe',
+                  fontSize: 12,
+                  color: '#1d4ed8',
+                  fontWeight: 600,
+                }}
+              >
+                ℹ️ Net Working Days: <strong>{requestedDays} day(s)</strong> (Sundays &amp; official holidays automatically deducted).
+              </div>
+            )}
+          </form>
+        </Modal>
+      )}
+
+      {/* =========================================================
+          LEAVE REQUEST DETAIL VIEW MODAL
+          ========================================================= */}
+      {detailModalRequest && (
+        <Modal
+          title={`Leave Request Details (#${detailModalRequest.id})`}
+          onClose={() => setDetailModalRequest(null)}
+          footer={
+            <>
+              {canApprove && detailModalRequest.status === 'PENDING' && (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      decide(detailModalRequest, 'REJECTED')
+                      setDetailModalRequest(null)
+                    }}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      decide(detailModalRequest, 'APPROVED')
+                      setDetailModalRequest(null)
+                    }}
+                  >
+                    Approve Leave
+                  </Button>
+                </>
+              )}
+              <Button variant="secondary" onClick={() => setDetailModalRequest(null)}>
+                Close
+              </Button>
+            </>
+          }
+        >
+          <div className="hr-detail-grid">
+            <div className="hr-detail-field">
+              <span className="hr-detail-label">Employee</span>
+              <strong className="hr-detail-val">{detailModalRequest.employee_name || user.username}</strong>
+            </div>
+
+            <div className="hr-detail-field">
+              <span className="hr-detail-label">Employee Code</span>
+              <span className="hr-detail-val">{detailModalRequest.employee_code || `EMP-${detailModalRequest.user}`}</span>
+            </div>
+
+            <div className="hr-detail-field">
+              <span className="hr-detail-label">Leave Policy</span>
+              <span className="hr-detail-val">{detailModalRequest.leave_type_name || 'Standard'}</span>
+            </div>
+
+            <div className="hr-detail-field">
+              <span className="hr-detail-label">Current Status</span>
+              <span className={`hr-badge ${String(detailModalRequest.status || '').toLowerCase()}`}>
+                {detailModalRequest.status}
+              </span>
+            </div>
+
+            <div className="hr-detail-field">
+              <span className="hr-detail-label">Date Range</span>
+              <span className="hr-detail-val">{detailModalRequest.from_date} to {detailModalRequest.to_date}</span>
+            </div>
+
+            <div className="hr-detail-field">
+              <span className="hr-detail-label">Working Days</span>
+              <strong className="hr-detail-val">{detailModalRequest.days} day(s)</strong>
+            </div>
+
+            <div className="hr-detail-field" style={{ gridColumn: 'span 2' }}>
+              <span className="hr-detail-label">Reason / Medical Notes</span>
+              <span className="hr-detail-val" style={{ background: '#f8fafc', padding: 8, borderRadius: 6 }}>
+                {detailModalRequest.reason || 'None provided'}
+              </span>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* =========================================================
+          ADD LEAVE TYPE MODAL
+          ========================================================= */}
       {typeModalOpen && (
         <Modal
-          title="Add Leave Type Master"
+          title="Configure Leave Type Policy"
           onClose={() => setTypeModalOpen(false)}
           footer={
             <>

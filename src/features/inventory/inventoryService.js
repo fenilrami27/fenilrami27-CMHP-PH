@@ -102,6 +102,14 @@ export const inventoryService = {
     store.dispatch(returnStockAction(payload))
     return delay(null)
   },
+  getIssueHistory: () => {
+    const state = store.getState().erp
+    return delay(state.issueHistory || [])
+  },
+  getStockReturns: () => {
+    const state = store.getState().erp
+    return delay(state.stockReturns || [])
+  },
   adjustStock: (payload) => {
     store.dispatch(adjustStockAction(payload))
     return delay(null)

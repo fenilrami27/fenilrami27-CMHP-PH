@@ -12,6 +12,44 @@ import StockLedgerTab from './tabs/StockLedgerTab'
 import './Inventory.css'
 
 
+const INVENTORY_HERO_CONFIG = {
+  overview: {
+    eyebrow: 'COMMON STORE & WAREHOUSE',
+    title: 'Common Inventory',
+    subtitle: 'Common Store & Inventory — shared across CMHP Pharma and Tej Biocare.',
+  },
+  products: {
+    eyebrow: 'FINISHED MEDICINES & DOSAGE FORMS',
+    title: 'Common Products',
+    subtitle: 'Unified finished products catalog, formulas, package sizes, and unit mappings.',
+  },
+  materials: {
+    eyebrow: 'RAW CHEMICAL INGREDIENTS & APIS',
+    title: 'Raw Materials',
+    subtitle: 'Central store of chemical raw materials, active ingredients, excipients, and supplier sourcing.',
+  },
+  orders: {
+    eyebrow: 'CENTRAL SALES & PRODUCTION ALLOCATIONS',
+    title: 'Common Orders',
+    subtitle: 'Shared sales orders, customer delivery schedules, and production lot allocations.',
+  },
+  stock: {
+    eyebrow: 'BATCH & WAREHOUSE LOT BALANCES',
+    title: 'Stocks & Lots',
+    subtitle: 'Real-time lot tracking, chemical batches, expiry dates, and warehouse balance breakdown.',
+  },
+  'issue-return': {
+    eyebrow: 'MATERIAL ISSUANCE & VERIFIED RETURNS',
+    title: 'Issue / Return',
+    subtitle: 'Issue lots to production units and process returns with automatic manufacturer attribution.',
+  },
+  ledger: {
+    eyebrow: 'PHARMACEUTICAL INVENTORY REGISTER',
+    title: 'Chemical & Stock Ledger',
+    subtitle: 'Standard dual-register stock ledger: side-by-side Inward & Outward tracking, container math (kg to bags), opening stock carry-forward, and running physical balance.',
+  },
+}
+
 /* =========================================================
    INVENTORY COMPONENT
    ========================================================= */
@@ -49,6 +87,8 @@ export default function Inventory() {
                                 : (activePath === '/inventory/ledger' || activePath === '/inventory/stock-ledger')
                                     ? 'ledger'
                                     : 'overview'
+
+    const heroConfig = INVENTORY_HERO_CONFIG[activeSection] || INVENTORY_HERO_CONFIG.overview
 
 
     /* =====================================================
@@ -103,21 +143,15 @@ export default function Inventory() {
                 <div>
 
                     <span className="page-hero-pill">
-                        {activeSection === 'ledger'
-                            ? 'PHARMACEUTICAL INVENTORY REGISTER'
-                            : 'COMMON STORE & WAREHOUSE'}
+                        {heroConfig.eyebrow}
                     </span>
 
                     <h1>
-                        {activeSection === 'ledger'
-                            ? 'Chemical & Stock Ledger'
-                            : 'Common Inventory'}
+                        {heroConfig.title}
                     </h1>
 
                     <p>
-                        {activeSection === 'ledger'
-                            ? 'Standard dual-register stock ledger: side-by-side Inward & Outward tracking, container math (kg to bags), opening stock carry-forward, and running physical balance.'
-                            : 'Common Store & Inventory — shared across CMHP Pharma and Tej Biocare.'}
+                        {heroConfig.subtitle}
                     </p>
 
                 </div>

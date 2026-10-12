@@ -56,6 +56,20 @@ function buildInitialERPState() {
     }
   )
 
+  // Hydrate empty arrays with seed data if saved state has no records for them
+  const seedIfEmptyKeys = [
+    'lots', 'commonProducts', 'commonRawMaterials', 'orders',
+    'customers', 'suppliers', 'issueHistory', 'stockReturns',
+    'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches'
+  ]
+  seedIfEmptyKeys.forEach((key) => {
+    if (!Array.isArray(result[key]) || result[key].length === 0) {
+      if (Array.isArray(initialState[key]) && initialState[key].length > 0) {
+        result[key] = JSON.parse(JSON.stringify(initialState[key]))
+      }
+    }
+  })
+
   // Ensure byCompany structure exists
   if (!result.byCompany) {
     result.byCompany = { cmhp: {}, tej: {} }

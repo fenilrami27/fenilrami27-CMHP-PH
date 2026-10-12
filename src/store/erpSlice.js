@@ -1,4 +1,21 @@
 import { createSlice } from '@reduxjs/toolkit'
+import {
+  SEED_PRODUCTS,
+  SEED_RAW_MATERIALS,
+  SEED_LOTS,
+  SEED_ORDERS,
+  SEED_CUSTOMERS,
+  SEED_SUPPLIERS,
+  SEED_ISSUE_HISTORY,
+  SEED_STOCK_RETURNS,
+  SEED_QC_RECORDS,
+  SEED_QA_RECORDS,
+  SEED_PURCHASE_ORDERS,
+  SEED_GOODS_RECEIPTS,
+  SEED_DISPATCHES,
+  SEED_FORMULAS,
+  SEED_FORMULA_APPROVALS,
+} from './seedData'
 
 
 let lastGeneratedId =
@@ -192,7 +209,8 @@ export const initialState = {
   byCompany: {
     cmhp: {
       products: [],
-      formulas: [],
+      formulas: SEED_FORMULAS.filter((f) => f.company === 1),
+      formulaApprovals: SEED_FORMULA_APPROVALS.filter((a) => a.company === 1),
       orders: [],
       batches: [],
       qcRecords: [],
@@ -222,7 +240,8 @@ export const initialState = {
     },
     tej: {
       products: [],
-      formulas: [],
+      formulas: SEED_FORMULAS.filter((f) => f.company === 2),
+      formulaApprovals: SEED_FORMULA_APPROVALS.filter((a) => a.company === 2),
       orders: [],
       batches: [],
       qcRecords: [],
@@ -423,16 +442,18 @@ export const initialState = {
   |--------------------------------------------------------------------------
   */
 
-  commonProducts: [],
-  commonRawMaterials: [],
+  commonProducts: [...SEED_PRODUCTS],
+  commonRawMaterials: [...SEED_RAW_MATERIALS],
 
   stockLedgerEntries: [],
 
   items: [],
 
-  lots: [],
+  lots: [...SEED_LOTS],
 
   transactions: [],
+  issueHistory: [...SEED_ISSUE_HISTORY],
+  stockReturns: [...SEED_STOCK_RETURNS],
 
 
   /*
@@ -441,15 +462,16 @@ export const initialState = {
   |--------------------------------------------------------------------------
   */
 
-  products: [],
+  products: [...SEED_PRODUCTS],
 
-  customers: [],
+  customers: [...SEED_CUSTOMERS],
 
-  formulas: [],
+  formulas: [...SEED_FORMULAS],
+  formulaApprovals: [...SEED_FORMULA_APPROVALS],
 
-  qcRecords: [],
+  qcRecords: [...SEED_QC_RECORDS],
 
-  qaRecords: [],
+  qaRecords: [...SEED_QA_RECORDS],
 
   payments: [],
 
@@ -472,7 +494,7 @@ export const initialState = {
 
   quotations: [],
 
-  orders: [],
+  orders: [...SEED_ORDERS],
 
   batches: [],
 
@@ -492,17 +514,17 @@ export const initialState = {
   |--------------------------------------------------------------------------
   */
 
-  suppliers: [],
+  suppliers: [...SEED_SUPPLIERS],
 
-  purchaseOrders: [],
+  purchaseOrders: [...SEED_PURCHASE_ORDERS],
 
-  goodsReceipts: [],
+  goodsReceipts: [...SEED_GOODS_RECEIPTS],
 
   purchaseBills: [],
 
   internalAllocations: [],
 
-  dispatches: [],
+  dispatches: [...SEED_DISPATCHES],
 
   salesReturns: [],
 
@@ -1372,104 +1394,80 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
+      const p = action.payload || {}
+      const lotId = p.lot_id !== undefined ? p.lot_id : p.lot
+      const qty = Number(p.quantity)
 
-      const {
-        lot,
-        company,
-        quantity,
-        reference_note,
-      } = action.payload
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return
+      }
 
-
-      const qty =
-        Number(
-          quantity
-        )
-
-
-      const lotObj =
-        state.lots.find(
-          (x) =>
-            Number(x.id) ===
-            Number(lot)
-        )
-
+      const lotObj = (state.lots || []).find(
+        (x) => Number(x.id) === Number(lotId)
+      )
 
       if (!lotObj) {
-
         return
-
       }
 
-
-      if (
-        !Number.isFinite(qty) ||
-        qty <= 0
-      ) {
-
+      const available = Number(lotObj.available_quantity) || 0
+      if (qty > available) {
         return
-
       }
 
+      lotObj.available_quantity = available - qty
 
-      const available =
-        Number(
-          lotObj.available_quantity
-        ) || 0
-
-
-      if (
-        qty >
-        available
-      ) {
-
-        return
-
+      // Also sync parent stock in commonRawMaterials or commonProducts if found
+      if (lotObj.item_type === 'RAW_MATERIAL') {
+        const mat = (state.commonRawMaterials || []).find(
+          (m) => Number(m.id) === Number(lotObj.item_id || lotObj.item) || m.code === lotObj.item_code
+        )
+        if (mat) mat.current_stock = Math.max(0, (Number(mat.current_stock) || 0) - qty)
+      } else {
+        const prod = (state.commonProducts || []).find(
+          (pr) => Number(pr.id) === Number(lotObj.item_id || lotObj.item) || pr.code === lotObj.item_code
+        )
+        if (prod) prod.current_stock = Math.max(0, (Number(prod.current_stock) || 0) - qty)
       }
 
+      if (!state.issueHistory) state.issueHistory = []
+      const issueNumber = p.issue_number || `ISS-${new Date().getFullYear()}-${String(state.issueHistory.length + 1).padStart(3, '0')}`
 
-      lotObj.available_quantity =
-        available - qty
+      const entry = {
+        id: nextId(),
+        issue_number: issueNumber,
+        date: p.date || nowIso().slice(0, 10),
+        item_id: lotObj.item_id || lotObj.item,
+        item_code: lotObj.item_code,
+        item_name: lotObj.item_name,
+        category: lotObj.category,
+        lot_id: Number(lotId),
+        lot_number: lotObj.lot_number,
+        quantity: qty,
+        uom: lotObj.uom || lotObj.uom_code || 'Units',
+        issued_to_type: p.issued_to_type || (p.company ? 'COMPANY' : 'DEPARTMENT'),
+        issued_to_name: p.issued_to_name || p.reference_note || 'Production',
+        order_id: p.order_id || null,
+        issued_by: p.issued_by || 'Demo User',
+        remarks: p.remarks || p.reference_note || '',
+        created_at: nowIso(),
+      }
+      state.issueHistory.unshift(entry)
 
-
+      if (!state.transactions) state.transactions = []
       state.transactions.unshift({
-
-        id:
-          nextId(),
-
-        transaction_type:
-          'ISSUE',
-
-        item:
-          lotObj.item,
-
-        lot:
-          Number(
-            lot
-          ),
-
-        quantity:
-          qty,
-
-        company:
-          company
-            ? Number(
-                company
-              )
-            : null,
-
-        reference_note:
-          reference_note ||
-          '',
-
-        created_by:
-          'system',
-
-        created_at:
-          nowIso(),
-
+        id: nextId(),
+        transaction_type: 'ISSUE',
+        item: lotObj.item_id || lotObj.item,
+        item_code: lotObj.item_code,
+        lot: Number(lotId),
+        lot_number: lotObj.lot_number,
+        quantity: qty,
+        company: p.company ? Number(p.company) : null,
+        reference_note: p.remarks || p.reference_note || '',
+        created_by: 'Demo User',
+        created_at: nowIso(),
       })
-
     },
 
 
@@ -1484,91 +1482,95 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
+      const p = action.payload || {}
+      const lotId = p.lot_id !== undefined ? p.lot_id : p.lot
+      const qty = Number(p.quantity)
 
-      const {
-        lot,
-        company,
-        quantity,
-        reference_note,
-      } = action.payload
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return
+      }
 
-
-      const qty =
-        Number(
-          quantity
-        )
-
-
-      const lotObj =
-        state.lots.find(
-          (x) =>
-            Number(x.id) ===
-            Number(lot)
-        )
-
+      const lotObj = (state.lots || []).find(
+        (x) => Number(x.id) === Number(lotId)
+      )
 
       if (!lotObj) {
-
         return
-
       }
 
-
-      if (
-        !Number.isFinite(qty) ||
-        qty <= 0
-      ) {
-
+      const available = Number(lotObj.available_quantity) || 0
+      if (qty > available) {
         return
-
       }
 
+      // Deduct or block the returned quantity from stock in Redux
+      lotObj.available_quantity = available - qty
 
-      lotObj.available_quantity =
-        Number(
-          lotObj.available_quantity
-        ) +
-        qty
+      // Also sync parent stock in commonRawMaterials or commonProducts if found
+      if (lotObj.item_type === 'RAW_MATERIAL') {
+        const mat = (state.commonRawMaterials || []).find(
+          (m) => Number(m.id) === Number(lotObj.item_id || lotObj.item) || m.code === lotObj.item_code
+        )
+        if (mat) mat.current_stock = Math.max(0, (Number(mat.current_stock) || 0) - qty)
+      } else {
+        const prod = (state.commonProducts || []).find(
+          (pr) => Number(pr.id) === Number(lotObj.item_id || lotObj.item) || pr.code === lotObj.item_code
+        )
+        if (prod) prod.current_stock = Math.max(0, (Number(prod.current_stock) || 0) - qty)
+      }
 
+      if (!state.stockReturns) state.stockReturns = []
+      const returnNumber = p.return_number || `RET-${new Date().getFullYear()}-${String(state.stockReturns.length + 1).padStart(3, '0')}`
 
+      const returnEntry = {
+        id: nextId(),
+        return_number: returnNumber,
+        date: p.date || nowIso().slice(0, 10),
+        item_id: lotObj.item_id || lotObj.item,
+        item_code: lotObj.item_code,
+        item_name: lotObj.item_name,
+        category: lotObj.category,
+        item_type: lotObj.item_type,
+        lot_id: Number(lotId),
+        lot_number: lotObj.lot_number,
+        quantity: qty,
+        uom: lotObj.uom || lotObj.uom_code || 'Units',
+        return_to: p.return_to || (lotObj.item_type === 'MEDICINE' ? lotObj.source_company : lotObj.supplier_name),
+        return_to_label: p.return_to_label || (lotObj.item_type === 'MEDICINE' ? `${lotObj.source_company} (Manufacturer)` : `${lotObj.supplier_name} (Supplier)`),
+        return_to_type: p.return_to_type || (lotObj.item_type === 'MEDICINE' ? 'MANUFACTURER' : 'SUPPLIER'),
+        reason: p.reason || 'Defect / Quality Issue',
+        reason_notes: p.reason_notes || p.reference_note || '',
+        status: p.status || 'Raised',
+        created_by: p.created_by || 'Demo User',
+        created_at: nowIso(),
+      }
+      state.stockReturns.unshift(returnEntry)
+
+      if (!state.transactions) state.transactions = []
       state.transactions.unshift({
-
-        id:
-          nextId(),
-
-        transaction_type:
-          'RETURN',
-
-        item:
-          lotObj.item,
-
-        lot:
-          Number(
-            lot
-          ),
-
-        quantity:
-          qty,
-
-        company:
-          company
-            ? Number(
-                company
-              )
-            : null,
-
-        reference_note:
-          reference_note ||
-          '',
-
-        created_by:
-          'system',
-
-        created_at:
-          nowIso(),
-
+        id: nextId(),
+        transaction_type: 'RETURN',
+        item: lotObj.item_id || lotObj.item,
+        item_code: lotObj.item_code,
+        lot: Number(lotId),
+        lot_number: lotObj.lot_number,
+        quantity: qty,
+        company: p.company ? Number(p.company) : null,
+        reference_note: `${returnEntry.reason}: ${returnEntry.reason_notes}`,
+        created_by: 'Demo User',
+        created_at: nowIso(),
       })
+    },
 
+    updateStockReturnStatus: (state, action) => {
+      const { id, status, notes } = action.payload || {}
+      if (!state.stockReturns) return
+      const ret = state.stockReturns.find((r) => Number(r.id) === Number(id))
+      if (ret) {
+        ret.status = status
+        if (notes) ret.status_notes = notes
+        ret.updated_at = nowIso()
+      }
     },
 
 
@@ -1918,6 +1920,149 @@ const erpSlice = createSlice({
       ;(state.formulas || []).forEach(delRev)
       ;(state.byCompany?.cmhp?.formulas || []).forEach(delRev)
       ;(state.byCompany?.tej?.formulas || []).forEach(delRev)
+    },
+
+    /*
+    |--------------------------------------------------------------------------
+    | FORMULA APPROVALS (QC LIFECYCLE)
+    |--------------------------------------------------------------------------
+    */
+
+    submitFormulaApproval: (state, action) => {
+      ensureByCompanyState(state)
+      const p = action.payload || {}
+      const id = p.id || `FA-${Date.now().toString().slice(-6)}`
+      const now = nowIso()
+
+      const newApproval = {
+        id,
+        company: p.company !== undefined ? Number(p.company) : (state.activeCompanyId || 1),
+        companyId: p.companyId || (state.activeCompanyKey || 'cmhp'),
+        productId: Number(p.productId) || p.productId,
+        productName: p.productName || '',
+        productCode: p.productCode || '',
+        dosageForm: p.dosageForm || 'Oral Liquid',
+        formulaId: p.formulaId,
+        formulaName: p.formulaName || '',
+        revisionId: p.revisionId,
+        revisionName: p.revisionName || '',
+        formulaBaseQuantity: Number(p.formulaBaseQuantity) || 100,
+        formulaBaseUnit: p.formulaBaseUnit || 'L',
+        batchQuantity: Number(p.batchQuantity) || 1,
+        batchUnit: p.batchUnit || 'L',
+        scaleFactor: Number(p.scaleFactor) || 1,
+        materialsCount: Array.isArray(p.materials) ? p.materials.length : 0,
+        materials: Array.isArray(p.materials) ? JSON.parse(JSON.stringify(p.materials)) : [],
+        snapshot: JSON.parse(JSON.stringify(p.snapshot || p)),
+        remarks: p.remarks || '',
+        status: 'PENDING',
+        submittedBy: p.submittedBy || 'Production Chemist',
+        submittedByRole: p.submittedByRole || 'Production Chemist',
+        submittedAt: now,
+        decidedBy: null,
+        decidedByRole: null,
+        decidedAt: null,
+        decisionRemarks: '',
+        declineReason: '',
+        declineCategory: '',
+        history: [
+          {
+            action: 'SUBMITTED',
+            by: p.submittedBy || 'Production Chemist',
+            role: p.submittedByRole || 'Production Chemist',
+            at: now,
+            remarks: p.remarks || '',
+          },
+        ],
+      }
+
+      addCompanyEntity(state, 'formulaApprovals', newApproval)
+
+      // Update matching product
+      const updateProd = (prod) => {
+        if (prod && String(prod.id) === String(p.productId)) {
+          prod.formula_approval_status = 'PENDING'
+          prod.last_formula_approval_id = id
+        }
+      }
+      ;(state.products || []).forEach(updateProd)
+      ;(state.byCompany?.cmhp?.products || []).forEach(updateProd)
+      ;(state.byCompany?.tej?.products || []).forEach(updateProd)
+    },
+
+    withdrawFormulaApproval: (state, action) => {
+      ensureByCompanyState(state)
+      const { id, reason, withdrawnBy } = action.payload || {}
+      const now = nowIso()
+
+      const patchData = (item) => {
+        if (item && String(item.id) === String(id)) {
+          item.status = 'WITHDRAWN'
+          if (!Array.isArray(item.history)) item.history = []
+          item.history.push({
+            action: 'WITHDRAWN',
+            by: withdrawnBy || 'Production Chemist',
+            at: now,
+            reason: reason || 'Withdrawn by submitter',
+          })
+          const updateProd = (prod) => {
+            if (prod && String(prod.id) === String(item.productId)) {
+              prod.formula_approval_status = 'NOT_SUBMITTED'
+            }
+          }
+          ;(state.products || []).forEach(updateProd)
+          ;(state.byCompany?.cmhp?.products || []).forEach(updateProd)
+          ;(state.byCompany?.tej?.products || []).forEach(updateProd)
+        }
+      }
+
+      ;(state.formulaApprovals || []).forEach(patchData)
+      ;(state.byCompany?.cmhp?.formulaApprovals || []).forEach(patchData)
+      ;(state.byCompany?.tej?.formulaApprovals || []).forEach(patchData)
+    },
+
+    decideFormulaApproval: (state, action) => {
+      ensureByCompanyState(state)
+      const { id, decision, remarks, reason, declineCategory, decidedBy, decidedByRole } = action.payload || {}
+      const now = nowIso()
+      const isApproved = decision === 'APPROVED'
+
+      const patchData = (item) => {
+        if (item && String(item.id) === String(id)) {
+          item.status = isApproved ? 'APPROVED' : 'DECLINED'
+          item.decidedBy = decidedBy || (isApproved ? 'Dr. R. K. Mehta' : 'Pooja Varma')
+          item.decidedByRole = decidedByRole || (isApproved ? 'QA Manager' : 'QC In-Charge')
+          item.decidedAt = now
+          item.decisionRemarks = isApproved ? (remarks || '') : (reason || '')
+          if (!isApproved) {
+            item.declineReason = reason || 'Declined during QC audit'
+            item.declineCategory = declineCategory || 'General'
+          }
+          if (!Array.isArray(item.history)) item.history = []
+          item.history.push({
+            action: item.status,
+            by: item.decidedBy,
+            role: item.decidedByRole,
+            at: now,
+            remarks: item.decisionRemarks,
+            reason: item.declineReason,
+            category: item.declineCategory,
+          })
+
+          const updateProd = (prod) => {
+            if (prod && String(prod.id) === String(item.productId)) {
+              prod.formula_approval_status = item.status
+            }
+          }
+          ;(state.products || []).forEach(updateProd)
+          ;(state.byCompany?.cmhp?.products || []).forEach(updateProd)
+          ;(state.byCompany?.tej?.products || []).forEach(updateProd)
+        }
+      }
+
+      ;(state.formulaApprovals || []).forEach(patchData)
+      ;(state.byCompany?.cmhp?.formulaApprovals || []).forEach(patchData)
+      ;(state.byCompany?.tej?.formulaApprovals || []).forEach(patchData)
     },
 
 
@@ -3334,6 +3479,8 @@ export const {
 
   returnStock,
 
+  updateStockReturnStatus,
+
   adjustStock,
 
 
@@ -3369,6 +3516,10 @@ export const {
 
   deleteFormulaRevision,
 
+  // formula approvals (QC lifecycle)
+  submitFormulaApproval,
+  withdrawFormulaApproval,
+  decideFormulaApproval,
 
   addQuotation,
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import useAuth from '../../hooks/useAuth'
 import Alert from '../../components/Alert'
 import Button from '../../components/Button'
+import PageHeader from '../../components/PageHeader'
 import { getErrorMessage } from '../../utils/errors'
 
 import { companyService } from '../companies/companyService'
@@ -28,6 +29,28 @@ import './Hrms.css'
  * Every report can be limited to one company or show both companies
  * (group level), depending on the viewer's company access.
  */
+
+const REPORT_CATEGORIES = [
+  { id: 'ALL', label: 'All Reports' },
+  { id: 'ATTENDANCE', label: 'Attendance' },
+  { id: 'LEAVE', label: 'Leave' },
+  { id: 'HEADCOUNT', label: 'Headcount' },
+  { id: 'PAYROLL', label: 'Payroll & Statutory' },
+  { id: 'JOINERS_LEAVERS', label: 'Joiners & Leavers' },
+]
+
+const REPORT_CATEGORY_MAP = {
+  DAILY: 'ATTENDANCE',
+  MONTHLY: 'ATTENDANCE',
+  LATE_COMING: 'ATTENDANCE',
+  LEAVE: 'LEAVE',
+  EMPLOYEES: 'HEADCOUNT',
+  DEPARTMENT: 'HEADCOUNT',
+  DESIGNATION: 'HEADCOUNT',
+  PAYROLL_REGISTER: 'PAYROLL',
+  STATUTORY_SUMMARY: 'PAYROLL',
+  JOINERS_LEAVERS: 'JOINERS_LEAVERS',
+}
 
 const REPORTS = [
   ['EMPLOYEES', 'Employee list'],
@@ -86,8 +109,12 @@ export default function HrReports() {
 
   const year = new Date().getFullYear()
 
+  const [category, setCategory] = useState('ALL')
   const [report, setReport] = useState('EMPLOYEES')
   const [companyFilter, setCompanyFilter] = useState('ALL')
+  const [departmentFilter, setDepartmentFilter] = useState('ALL')
+  const [designationFilter, setDesignationFilter] = useState('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const [date, setDate] = useState(todayStr())
   const [month, setMonth] = useState(currentMonth())
@@ -207,6 +234,40 @@ export default function HrReports() {
           (c) => Number(c.id) === Number(companyFilter)
         )
 
+  const departments = useMemo(() => {
+    const set = new Set()
+    employees.forEach((e) => {
+      const d = e.department?.name || e.department || e.department_name
+      if (d) set.add(d)
+    })
+    return Array.from(set).sort()
+  }, [employees])
+
+  const designations = useMemo(() => {
+    const set = new Set()
+    employees.forEach((e) => {
+      const d = e.designation?.name || e.designation || e.designation_name
+      if (d) set.add(d)
+    })
+    return Array.from(set).sort()
+  }, [employees])
+
+  const matchesEmployee = (e) => {
+    if (!e) return false
+    const compMatches =
+      companyFilter === 'ALL' || Number(e.primary_company) === Number(companyFilter)
+    const empDept = e.department?.name || e.department || e.department_name || ''
+    const deptMatches = departmentFilter === 'ALL' || empDept === departmentFilter
+    const empDesig = e.designation?.name || e.designation || e.designation_name || ''
+    const desigMatches = designationFilter === 'ALL' || empDesig === designationFilter
+    const q = searchQuery.trim().toLowerCase()
+    const searchMatches =
+      !q ||
+      (e.display_name && e.display_name.toLowerCase().includes(q)) ||
+      (e.employee_id && e.employee_id.toLowerCase().includes(q))
+    return compMatches && deptMatches && desigMatches && searchMatches
+  }
+
   const matches = (companyId) =>
     companyFilter === 'ALL' ||
     Number(companyId) === Number(companyFilter)
@@ -221,7 +282,7 @@ export default function HrReports() {
 
   const view = useMemo(() => {
     const activeEmployees = employees.filter(
-      (e) => e.is_active && matches(e.primary_company)
+      (e) => e.is_active && matchesEmployee(e)
     )
 
     // ---------------- EMPLOYEE LIST ----------------
@@ -237,13 +298,13 @@ export default function HrReports() {
           { key: 'status', label: 'Status' },
         ],
         rows: employees
-          .filter((e) => matches(e.primary_company))
+          .filter((e) => matchesEmployee(e))
           .map((e) => ({
             id: e.id,
             code: e.employee_id || '\u2014',
             name: e.display_name,
-            company: e.company?.name || '\u2014',
-            department: e.department?.name || '\u2014',
+            company: e.company?.name || companyName(e.primary_company) || '\u2014',
+            department: e.department?.name || e.department || '\u2014',
             designation: e.designation || '\u2014',
             joining: formatDate(e.joining_date),
             status: e.is_active
@@ -265,7 +326,7 @@ export default function HrReports() {
             key: 'status',
             label: 'Status',
             render: (row) => (
-              <span className={`attendance-status attendance-${row.status}`}>
+              <span className={`status-badge ${row.status === 'PRESENT' ? 'status-approved' : row.status === 'ABSENT' ? 'status-rejected' : 'status-pending'}`}>
                 {STATUS_LABEL[row.status] || row.status}
               </span>
             ),
@@ -276,13 +337,13 @@ export default function HrReports() {
           { key: 'hours', label: 'Hours', num: true },
         ],
         rows: dailyRows
-          .filter((row) => matches(row.employee.primary_company))
+          .filter((row) => matchesEmployee(row.employee))
           .map(({ employee, attendance }) => ({
             id: employee.id,
             code: employee.employee_id || '\u2014',
             name: employee.display_name,
-            company: employee.company?.name || '\u2014',
-            department: employee.department?.name || '\u2014',
+            company: employee.company?.name || companyName(employee.primary_company) || '\u2014',
+            department: employee.department?.name || employee.department || '\u2014',
             status: attendance?.status || 'NOT_MARKED',
             checkIn: formatTime(attendance?.check_in),
             checkOut: formatTime(attendance?.check_out),
@@ -352,12 +413,14 @@ export default function HrReports() {
       const byUser = new Map()
 
       leaveRequests
-        .filter(
-          (r) =>
-            matches(r.company) &&
+        .filter((r) => {
+          const emp = employees.find((e) => Number(e.id) === Number(r.user))
+          return (
+            matchesEmployee(emp) &&
             (!from || r.from_date >= from) &&
             (!to || r.from_date <= to)
-        )
+          )
+        })
         .forEach((r) => {
           const key = Number(r.user)
 
@@ -442,9 +505,10 @@ export default function HrReports() {
               hours: rec.working_hours ?? '\u2014',
               status: 'Late arrival',
               primary_company: emp?.primary_company,
+              emp,
             }
           })
-          .filter((r) => matches(r.primary_company)),
+          .filter((r) => matchesEmployee(r.emp)),
       }
     }
 
@@ -462,13 +526,13 @@ export default function HrReports() {
           { key: 'status', label: 'Status' },
         ],
         rows: employees
-          .filter((e) => matches(e.primary_company))
+          .filter((e) => matchesEmployee(e))
           .map((e) => ({
             id: e.id,
             code: e.employee_id || '\u2014',
             name: e.display_name,
-            company: e.company?.name || '\u2014',
-            department: e.department?.name || '\u2014',
+            company: e.company?.name || companyName(e.primary_company) || '\u2014',
+            department: e.department?.name || e.department || '\u2014',
             designation: e.designation || '\u2014',
             joining: formatDate(e.joining_date),
             exit: e.exit_date ? formatDate(e.exit_date) : '\u2014',
@@ -696,6 +760,9 @@ export default function HrReports() {
     employees,
     companies,
     companyFilter,
+    departmentFilter,
+    designationFilter,
+    searchQuery,
     dailyRows,
     monthAttendance,
     leaveRequests,
@@ -709,7 +776,7 @@ export default function HrReports() {
   // ------------------------------------------------------------------
 
   const activeInView = employees.filter(
-    (e) => e.is_active && matches(e.primary_company)
+    (e) => e.is_active && matchesEmployee(e)
   )
 
   const dailyCount = (statuses) =>
@@ -783,128 +850,303 @@ export default function HrReports() {
 
   return (
     <div className="hr-page">
-
-      <div className="hr-header">
-        <div>
-          <span
-            className="dash-pill"
-            style={{ marginBottom: 6, display: 'inline-block' }}
-          >
-            HRMS
-          </span>
-          <h1>HR Reports</h1>
-          <p>
-            Company-wise HR reports with a group-level view for authorized
-            management. Export any report to CSV.
-          </p>
-        </div>
-      </div>
-
-      <div className="hr-kpis">
-        {cards.map((card) => (
-          <div className="hr-kpi-card" key={card.label}>
-            <div className="hr-kpi-value">{card.value}</div>
-            <div className="hr-kpi-label">{card.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <section className="company-panel">
-
-        <div className="company-toolbar">
-          <div>
-            <h2>{reportTitle}</h2>
-            <p>{REPORT_HINT[report]}</p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
+      <PageHeader
+        breadcrumbs={['HRMS', 'Reports']}
+        title="HR Reports & Analytics"
+        subtitle="Statutory compliance reports, attendance summaries, payroll registers, and headcount metrics."
+        actions={
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <Button
               variant="secondary"
               onClick={() => window.print()}
               disabled={busy || view.rows.length === 0}
             >
-              Print Report
+              🖨️ Print Report
             </Button>
             <Button
-              variant="secondary"
               onClick={exportReport}
               disabled={busy || view.rows.length === 0}
             >
-              Download CSV
+              📥 Download CSV
             </Button>
+          </div>
+        }
+      />
+
+      {/* KPI SUMMARY CARDS */}
+      <div className="hr-kpis-grid" style={{ marginBottom: 20 }}>
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Active in View</span>
+            <span style={{ fontSize: 18 }}>👥</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#0284c7' }}>{activeInView.length}</div>
+          <div className="hr-kpi-sub">Filtered employee roster</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Records in Report</span>
+            <span style={{ fontSize: 18 }}>📄</span>
+          </div>
+          <div className="hr-kpi-val">{view.rows.filter((r) => !r.isTotal).length}</div>
+          <div className="hr-kpi-sub">Active report records</div>
+        </div>
+
+        {report === 'DAILY' ? (
+          <>
+            <div className="hr-kpi-link">
+              <div className="hr-kpi-head">
+                <span className="hr-kpi-title">Present Today</span>
+                <span style={{ fontSize: 18 }}>✓</span>
+              </div>
+              <div className="hr-kpi-val" style={{ color: '#16a34a' }}>
+                {dailyCount(['PRESENT', 'LATE', 'WFH', 'EARLY_EXIT', 'HALF_DAY'])}
+              </div>
+              <div className="hr-kpi-sub">Checked in on {date}</div>
+            </div>
+
+            <div className="hr-kpi-link">
+              <div className="hr-kpi-head">
+                <span className="hr-kpi-title">Absent / On Leave</span>
+                <span style={{ fontSize: 18 }}>⚠️</span>
+              </div>
+              <div className="hr-kpi-val" style={{ color: '#dc2626' }}>
+                {dailyCount(['ABSENT']) + dailyCount(['LEAVE'])}
+              </div>
+              <div className="hr-kpi-sub">{dailyCount(['ABSENT'])} absent • {dailyCount(['LEAVE'])} leave</div>
+            </div>
+          </>
+        ) : report === 'PAYROLL_REGISTER' || report === 'STATUTORY_SUMMARY' ? (
+          <>
+            <div className="hr-kpi-link">
+              <div className="hr-kpi-head">
+                <span className="hr-kpi-title">Payroll Status</span>
+                <span style={{ fontSize: 18 }}>💳</span>
+              </div>
+              <div className="hr-kpi-val" style={{ color: '#16a34a' }}>Active</div>
+              <div className="hr-kpi-sub">Month: {month}</div>
+            </div>
+
+            <div className="hr-kpi-link">
+              <div className="hr-kpi-head">
+                <span className="hr-kpi-title">Company Scope</span>
+                <span style={{ fontSize: 18 }}>🏢</span>
+              </div>
+              <div className="hr-kpi-val" style={{ fontSize: 18, color: '#0284c7' }}>
+                {companyFilter === 'ALL' ? 'Both Units' : companyName(companyFilter)}
+              </div>
+              <div className="hr-kpi-sub">Audited statutory basis</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hr-kpi-link">
+              <div className="hr-kpi-head">
+                <span className="hr-kpi-title">CMHP Personnel</span>
+                <span style={{ fontSize: 18 }}>🏭</span>
+              </div>
+              <div className="hr-kpi-val" style={{ color: '#0f172a' }}>
+                {activeInView.filter((e) => Number(e.primary_company) === 1).length}
+              </div>
+              <div className="hr-kpi-sub">Unit 1 Staff</div>
+            </div>
+
+            <div className="hr-kpi-link">
+              <div className="hr-kpi-head">
+                <span className="hr-kpi-title">Tej Biocare Personnel</span>
+                <span style={{ fontSize: 18 }}>💊</span>
+              </div>
+              <div className="hr-kpi-val" style={{ color: '#0f172a' }}>
+                {activeInView.filter((e) => Number(e.primary_company) === 2).length}
+              </div>
+              <div className="hr-kpi-sub">Unit 2 Staff</div>
+            </div>
+          </>
+        )}
+      </div>
+
+      <section className="company-panel">
+        {/* REPORT CATEGORY TABS */}
+        <div className="hr-tabs" style={{ marginBottom: 16 }}>
+          {REPORT_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              className={category === cat.id ? 'hr-tab active' : 'hr-tab'}
+              onClick={() => {
+                setCategory(cat.id)
+                if (cat.id !== 'ALL') {
+                  const firstInCat = REPORTS.find(([val]) => REPORT_CATEGORY_MAP[val] === cat.id)
+                  if (firstInCat) setReport(firstInCat[0])
+                }
+              }}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="company-toolbar" style={{ marginBottom: 14 }}>
+          <div>
+            <h2 style={{ margin: '0 0 4px', fontSize: 18, color: '#0f172a' }}>{reportTitle}</h2>
+            <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{REPORT_HINT[report]}</p>
           </div>
         </div>
 
-        <div className="hr-filters">
-          <select
-            className="company-select"
-            value={report}
-            onChange={(event) => setReport(event.target.value)}
-          >
-            {REPORTS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+        {/* COMPREHENSIVE FILTER TOOLBAR */}
+        <div className="hr-toolbar" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div className="hr-filters" style={{ flex: 1, minWidth: 280, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Report Selector */}
+            <select
+              className="field-input"
+              value={report}
+              onChange={(event) => {
+                const newRep = event.target.value
+                setReport(newRep)
+                setCategory(REPORT_CATEGORY_MAP[newRep] || 'ALL')
+              }}
+              style={{ minWidth: 200, fontWeight: 600 }}
+            >
+              {category === 'ALL'
+                ? REPORTS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))
+                : REPORTS.filter(([value]) => REPORT_CATEGORY_MAP[value] === category).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+            </select>
 
-          <select
-            className="company-select"
-            value={companyFilter}
-            onChange={(event) => setCompanyFilter(event.target.value)}
-          >
-            <option value="ALL">
-              {companyOptions.length > 1 ? 'Both companies' : 'All companies'}
-            </option>
-            {companyOptions.map((company) => (
-              <option key={company.id} value={company.id}>
-                {company.name}
-              </option>
-            ))}
-          </select>
-
-          {report === 'DAILY' && (
-            <input
-              className="company-select"
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-            />
-          )}
-
-          {(report === 'MONTHLY' ||
-            report === 'LATE_COMING' ||
-            report === 'PAYROLL_REGISTER' ||
-            report === 'STATUTORY_SUMMARY') && (
-            <input
-              className="company-select"
-              type="month"
-              value={month}
-              onChange={(event) => setMonth(event.target.value)}
-            />
-          )}
-
-          {report === 'LEAVE' && (
-            <>
+            {/* Date / Month / Range Pickers */}
+            {report === 'DAILY' && (
               <input
-                className="company-select"
+                className="field-input"
                 type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-                aria-label="From date"
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+                style={{ minWidth: 140 }}
+                aria-label="Report Date"
               />
+            )}
+
+            {(report === 'MONTHLY' ||
+              report === 'LATE_COMING' ||
+              report === 'PAYROLL_REGISTER' ||
+              report === 'STATUTORY_SUMMARY') && (
               <input
-                className="company-select"
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-                aria-label="To date"
+                className="field-input"
+                type="month"
+                value={month}
+                onChange={(event) => setMonth(event.target.value)}
+                style={{ minWidth: 140 }}
+                aria-label="Report Month"
               />
-            </>
-          )}
+            )}
+
+            {report === 'LEAVE' && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  className="field-input"
+                  type="date"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  aria-label="From date"
+                  style={{ minWidth: 130 }}
+                />
+                <span style={{ fontSize: 12, color: '#64748b' }}>to</span>
+                <input
+                  className="field-input"
+                  type="date"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  aria-label="To date"
+                  style={{ minWidth: 130 }}
+                />
+              </div>
+            )}
+
+            {/* Company Select */}
+            <select
+              className="field-input"
+              value={companyFilter}
+              onChange={(event) => setCompanyFilter(event.target.value)}
+              style={{ minWidth: 140 }}
+            >
+              <option value="ALL">
+                {companyOptions.length > 1 ? 'Both companies' : 'All companies'}
+              </option>
+              {companyOptions.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Department Select */}
+            <select
+              className="field-input"
+              value={departmentFilter}
+              onChange={(event) => setDepartmentFilter(event.target.value)}
+              style={{ minWidth: 140 }}
+            >
+              <option value="ALL">All departments</option>
+              {departments.map((dept) => (
+                <option key={dept} value={dept}>
+                  {dept}
+                </option>
+              ))}
+            </select>
+
+            {/* Designation Select */}
+            <select
+              className="field-input"
+              value={designationFilter}
+              onChange={(event) => setDesignationFilter(event.target.value)}
+              style={{ minWidth: 140 }}
+            >
+              <option value="ALL">All designations</option>
+              {designations.map((desig) => (
+                <option key={desig} value={desig}>
+                  {desig}
+                </option>
+              ))}
+            </select>
+
+            {/* Search Input */}
+            <input
+              className="company-search"
+              placeholder="Search name or ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ minWidth: 180, flex: 1 }}
+            />
+
+            {(searchQuery || companyFilter !== 'ALL' || departmentFilter !== 'ALL' || designationFilter !== 'ALL') && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSearchQuery('')
+                  setCompanyFilter('ALL')
+                  setDepartmentFilter('ALL')
+                  setDesignationFilter('ALL')
+                }}
+                style={{ fontSize: 12 }}
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
         </div>
 
-        {error && <Alert type="error">{error}</Alert>}
+        {error && (
+          <Alert type="error" style={{ marginBottom: 16 }}>
+            {error}
+          </Alert>
+        )}
 
         <div className="company-table-wrap">
           <table className="company-table">
@@ -922,7 +1164,7 @@ export default function HrReports() {
               {busy && (
                 <tr>
                   <td colSpan={view.columns.length} className="company-empty">
-                    Loading report...
+                    Loading report data...
                   </td>
                 </tr>
               )}
@@ -947,7 +1189,7 @@ export default function HrReports() {
               {!busy && view.rows.length === 0 && (
                 <tr>
                   <td colSpan={view.columns.length} className="company-empty">
-                    No data for this report.
+                    No data found for this report and filter selection.
                   </td>
                 </tr>
               )}

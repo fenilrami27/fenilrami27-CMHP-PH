@@ -23,6 +23,8 @@ import { isSuperAdmin, getScopedCompanyId } from '../../utils/companyScope'
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
 import { checkFormulaStockAvailability, selectItemStock } from '../../utils/stockSelectors'
 import { store } from '../../store/store'
+import PageHeader from '../../components/PageHeader'
+import HeroBanner from '../../components/HeroBanner'
 import './Orders.css'
 
 
@@ -998,6 +1000,9 @@ export default function Operations({
     editingCustomer,
     setEditingCustomer,
   ] = useState(null)
+
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [customerFilterStatus, setCustomerFilterStatus] = useState('')
 
   const [
     viewingOrder,
@@ -2208,29 +2213,86 @@ export default function Operations({
 
     <div className="inv">
 
-      <div className="inv-header">
+      {standaloneCustomers ? (
+        <>
+          <HeroBanner
+            eyebrow="Commercial Directory"
+            title="Customer Management"
+            subtitle="Manage shared customer accounts, billing addresses, tax identifiers, and contact details."
+          />
 
-        <div>
+          <PageHeader
+            breadcrumbs={[
+              { label: 'Workspace' },
+              { label: 'Customer Management' },
+            ]}
+            title="Customer Master & Directory"
+            subtitle="Manage shared customer accounts, billing addresses, tax identifiers, and contact details."
+            statusPill={{ label: `${customers.length} Accounts`, variant: 'success' }}
+            primaryAction={{
+              label: '+ Add Customer',
+              onClick: () => {
+                setEditingCustomer(null)
+                setCustomerForm({
+                  code: '',
+                  name: '',
+                  email: '',
+                  phone: '',
+                  address: '',
+                })
+                open('customer')
+              },
+            }}
+          />
 
-          <h1>
-            {standaloneOrders
-              ? 'Orders'
-              : standaloneCustomers
-                ? 'Customer Management'
+          <div className="um-kpi-grid">
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Total Customers</div>
+              <div className="um-kpi-value">{customers.length}</div>
+              <div className="um-kpi-subtext">Registered trade accounts</div>
+            </div>
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Active Accounts</div>
+              <div className="um-kpi-value">
+                {customers.filter((c) => c.is_active !== false).length}
+              </div>
+              <div className="um-kpi-subtext">Operational customer profiles</div>
+            </div>
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Linked Orders</div>
+              <div className="um-kpi-value">{orders.length}</div>
+              <div className="um-kpi-subtext">Total sales orders placed</div>
+            </div>
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Verified Emails</div>
+              <div className="um-kpi-value">
+                {customers.filter((c) => c.email && c.email.includes('@')).length}
+              </div>
+              <div className="um-kpi-subtext">Contactable via email</div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="inv-header">
+
+          <div>
+
+            <h1>
+              {standaloneOrders
+                ? 'Orders'
                 : 'Operations'}
-          </h1>
+            </h1>
 
-          <p>
-            {standaloneOrders
-              ? 'Company-wise sales orders and order traceability.'
-              : standaloneCustomers
-                ? 'Manage shared customer records used across company operations and orders.'
+            <p>
+              {standaloneOrders
+                ? 'Company-wise sales orders and order traceability.'
                 : 'Company-wise production batches, quotations, orders and traceability.'}
-          </p>
+            </p>
+
+          </div>
 
         </div>
-
-      </div>
+      )}
 
 
       {!standaloneOrders &&
@@ -2430,6 +2492,62 @@ export default function Operations({
 
           </div>
 
+          {/* Customer Search and Filter Bar */}
+          <div className="um-filter-bar" style={{ marginTop: '12px' }}>
+            <div className="um-search-box">
+              <input
+                type="text"
+                placeholder="Search customers by code, name, email, phone..."
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+              />
+              {customerSearch && (
+                <button
+                  type="button"
+                  className="um-clear-search"
+                  onClick={() => setCustomerSearch('')}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <div className="um-select-filter">
+              <select
+                value={customerFilterStatus}
+                onChange={(e) => setCustomerFilterStatus(e.target.value)}
+              >
+                <option value="">All Statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+
+            {(customerSearch || customerFilterStatus) && (
+              <button
+                type="button"
+                className="um-clear-btn"
+                onClick={() => {
+                  setCustomerSearch('')
+                  setCustomerFilterStatus('')
+                }}
+              >
+                Clear Filters
+              </button>
+            )}
+
+            <div className="um-count-pill">
+              <strong>
+                {customers.filter((c) => {
+                  const q = customerSearch.trim().toLowerCase()
+                  const matchesQ = !q || (c.name && c.name.toLowerCase().includes(q)) || (c.code && c.code.toLowerCase().includes(q)) || (c.email && c.email.toLowerCase().includes(q)) || (c.phone && c.phone.toLowerCase().includes(q))
+                  const matchesStatus = !customerFilterStatus || (customerFilterStatus === 'ACTIVE' && c.is_active !== false) || (customerFilterStatus === 'INACTIVE' && c.is_active === false)
+                  return matchesQ && matchesStatus
+                }).length}
+              </strong> customers
+            </div>
+          </div>
+
 
           <div className="inv-table-scroll">
 
@@ -2470,7 +2588,20 @@ export default function Operations({
 
               <tbody>
 
-                {customers.map(
+                {customers
+                  .filter((customer) => {
+                    const q = customerSearch.trim().toLowerCase()
+                    const matchesQ = !q ||
+                      (customer.name && customer.name.toLowerCase().includes(q)) ||
+                      (customer.code && customer.code.toLowerCase().includes(q)) ||
+                      (customer.email && customer.email.toLowerCase().includes(q)) ||
+                      (customer.phone && customer.phone.toLowerCase().includes(q))
+                    const matchesStatus = !customerFilterStatus ||
+                      (customerFilterStatus === 'ACTIVE' && customer.is_active !== false) ||
+                      (customerFilterStatus === 'INACTIVE' && customer.is_active === false)
+                    return matchesQ && matchesStatus
+                  })
+                  .map(
                   (customer) => (
 
                     <tr
@@ -2484,7 +2615,7 @@ export default function Operations({
                       </td>
 
                       <td>
-                        {customer.name}
+                        <strong>{customer.name}</strong>
                       </td>
 
                       <td>
@@ -2502,11 +2633,9 @@ export default function Operations({
                       </td>
 
                       <td>
-                        {
-                          customer.is_active
-                            ? 'Active'
-                            : 'Inactive'
-                        }
+                        <span className={`status-pill ${customer.is_active !== false ? 'approved' : 'rejected'}`}>
+                          {customer.is_active !== false ? 'Active' : 'Inactive'}
+                        </span>
                       </td>
 
                       <td>

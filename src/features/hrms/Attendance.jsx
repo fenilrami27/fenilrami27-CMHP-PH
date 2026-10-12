@@ -7,10 +7,12 @@ import Modal from '../inventory/components/Modal'
 import { getErrorMessage } from '../../utils/errors'
 
 import { hrService } from './hrService'
+import { companyService } from '../companies/companyService'
 import { allowedCompanyIds, canManageAttendance } from './permissions'
 import { logAudit } from '../../utils/audit'
 import { formatDateTimeIN } from '../../utils/formatters'
 
+import PageHeader from '../../components/PageHeader'
 import '../companies/Companies.css'
 import './Hrms.css'
 
@@ -76,6 +78,12 @@ export default function Attendance() {
   const [holidays, setHolidays] = useState([])
   const [leaves, setLeaves] = useState([])
   const [shifts, setShifts] = useState([])
+  const [departments, setDepartments] = useState([])
+
+  // Search & Filter for Daily Roster
+  const [search, setSearch] = useState('')
+  const [deptFilter, setDeptFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('ALL')
 
   // Bulk Marking Modal
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
@@ -84,10 +92,21 @@ export default function Attendance() {
   const [bulkOverwrite, setBulkOverwrite] = useState(false)
   const [bulkSaving, setBulkSaving] = useState(false)
 
+  // Edit / Adjust Individual Attendance Modal
+  const [editModalData, setEditModalData] = useState(null)
+  const [editForm, setEditForm] = useState({
+    status: 'PRESENT',
+    check_in: '09:00',
+    check_out: '18:00',
+    remarks: '',
+  })
+  const [editSaving, setEditSaving] = useState(false)
+
   // Monthly Calendar Tab State
   const [selectedMonth, setSelectedMonth] = useState(currentMonthStr())
   const [selectedEmpId, setSelectedEmpId] = useState(String(user?.id || ''))
   const [monthAttendanceRecords, setMonthAttendanceRecords] = useState([])
+  const [monthlyViewMode, setMonthlyViewMode] = useState('matrix') // 'matrix' | 'calendar'
 
   // Regularization Tab State
   const [regularizations, setRegularizations] = useState(() => {
@@ -142,17 +161,19 @@ export default function Attendance() {
     setRosterLoading(true)
     setRosterError('')
     try {
-      const [rosterRes, holidaysRes, leavesRes, shiftsRes] = await Promise.all([
+      const [rosterRes, holidaysRes, leavesRes, shiftsRes, deptsRes] = await Promise.all([
         hrService.getAttendanceForDate(forDate, scopedCompanies),
         hrService.getHolidays(scopedCompanies),
         hrService.getLeaveRequests(scopedCompanies, 'APPROVED'),
         hrService.getShifts(scopedCompanies),
+        companyService.getDepartments(),
       ])
 
       setRoster(rosterRes.data || [])
       setHolidays(holidaysRes.data || [])
       setLeaves(leavesRes.data || [])
       setShifts(shiftsRes.data || [])
+      setDepartments((deptsRes.data || []).filter((d) => d.is_active))
     } catch (err) {
       setRosterError(getErrorMessage(err))
     } finally {
@@ -500,22 +521,208 @@ export default function Attendance() {
   }, [monthAttendanceRecords, selectedEmpId])
 
 
+  // Summary KPI Metrics for Date
+  const kpis = useMemo(() => {
+    let present = 0
+    let absent = 0
+    let late = 0
+    let halfDay = 0
+    let onLeave = 0
+
+    roster.forEach(({ employee, attendance }) => {
+      const status = attendance?.status
+      const contextBadge = getContextualDayBadge(employee, date)
+      if (contextBadge?.status === 'LEAVE' || status === 'LEAVE') {
+        onLeave++
+      } else if (status === 'PRESENT') {
+        present++
+      } else if (status === 'ABSENT') {
+        absent++
+      } else if (status === 'LATE') {
+        late++
+      } else if (status === 'HALF_DAY') {
+        halfDay++
+      }
+    })
+
+    return { present, absent, late, halfDay, onLeave, total: roster.length }
+  }, [roster, holidays, leaves, date])
+
+  // Filtered Roster
+  const filteredRoster = useMemo(() => {
+    return roster.filter(({ employee, attendance }) => {
+      if (deptFilter !== 'ALL') {
+        const empDept = employee.department?.id || employee.department
+        if (Number(empDept) !== Number(deptFilter)) return false
+      }
+      if (statusFilter !== 'ALL') {
+        const status = attendance?.status || 'NOT_MARKED'
+        if (status !== statusFilter) return false
+      }
+      if (search.trim()) {
+        const q = search.toLowerCase()
+        const text = [
+          employee.display_name,
+          employee.employee_id,
+          employee.username,
+          employee.department?.name,
+        ].filter(Boolean).join(' ').toLowerCase()
+        if (!text.includes(q)) return false
+      }
+      return true
+    })
+  }, [roster, deptFilter, statusFilter, search])
+
+  const hasActiveFilters = Boolean(search || deptFilter !== 'ALL' || statusFilter !== 'ALL')
+  const resetFilters = () => {
+    setSearch('')
+    setDeptFilter('ALL')
+    setStatusFilter('ALL')
+  }
+
+  // Open Edit / Adjust Individual Attendance Modal
+  const openEditModal = (row) => {
+    setEditModalData(row)
+    setEditForm({
+      status: row.attendance?.status || 'PRESENT',
+      check_in: row.attendance?.check_in ? new Date(row.attendance.check_in).toTimeString().slice(0, 5) : '09:00',
+      check_out: row.attendance?.check_out ? new Date(row.attendance.check_out).toTimeString().slice(0, 5) : '18:00',
+      remarks: row.attendance?.remarks || '',
+    })
+  }
+
+  const saveIndividualEdit = async (e) => {
+    e?.preventDefault?.()
+    if (!editModalData) return
+    if (isMonthLocked) {
+      setRosterError('Attendance records for this month are locked by payroll.')
+      return
+    }
+
+    setEditSaving(true)
+    try {
+      await hrService.markAttendance({
+        user: editModalData.employee.id,
+        company: editModalData.employee.primary_company,
+        date,
+        status: editForm.status,
+        check_in: `${date}T${editForm.check_in}:00`,
+        check_out: `${date}T${editForm.check_out}:00`,
+      })
+
+      logAudit({
+        module: 'HRMS',
+        entity_type: 'Attendance',
+        entity_id: `Emp #${editModalData.employee.id} (${date})`,
+        action: 'UPDATE',
+        description: `Adjusted attendance to ${editForm.status} (${editForm.check_in} - ${editForm.check_out}) for ${editModalData.employee.display_name}`,
+        user,
+      })
+
+      setSuccessMsg(`Attendance updated for ${editModalData.employee.display_name}.`)
+      setEditModalData(null)
+      await loadRoster(date)
+    } catch (err) {
+      setRosterError(getErrorMessage(err))
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const exportRosterCSV = () => {
+    const headers = ['Date', 'Employee ID', 'Employee Name', 'Department', 'Shift', 'Company', 'Status', 'Check-In', 'Check-Out', 'Working Hours']
+    const rows = filteredRoster.map(({ employee, attendance }) => [
+      date,
+      employee.employee_id || '—',
+      `"${employee.display_name || ''}"`,
+      `"${employee.department?.name || 'General'}"`,
+      `"${employee.shift?.name || 'Standard'}"`,
+      employee.company?.code || '—',
+      attendance?.status || 'NOT_MARKED',
+      timeOf(attendance?.check_in),
+      timeOf(attendance?.check_out),
+      attendance?.working_hours || 0,
+    ])
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement('a')
+    link.setAttribute('href', encodedUri)
+    link.setAttribute('download', `Attendance_Roster_${date}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   const canCheckIn = !myToday || !myToday.check_in
   const canCheckOut = myToday && myToday.check_in && !myToday.check_out
 
-
   return (
     <div className="hr-page">
-      <div className="hr-header">
-        <div>
-          <span className="dash-pill" style={{ marginBottom: 6, display: 'inline-block' }}>
-            HRMS
-          </span>
-          <h1>Attendance</h1>
-          <p>
-            Real-time punch in/out, grace time &amp; shift auto-calculation, daily roster,
-            bulk marking, attendance regularization, and monthly summary with payroll lock protection.
-          </p>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'HRMS', to: '/hrms' },
+          { label: 'Attendance' }
+        ]}
+        title="Attendance &amp; Roster"
+        subtitle="Real-time check-in logs, biometric punches, daily team roster, working hours, and monthly calendars."
+        primaryAction={
+          canManageTeam
+            ? {
+                label: '📥 Export Roster CSV',
+                onClick: exportRosterCSV,
+                variant: 'secondary',
+              }
+            : undefined
+        }
+      />
+
+      {/* 5 KPI SUMMARY CARDS */}
+      <div className="hr-kpis-grid" style={{ marginBottom: 20 }}>
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Present Today</span>
+            <span style={{ fontSize: 18 }}>🟢</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#16a34a' }}>{kpis.present}</div>
+          <div className="hr-kpi-sub">
+            {kpis.total > 0 ? `${Math.round((kpis.present / kpis.total) * 100)}% attendance` : '0 marked'}
+          </div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Absent</span>
+            <span style={{ fontSize: 18 }}>🔴</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#dc2626' }}>{kpis.absent}</div>
+          <div className="hr-kpi-sub">Unplanned absence</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Late Arrivals</span>
+            <span style={{ fontSize: 18 }}>🟡</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#d97706' }}>{kpis.late}</div>
+          <div className="hr-kpi-sub">Beyond shift grace time</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Half-Day</span>
+            <span style={{ fontSize: 18 }}>🟠</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#ea580c' }}>{kpis.halfDay}</div>
+          <div className="hr-kpi-sub">&lt; 5 hours logged</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">On Leave</span>
+            <span style={{ fontSize: 18 }}>🔵</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#2563eb' }}>{kpis.onLeave}</div>
+          <div className="hr-kpi-sub">Approved leave roster</div>
         </div>
       </div>
 
@@ -559,7 +766,7 @@ export default function Attendance() {
           className={activeTab === 'calendar' ? 'hr-tab active' : 'hr-tab'}
           onClick={() => setActiveTab('calendar')}
         >
-          Monthly Calendar &amp; Summary
+          Monthly Summary &amp; Matrix
         </button>
         <button
           type="button"
@@ -624,74 +831,163 @@ export default function Attendance() {
           </div>
 
           {canManageTeam && (
-            <section className="company-panel" style={{ marginTop: 20 }}>
-              <div className="company-toolbar">
-                <div>
-                  <h2>Team Daily Roster</h2>
-                  <p>Attendance records and live status for selected date</p>
+            <div className="hr-table-card" style={{ marginTop: 20 }}>
+              {/* TOOLBAR */}
+              <div className="hr-toolbar">
+                <div className="hr-search-box">
+                  <span className="hr-search-icon">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Search employee by name, ID..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </div>
 
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div className="hr-filter-item">
                   <input
-                    className="company-search"
                     type="date"
+                    className="company-select"
+                    style={{ padding: '6px 10px', height: 36 }}
                     value={date}
                     onChange={(event) => setDate(event.target.value)}
                   />
+                </div>
 
+                <div className="hr-filter-item">
+                  <select
+                    value={deptFilter}
+                    onChange={(e) => setDeptFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Departments</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="hr-filter-item">
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Statuses</option>
+                    {STATUS_OPTIONS.map(([val, label]) => (
+                      <option key={val} value={val}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    className="hr-clear-filter"
+                    onClick={resetFilters}
+                  >
+                    ✕ Clear filters
+                  </button>
+                )}
+
+                <div className="hr-toolbar-actions">
                   <Button
                     variant="secondary"
                     onClick={() => setBulkModalOpen(true)}
                     disabled={isMonthLocked}
                   >
-                    Bulk Mark
+                    ⚡ Bulk Mark
                   </Button>
                 </div>
               </div>
 
-              {rosterError && <Alert type="error">{rosterError}</Alert>}
+              {rosterError && (
+                <div style={{ padding: '12px 16px' }}>
+                  <Alert type="error">{rosterError}</Alert>
+                </div>
+              )}
 
-              <div className="company-table-wrap">
-                <table className="company-table">
+              {/* ROSTER TABLE */}
+              <div className="hr-table-scroll">
+                <table className="hr-table">
                   <thead>
                     <tr>
                       <th>Employee</th>
-                      <th>Shift</th>
+                      <th>Dept &amp; Shift</th>
                       <th>Company</th>
                       <th>Status</th>
                       <th>Check-in</th>
                       <th>Check-out</th>
-                      <th>Mark As</th>
+                      <th>Hours</th>
+                      <th>Quick Set</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {rosterLoading && (
                       <tr>
-                        <td colSpan="7" className="company-empty">
-                          Loading roster for {date}...
+                        <td colSpan="9">
+                          <div className="hr-skeleton-loader">
+                            <div className="hr-skeleton-row" style={{ width: '100%', height: 28 }} />
+                            <div className="hr-skeleton-row" style={{ width: '92%' }} />
+                            <div className="hr-skeleton-row" style={{ width: '96%' }} />
+                          </div>
                         </td>
                       </tr>
                     )}
 
                     {!rosterLoading &&
-                      roster.map(({ employee, attendance }) => {
+                      filteredRoster.map((row) => {
+                        const { employee, attendance } = row
                         const contextBadge = getContextualDayBadge(employee, date)
+
+                        const statusVal = attendance?.status || 'NOT_MARKED'
+                        const badgeClass =
+                          statusVal === 'PRESENT'
+                            ? 'present'
+                            : statusVal === 'ABSENT'
+                            ? 'absent'
+                            : statusVal === 'LATE'
+                            ? 'late'
+                            : statusVal === 'HALF_DAY'
+                            ? 'half-day'
+                            : statusVal === 'LEAVE'
+                            ? 'on-leave'
+                            : 'neutral'
 
                         return (
                           <tr key={employee.id}>
                             <td>
-                              <strong>{employee.display_name}</strong>
-                              <span className="company-address">
-                                {employee.employee_id || employee.username}
-                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div className="hr-emp-avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
+                                  {(employee.first_name?.[0] || employee.username?.[0] || 'E').toUpperCase()}
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>
+                                    {employee.display_name}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                                    {employee.employee_id || employee.username}
+                                  </div>
+                                </div>
+                              </div>
                             </td>
 
-                            <td>{employee.shift?.name || 'Standard'}</td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                {employee.department?.name || 'General'}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#64748b' }}>
+                                {employee.shift?.name || 'Standard Day'}
+                              </div>
+                            </td>
 
                             <td>
                               {employee.company ? (
-                                <span className="company-code">
+                                <span className="company-code" style={{ fontSize: 11 }}>
                                   {employee.company.code}
                                 </span>
                               ) : (
@@ -706,32 +1002,30 @@ export default function Attendance() {
                                     background: contextBadge.tone,
                                     color: contextBadge.text,
                                     padding: '3px 8px',
-                                    borderRadius: 4,
+                                    borderRadius: 999,
                                     fontSize: 11,
-                                    fontWeight: 700,
+                                    fontWeight: 750,
                                   }}
                                 >
                                   {contextBadge.label}
                                 </span>
                               ) : (
-                                <span
-                                  className={`attendance-status attendance-${
-                                    attendance?.status || 'NOT_MARKED'
-                                  }`}
-                                >
-                                  {attendance
-                                    ? STATUS_LABEL[attendance.status] || attendance.status
-                                    : 'Not marked'}
+                                <span className={`hr-badge ${badgeClass}`}>
+                                  {STATUS_LABEL[statusVal] || statusVal}
                                 </span>
                               )}
                             </td>
 
-                            <td>{timeOf(attendance?.check_in)}</td>
-                            <td>{timeOf(attendance?.check_out)}</td>
+                            <td style={{ fontWeight: 600 }}>{timeOf(attendance?.check_in)}</td>
+                            <td style={{ fontWeight: 600 }}>{timeOf(attendance?.check_out)}</td>
+                            <td style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                              {attendance?.working_hours != null ? `${attendance.working_hours} hrs` : '—'}
+                            </td>
 
                             <td>
                               <select
-                                className="hr-mark-select"
+                                className="company-select"
+                                style={{ fontSize: 12, padding: '4px 8px', height: 30 }}
                                 value={attendance?.status || ''}
                                 disabled={isMonthLocked}
                                 onChange={(event) => {
@@ -740,7 +1034,7 @@ export default function Attendance() {
                                   }
                                 }}
                               >
-                                <option value="">Set status...</option>
+                                <option value="">Quick mark...</option>
                                 {STATUS_OPTIONS.map(([value, label]) => (
                                   <option key={value} value={value}>
                                     {label}
@@ -748,147 +1042,295 @@ export default function Attendance() {
                                 ))}
                               </select>
                             </td>
+
+                            <td style={{ textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                className="company-link"
+                                onClick={() => openEditModal(row)}
+                                disabled={isMonthLocked}
+                              >
+                                Adjust
+                              </button>
+                            </td>
                           </tr>
                         )
                       })}
 
-                    {!rosterLoading && roster.length === 0 && (
+                    {!rosterLoading && filteredRoster.length === 0 && (
                       <tr>
-                        <td colSpan="7" className="company-empty">
-                          No employees in scope for this date.
+                        <td colSpan="9">
+                          <div className="hr-empty-state">
+                            <div className="hr-empty-icon">📅</div>
+                            <div className="hr-empty-title">No roster records found</div>
+                            <div className="hr-empty-desc">
+                              {roster.length === 0
+                                ? `No employees active in the roster for date ${date}.`
+                                : 'No employees match the selected department or status filters.'}
+                            </div>
+                            {hasActiveFilters && (
+                              <Button variant="secondary" style={{ marginTop: 12 }} onClick={resetFilters}>
+                                Clear filters
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </section>
+            </div>
           )}
         </>
       )}
 
       {/* TAB 2: MONTHLY CALENDAR & EMPLOYEE SUMMARY */}
       {activeTab === 'calendar' && (
-        <section className="company-panel">
-          <div className="company-toolbar">
-            <div>
-              <h2>Monthly Calendar &amp; Statistics</h2>
-              <p>Per-employee monthly attendance calendar and breakdown</p>
-            </div>
+        <div className="hr-table-card">
+          <div className="hr-toolbar">
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="hr-filter-item">
+                <input
+                  type="month"
+                  className="company-select"
+                  style={{ height: 36 }}
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                />
+              </div>
 
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input
-                type="month"
-                className="company-select"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-              />
-
-              <select
-                className="company-select"
-                value={selectedEmpId}
-                onChange={(e) => setSelectedEmpId(e.target.value)}
-              >
-                {roster.map(({ employee }) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.display_name} ({employee.employee_id || employee.username})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* MONTHLY SUMMARY METRIC CARDS */}
-          <div className="hr-kpis" style={{ marginTop: 14 }}>
-            <div className="hr-kpi-card">
-              <span className="hr-kpi-label">Present Days</span>
-              <strong className="hr-kpi-value" style={{ color: '#16a34a' }}>
-                {employeeMonthSummary.present}
-              </strong>
-            </div>
-
-            <div className="hr-kpi-card">
-              <span className="hr-kpi-label">Late Marks</span>
-              <strong className="hr-kpi-value" style={{ color: '#d97706' }}>
-                {employeeMonthSummary.late}
-              </strong>
-            </div>
-
-            <div className="hr-kpi-card">
-              <span className="hr-kpi-label">Half Days</span>
-              <strong className="hr-kpi-value" style={{ color: '#ca8a04' }}>
-                {employeeMonthSummary.halfDay}
-              </strong>
-            </div>
-
-            <div className="hr-kpi-card">
-              <span className="hr-kpi-label">Absent / LOP</span>
-              <strong className="hr-kpi-value" style={{ color: '#dc2626' }}>
-                {employeeMonthSummary.absent}
-              </strong>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 20 }}>
-            <h3 style={{ fontSize: 14, color: '#173b59', marginBottom: 12 }}>
-              Calendar Grid: {selectedMonth}
-            </h3>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 8,
-              }}
-            >
-              {calendarDays.map((dayStr) => {
-                const dayNum = parseInt(dayStr.slice(8), 10)
-                const rec = monthAttendanceRecords.find(
-                  (r) => Number(r.user) === Number(selectedEmpId) && r.date === dayStr
-                )
-
-                const isWeekend = new Date(dayStr).getDay() === 0
-
-                return (
-                  <div
-                    key={dayStr}
-                    style={{
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 8,
-                      padding: 10,
-                      background: rec?.status ? '#f8fafc' : isWeekend ? '#f1f5f9' : '#ffffff',
-                      minHeight: 65,
-                    }}
+              {monthlyViewMode === 'calendar' && (
+                <div className="hr-filter-item">
+                  <select
+                    className="company-select"
+                    style={{ height: 36 }}
+                    value={selectedEmpId}
+                    onChange={(e) => setSelectedEmpId(e.target.value)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
-                        Day {dayNum}
-                      </span>
-                      {isWeekend && <span style={{ fontSize: 10, color: '#94a3b8' }}>Sun</span>}
-                    </div>
+                    {roster.map(({ employee }) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.display_name} ({employee.employee_id || employee.username})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
-                    <div style={{ marginTop: 6 }}>
-                      {rec ? (
-                        <span
-                          className={`attendance-status attendance-${rec.status}`}
-                          style={{ fontSize: 10, padding: '2px 6px' }}
-                        >
-                          {STATUS_LABEL[rec.status] || rec.status}
-                        </span>
-                      ) : isWeekend ? (
-                        <span style={{ fontSize: 10, color: '#64748b', fontStyle: 'italic' }}>
-                          Weekly Off
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>—</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="hr-toolbar-actions">
+              <div className="hr-view-toggle">
+                <button
+                  type="button"
+                  className={`hr-view-toggle-btn ${monthlyViewMode === 'matrix' ? 'active' : ''}`}
+                  onClick={() => setMonthlyViewMode('matrix')}
+                >
+                  📊 Team Grid (Employee x Day)
+                </button>
+                <button
+                  type="button"
+                  className={`hr-view-toggle-btn ${monthlyViewMode === 'calendar' ? 'active' : ''}`}
+                  onClick={() => setMonthlyViewMode('calendar')}
+                >
+                  🗓️ Individual Calendar
+                </button>
+              </div>
             </div>
           </div>
-        </section>
+
+          {/* VIEW A: TEAM GRID (EMPLOYEE x DAY MATRIX) */}
+          {monthlyViewMode === 'matrix' && (
+            <div style={{ padding: '0 0 16px 0' }}>
+              <div className="hr-matrix-scroll">
+                <table className="hr-matrix-table">
+                  <thead>
+                    <tr>
+                      <th className="hr-matrix-sticky-col">Employee</th>
+                      {calendarDays.map((dayStr) => {
+                        const dayNum = parseInt(dayStr.slice(8), 10)
+                        return (
+                          <th key={dayStr} title={dayStr}>
+                            {dayNum}
+                          </th>
+                        )
+                      })}
+                      <th>Present</th>
+                      <th>Absent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roster.map(({ employee }) => {
+                      const empMonthRecs = monthAttendanceRecords.filter(
+                        (r) => Number(r.user) === Number(employee.id)
+                      )
+                      const presentCount = empMonthRecs.filter((r) => r.status === 'PRESENT').length
+                      const absentCount = empMonthRecs.filter((r) => r.status === 'ABSENT').length
+
+                      return (
+                        <tr key={employee.id}>
+                          <td className="hr-matrix-sticky-col">
+                            <div>{employee.display_name}</div>
+                            <div style={{ fontSize: 10, color: '#64748b' }}>{employee.employee_id}</div>
+                          </td>
+
+                          {calendarDays.map((dayStr) => {
+                            const rec = empMonthRecs.find((r) => r.date === dayStr)
+                            const isWeekend = new Date(dayStr).getDay() === 0
+
+                            let code = '—'
+                            if (rec?.status === 'PRESENT') code = 'P'
+                            else if (rec?.status === 'ABSENT') code = 'A'
+                            else if (rec?.status === 'LATE') code = 'L'
+                            else if (rec?.status === 'HALF_DAY') code = 'HD'
+                            else if (rec?.status === 'LEAVE') code = 'LV'
+                            else if (rec?.status === 'HOLIDAY') code = 'H'
+                            else if (isWeekend) code = 'WO'
+
+                            return (
+                              <td key={dayStr}>
+                                {code !== '—' ? (
+                                  <span className={`hr-matrix-pill ${code}`}>{code}</span>
+                                ) : (
+                                  <span style={{ color: '#cbd5e1' }}>&middot;</span>
+                                )}
+                              </td>
+                            )
+                          })}
+
+                          <td style={{ fontWeight: 700, color: '#16a34a' }}>{presentCount}</td>
+                          <td style={{ fontWeight: 700, color: '#dc2626' }}>{absentCount}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* COLOR-CODED STATUS LEGEND */}
+              <div style={{ padding: '0 16px' }}>
+                <div className="hr-legend-bar">
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill P">P</span>
+                    <span>Present</span>
+                  </div>
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill A">A</span>
+                    <span>Absent</span>
+                  </div>
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill L">L</span>
+                    <span>Late Arrival</span>
+                  </div>
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill HD">HD</span>
+                    <span>Half Day</span>
+                  </div>
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill LV">LV</span>
+                    <span>On Leave</span>
+                  </div>
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill H">H</span>
+                    <span>Holiday</span>
+                  </div>
+                  <div className="hr-legend-item">
+                    <span className="hr-matrix-pill WO">WO</span>
+                    <span>Weekly Off (Sun)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW B: INDIVIDUAL EMPLOYEE CALENDAR */}
+          {monthlyViewMode === 'calendar' && (
+            <div style={{ padding: 18 }}>
+              {/* SUMMARY METRICS */}
+              <div className="hr-kpis-grid" style={{ marginBottom: 18 }}>
+                <div className="hr-kpi-link">
+                  <div className="hr-kpi-head"><span className="hr-kpi-title">Present Days</span><span>🟢</span></div>
+                  <div className="hr-kpi-val" style={{ color: '#16a34a' }}>{employeeMonthSummary.present}</div>
+                </div>
+                <div className="hr-kpi-link">
+                  <div className="hr-kpi-head"><span className="hr-kpi-title">Late Marks</span><span>🟡</span></div>
+                  <div className="hr-kpi-val" style={{ color: '#d97706' }}>{employeeMonthSummary.late}</div>
+                </div>
+                <div className="hr-kpi-link">
+                  <div className="hr-kpi-head"><span className="hr-kpi-title">Half Days</span><span>🟠</span></div>
+                  <div className="hr-kpi-val" style={{ color: '#ea580c' }}>{employeeMonthSummary.halfDay}</div>
+                </div>
+                <div className="hr-kpi-link">
+                  <div className="hr-kpi-head"><span className="hr-kpi-title">Absent / LOP</span><span>🔴</span></div>
+                  <div className="hr-kpi-val" style={{ color: '#dc2626' }}>{employeeMonthSummary.absent}</div>
+                </div>
+              </div>
+
+              {/* 7-COL CALENDAR GRID */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(7, 1fr)',
+                  gap: 10,
+                }}
+              >
+                {calendarDays.map((dayStr) => {
+                  const dayNum = parseInt(dayStr.slice(8), 10)
+                  const rec = monthAttendanceRecords.find(
+                    (r) => Number(r.user) === Number(selectedEmpId) && r.date === dayStr
+                  )
+                  const isWeekend = new Date(dayStr).getDay() === 0
+
+                  return (
+                    <div
+                      key={dayStr}
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8,
+                        padding: 10,
+                        background: rec?.status ? '#f8fafc' : isWeekend ? '#f1f5f9' : '#ffffff',
+                        minHeight: 72,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                          Day {dayNum}
+                        </span>
+                        {isWeekend && <span style={{ fontSize: 10, color: '#94a3b8' }}>Sun</span>}
+                      </div>
+
+                      <div style={{ marginTop: 8 }}>
+                        {rec ? (
+                          <span
+                            className={`hr-badge ${
+                              rec.status === 'PRESENT'
+                                ? 'present'
+                                : rec.status === 'ABSENT'
+                                ? 'absent'
+                                : rec.status === 'LATE'
+                                ? 'late'
+                                : rec.status === 'HALF_DAY'
+                                ? 'half-day'
+                                : 'neutral'
+                            }`}
+                            style={{ fontSize: 10, padding: '2px 6px' }}
+                          >
+                            {STATUS_LABEL[rec.status] || rec.status}
+                          </span>
+                        ) : isWeekend ? (
+                          <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
+                            Weekly Off
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* TAB 3: REGULARIZATION REQUESTS */}
@@ -1116,6 +1558,81 @@ export default function Attendance() {
                   value={regForm.reason}
                   onChange={(e) => setRegForm({ ...regForm, reason: e.target.value })}
                   required
+                />
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* EDIT / ADJUST INDIVIDUAL ATTENDANCE MODAL */}
+      {editModalData && (
+        <Modal
+          title={`Adjust Attendance: ${editModalData.employee.display_name}`}
+          onClose={() => setEditModalData(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setEditModalData(null)}>
+                Cancel
+              </Button>
+              <Button loading={editSaving} onClick={saveIndividualEdit}>
+                Save Adjustment
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={saveIndividualEdit}>
+            <div style={{ marginBottom: 14, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13 }}>
+              <div><strong>Employee:</strong> {editModalData.employee.display_name} ({editModalData.employee.employee_id || editModalData.employee.username})</div>
+              <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+                <strong>Date:</strong> {date} &middot; <strong>Shift:</strong> {editModalData.employee.shift?.name || 'Standard'}
+              </div>
+            </div>
+
+            <div className="company-form-grid">
+              <div className="field">
+                <label className="field-label">Attendance Status</label>
+                <select
+                  className="field-input"
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                >
+                  {STATUS_OPTIONS.map(([val, label]) => (
+                    <option key={val} value={val}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="field-label">Check-in Time</label>
+                <input
+                  type="time"
+                  className="field-input"
+                  value={editForm.check_in}
+                  onChange={(e) => setEditForm({ ...editForm, check_in: e.target.value })}
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label">Check-out Time</label>
+                <input
+                  type="time"
+                  className="field-input"
+                  value={editForm.check_out}
+                  onChange={(e) => setEditForm({ ...editForm, check_out: e.target.value })}
+                />
+              </div>
+
+              <div className="field" style={{ gridColumn: 'span 2' }}>
+                <label className="field-label">Adjustment Reason / Notes</label>
+                <textarea
+                  className="field-input"
+                  rows={2}
+                  placeholder="Reason for manual adjustment (e.g. Approved regularization, manual biometric sync)..."
+                  value={editForm.remarks}
+                  onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })}
                 />
               </div>
             </div>

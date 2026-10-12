@@ -13,6 +13,9 @@ import Alert
 import Button
   from '../../components/Button'
 
+import PageHeader
+  from '../../components/PageHeader'
+
 import Input
   from '../../components/Input'
 
@@ -1309,6 +1312,225 @@ function downloadSalarySlip({
 }
 
 
+function PayslipDrawer({ row, month, companies, onClose, onDownload, onMarkPaid }) {
+  if (!row) return null
+
+  const isPaid = row.payment?.status === 'PAID'
+  const companyName = companyDisplayName(row.company, companies)
+  const employee = row.employee || {}
+
+  return (
+    <div className="hr-drawer-backdrop" onClick={onClose}>
+      <div className="hr-drawer" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+        <div className="hr-drawer-header">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span className="dash-pill" style={{ margin: 0, padding: '3px 8px', fontSize: 11 }}>
+                {companyName}
+              </span>
+              <span className={`status-badge ${isPaid ? 'status-approved' : 'status-pending'}`}>
+                {isPaid ? '● PAID' : '● PENDING'}
+              </span>
+            </div>
+            <h3 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>
+              Salary Slip • {month}
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="company-link"
+            style={{ fontSize: 20, cursor: 'pointer', padding: '4px 10px', color: '#64748b' }}
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="hr-drawer-body">
+          {/* Employee Header Card */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+            <div style={{ width: 46, height: 46, borderRadius: '50%', background: '#0284c7', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16 }}>
+              {row.name ? row.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() : 'EMP'}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{row.name}</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                ID: <strong>{row.code || '—'}</strong> • {employee.designation || 'Staff'} • {employee.department?.name || employee.department || 'General'}
+              </div>
+            </div>
+          </div>
+
+          {/* Statutory & Banking Particulars */}
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#64748b', marginBottom: 10 }}>
+              Statutory & Bank Particulars
+            </div>
+            <div className="hr-detail-grid">
+              <div className="hr-detail-field">
+                <span className="hr-detail-label">Date of Joining</span>
+                <span className="hr-detail-val">{employee.joining_date ? formatDateIN(employee.joining_date) : '—'}</span>
+              </div>
+              <div className="hr-detail-field">
+                <span className="hr-detail-label">PAN Number</span>
+                <span className="hr-detail-val">{employee.pan_number || '—'}</span>
+              </div>
+              <div className="hr-detail-field">
+                <span className="hr-detail-label">Bank Name</span>
+                <span className="hr-detail-val">{employee.bank_name || 'Bank Transfer'}</span>
+              </div>
+              <div className="hr-detail-field">
+                <span className="hr-detail-label">Bank Account</span>
+                <span className="hr-detail-val">{maskBankAcc(employee.bank_account_no || employee.bank_account_number) || '—'}</span>
+              </div>
+              <div className="hr-detail-field">
+                <span className="hr-detail-label">IFSC Code</span>
+                <span className="hr-detail-val">{employee.bank_ifsc || '—'}</span>
+              </div>
+              <div className="hr-detail-field">
+                <span className="hr-detail-label">Payment Mode</span>
+                <span className="hr-detail-val">{row.payment?.method || 'NEFT / RTGS'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Attendance Breakdown */}
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, marginBottom: 16, display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Total Month Days</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{row.days}</div>
+            </div>
+            <div style={{ borderLeft: '1px solid #cbd5e1' }} />
+            <div>
+              <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>Payable Days</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a' }}>{row.payableDays}</div>
+            </div>
+            <div style={{ borderLeft: '1px solid #cbd5e1' }} />
+            <div>
+              <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>Unpaid / LOP Days</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>{row.unpaidDays}</div>
+            </div>
+          </div>
+
+          {/* Earnings & Deductions Breakdown (Grouped side by side) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 16 }}>
+            {/* Earnings Card */}
+            <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', borderBottom: '1px solid #bbf7d0', paddingBottom: 8, marginBottom: 10, display: 'flex', justifyContent: 'space-between' }}>
+                <span>💰 Earnings</span>
+                <span>Amount (₹)</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#334155' }}>Basic Salary</span>
+                  <span style={{ fontWeight: 600 }}>{formatINR(row.proratedBasic || row.basic)}</span>
+                </div>
+                {row.allowances > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#334155' }}>Allowances & HRA</span>
+                    <span style={{ fontWeight: 600 }}>{formatINR(row.allowances)}</span>
+                  </div>
+                )}
+                {row.incentives > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#334155' }}>Incentives</span>
+                    <span style={{ fontWeight: 600 }}>{formatINR(row.incentives)}</span>
+                  </div>
+                )}
+                {row.bonus > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#334155' }}>Bonus</span>
+                    <span style={{ fontWeight: 600 }}>{formatINR(row.bonus)}</span>
+                  </div>
+                )}
+                {row.other > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#334155' }}>Other Earnings</span>
+                    <span style={{ fontWeight: 600 }}>{formatINR(row.other)}</span>
+                  </div>
+                )}
+                <div style={{ borderTop: '1px dashed #86efac', paddingTop: 8, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#15803d' }}>
+                  <span>Total Gross</span>
+                  <span>{formatINR(row.earnings)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Deductions Card */}
+            <div style={{ border: '1px solid #fecaca', background: '#fef2f2', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#991b1b', borderBottom: '1px solid #fecaca', paddingBottom: 8, marginBottom: 10, display: 'flex', justifyContent: 'space-between' }}>
+                <span>🛡️ Deductions</span>
+                <span>Amount (₹)</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#334155' }}>EPF (Employee 12%)</span>
+                  <span style={{ fontWeight: 600 }}>{formatINR(row.pfDeduction || 0)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#334155' }}>ESIC (Employee 0.75%)</span>
+                  <span style={{ fontWeight: 600 }}>{formatINR(row.esiDeduction || 0)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#334155' }}>Professional Tax (PT)</span>
+                  <span style={{ fontWeight: 600 }}>{formatINR(row.ptDeduction || 0)}</span>
+                </div>
+                {row.otherDeductions > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#334155' }}>Other Deductions</span>
+                    <span style={{ fontWeight: 600 }}>{formatINR(row.otherDeductions)}</span>
+                  </div>
+                )}
+                <div style={{ borderTop: '1px dashed #fca5a5', paddingTop: 8, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#b91c1c' }}>
+                  <span>Total Deductions</span>
+                  <span>{formatINR(row.deductions)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Net Pay Callout */}
+          <div style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+              <span style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.9 }}>Net Payable Salary</span>
+              <span style={{ fontSize: 24, fontWeight: 800 }}>{formatINR(row.net)}</span>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.85 }}>
+              In Words: <em>{numberToWordsINR(row.net)}</em>
+            </div>
+            {row.adjustment !== 0 && (
+              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+                Includes adjustment: {formatINR(row.adjustment)}
+              </div>
+            )}
+          </div>
+
+          {isPaid && row.payment?.paidAt && (
+            <div style={{ fontSize: 12, color: '#16a34a', background: '#f0fdf4', padding: '10px 14px', borderRadius: 8, border: '1px solid #bbf7d0' }}>
+              ✓ Disbursed on {formatDateIN(row.payment.paidAt)} via {row.payment.method || 'Bank Transfer'}
+            </div>
+          )}
+        </div>
+
+        <div className="hr-drawer-footer">
+          <Button variant="secondary" onClick={onDownload}>
+            🖨️ Download / Print Slip
+          </Button>
+          {!isPaid && onMarkPaid && (
+            <Button onClick={onMarkPaid}>
+              💰 Mark Paid
+            </Button>
+          )}
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function Payroll() {
 
   const {
@@ -1406,6 +1628,22 @@ export default function Payroll() {
   ] = useState(
     currentMonth()
   )
+
+
+  const [
+    searchQuery,
+    setSearchQuery,
+  ] = useState('')
+
+  const [
+    departmentFilter,
+    setDepartmentFilter,
+  ] = useState('ALL')
+
+  const [
+    selectedSlipRow,
+    setSelectedSlipRow,
+  ] = useState(null)
 
 
   const [
@@ -1917,59 +2155,97 @@ export default function Payroll() {
     )
 
 
+  const departments = useMemo(() => {
+    const set = new Set()
+    employees.forEach((emp) => {
+      const d = emp.department?.name || emp.department || emp.department_name
+      if (d) set.add(d)
+    })
+    return Array.from(set).sort()
+  }, [employees])
+
   const totals =
     useMemo(
-      () =>
-        payrollRows.reduce(
+      () => {
+        let paidCount = 0
+        let paidNet = 0
+        const acc = payrollRows.reduce(
           (
             sum,
             row
-          ) => ({
-
-            earnings:
-              round2(
-                sum.earnings +
-                  row.earnings
-              ),
-
-            deductions:
-              round2(
-                sum.deductions +
-                  row.deductions
-              ),
-
-            adjustment:
-              round2(
-                sum.adjustment +
-                  row.adjustment
-              ),
-
-            net:
-              round2(
-                sum.net +
-                  row.net
-              ),
-
-            paid:
-              sum.paid +
-              (
-                row.payment?.status ===
-                'PAID'
-                  ? 1
-                  : 0
-              ),
-
-          }),
+          ) => {
+            const isPaid = row.payment?.status === 'PAID'
+            if (isPaid) {
+              paidCount++
+              paidNet += row.net
+            }
+            return {
+              earnings:
+                round2(
+                  sum.earnings +
+                    row.earnings
+                ),
+              deductions:
+                round2(
+                  sum.deductions +
+                    row.deductions
+                ),
+              adjustment:
+                round2(
+                  sum.adjustment +
+                    row.adjustment
+                ),
+              net:
+                round2(
+                  sum.net +
+                    row.net
+                ),
+            }
+          },
           {
             earnings: 0,
             deductions: 0,
             adjustment: 0,
             net: 0,
-            paid: 0,
           }
-        ),
+        )
+        return {
+          ...acc,
+          paid: paidCount,
+          paidNet: round2(paidNet),
+          unpaidNet: round2(Math.max(acc.net - paidNet, 0)),
+        }
+      },
       [payrollRows]
     )
+
+  const filteredPayrollRows = useMemo(() => {
+    return payrollRows.filter((row) => {
+      const q = searchQuery.trim().toLowerCase()
+      const matchesSearch =
+        !q ||
+        (row.name && row.name.toLowerCase().includes(q)) ||
+        (row.code && row.code.toLowerCase().includes(q))
+      const emp = row.employee || employeeById.get(Number(row.user))
+      const empDept = emp?.department?.name || emp?.department || emp?.department_name || ''
+      const matchesDept = departmentFilter === 'ALL' || empDept === departmentFilter
+      return matchesSearch && matchesDept
+    })
+  }, [payrollRows, searchQuery, departmentFilter, employeeById])
+
+  const filteredStructures = useMemo(() => {
+    return visibleStructures.filter((structure) => {
+      const q = searchQuery.trim().toLowerCase()
+      const emp = employeeById.get(Number(structure.user))
+      const matchesSearch =
+        !q ||
+        (structure.employee_name && structure.employee_name.toLowerCase().includes(q)) ||
+        (emp?.employee_id && emp.employee_id.toLowerCase().includes(q))
+      const empDept = emp?.department?.name || emp?.department || emp?.department_name || ''
+      const matchesDept = departmentFilter === 'ALL' || empDept === departmentFilter
+      return matchesSearch && matchesDept
+    })
+  }, [visibleStructures, searchQuery, departmentFilter, employeeById])
 
 
   const formGross =
@@ -2731,955 +3007,672 @@ export default function Payroll() {
 
 
   return (
-
     <div className="hr-page">
+      <PageHeader
+        breadcrumbs={['HRMS', 'Payroll']}
+        title="Payroll Management"
+        subtitle="Manage salary structures, process monthly salaries, disburse payments, and generate employee payslips."
+        actions={
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {tab === 'structures' ? (
+              <Button onClick={openCreate}>+ Add Salary Structure</Button>
+            ) : (
+              <>
+                <Button variant="secondary" onClick={exportPayroll} disabled={payrollRows.length === 0}>
+                  📥 Register CSV
+                </Button>
+                <Button variant="secondary" onClick={exportBankTransfer} disabled={payrollRows.length === 0}>
+                  🏦 Bank Transfer CSV
+                </Button>
+                {runStatus === 'DRAFT' && (
+                  <Button onClick={processPayroll} disabled={payrollRows.length === 0 || payrollLoading}>
+                    ⚡ Process Payroll
+                  </Button>
+                )}
+                {runStatus === 'PROCESSED' && (
+                  <Button onClick={approvePayroll} disabled={payrollRows.length === 0}>
+                    ✓ Approve Payroll
+                  </Button>
+                )}
+                {runStatus === 'APPROVED' && (
+                  <Button onClick={markAllPaid} disabled={payrollRows.length === 0}>
+                    💰 Disburse & Mark Paid
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        }
+      />
 
-      <div className="hr-header">
-
-        <div>
-
-          <span
-            className="dash-pill"
-            style={{
-              marginBottom: 6,
-              display: 'inline-block',
-            }}
-          >
-            HRMS
-          </span>
-
-          <h1>
-            Payroll
-          </h1>
-
-          <p>
-            Manage employee salary
-            structures, calculate monthly
-            payable salary, mark salary as
-            paid and download company-specific
-            salary slips.
-          </p>
-
+      {/* 5 KPI SUMMARY CARDS */}
+      <div className="hr-kpis-grid" style={{ marginBottom: 20 }}>
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Total Payroll</span>
+            <span style={{ fontSize: 18 }}>💳</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#0284c7' }}>{formatINR(totals.net)}</div>
+          <div className="hr-kpi-sub">Month: {month} • Net total</div>
         </div>
 
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Gross Earnings</span>
+            <span style={{ fontSize: 18 }}>📈</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#16a34a' }}>{formatINR(totals.earnings)}</div>
+          <div className="hr-kpi-sub">Basic + allowances + bonus</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Total Deductions</span>
+            <span style={{ fontSize: 18 }}>📉</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#dc2626' }}>{formatINR(totals.deductions)}</div>
+          <div className="hr-kpi-sub">PF, ESI, PT & other statutory</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Net Payable Balance</span>
+            <span style={{ fontSize: 18 }}>💰</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#059669' }}>{formatINR(totals.unpaidNet)}</div>
+          <div className="hr-kpi-sub">
+            {totals.paid} paid • {payrollRows.length - totals.paid} pending
+          </div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Employees Processed</span>
+            <span style={{ fontSize: 18 }}>👥</span>
+          </div>
+          <div className="hr-kpi-val">{payrollRows.length}</div>
+          <div className="hr-kpi-sub">
+            Stage: <span style={{ fontWeight: 700, color: runStatus === 'PAID' ? '#16a34a' : runStatus === 'APPROVED' ? '#0284c7' : '#d97706' }}>{runStatus}</span>
+          </div>
+        </div>
       </div>
 
-
-      {error &&
-        !modalOpen && (
-          <Alert type="error">
-            {error}
-          </Alert>
-        )}
-
+      {error && !modalOpen && (
+        <Alert type="error" style={{ marginBottom: 16 }}>
+          {error}
+        </Alert>
+      )}
 
       <section className="company-panel">
-
-        <div className="company-toolbar">
-
-          <div>
-
-            <h2>
-              Payroll Management
-            </h2>
-
-            <p>
-              Salary is taken from the
-              employee profile first. A salary
-              structure can then be edited here
-              for allowances, deductions and
-              other components.
-            </p>
-
-          </div>
-
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 10,
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
+        <div className="hr-tabs" style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            className={tab === 'structures' ? 'hr-tab active' : 'hr-tab'}
+            onClick={() => setTab('structures')}
           >
-
-            <select
-              className="field-input"
-              value={
-                companyFilter
-              }
-              onChange={(event) =>
-                setCompanyFilter(
-                  event.target.value
-                )
-              }
-              style={{
-                minWidth: 150,
-              }}
-            >
-
-              <option value="ALL">
-                All companies
-              </option>
-
-              {companies.map(
-                (company) => (
-
-                  <option
-                    key={
-                      company.id
-                    }
-                    value={
-                      company.id
-                    }
-                  >
-                    {companyDisplayName(
-                      company.id,
-                      companies
-                    )}
-                  </option>
-
-                )
-              )}
-
-            </select>
-
-
-            <Button
-              onClick={
-                openCreate
-              }
-            >
-              + Add salary structure
-            </Button>
-
-          </div>
-
-        </div>
-
-
-        <div className="hr-tabs">
+            📋 Salary Structures Master ({visibleStructures.length})
+          </button>
 
           <button
             type="button"
-            className={
-              tab ===
-              'structures'
-                ? 'hr-tab active'
-                : 'hr-tab'
-            }
-            onClick={() =>
-              setTab(
-                'structures'
-              )
-            }
+            className={tab === 'payroll' ? 'hr-tab active' : 'hr-tab'}
+            onClick={() => setTab('payroll')}
           >
-            Salary Structures
-          </button>
-
-
-          <button
-            type="button"
-            className={
-              tab ===
-              'payroll'
-                ? 'hr-tab active'
-                : 'hr-tab'
-            }
-            onClick={() =>
-              setTab(
-                'payroll'
-              )
-            }
-          >
-            Monthly Payroll
+            💼 Monthly Payroll Run ({payrollRows.length})
           </button>
         </div>
 
-
-        {tab ===
-          'structures' && (
-
-          <div className="company-table-wrap">
-
-            <table className="company-table">
-
-              <thead>
-
-                <tr>
-
-                  <th>
-                    Employee
-                  </th>
-
-                  <th>
-                    Company
-                  </th>
-
-                  <th className="hr-num">
-                    Basic
-                  </th>
-
-                  <th className="hr-num">
-                    Allowances
-                  </th>
-
-                  <th className="hr-num">
-                    Other
-                  </th>
-
-                  <th className="hr-num">
-                    Deductions
-                  </th>
-
-                  <th className="hr-num">
-                    Net
-                  </th>
-
-                  <th>
-                    Effective
-                  </th>
-
-                  <th>
-                    Source
-                  </th>
-
-                  <th className="company-actions">
-                    Actions
-                  </th>
-
-                </tr>
-
-              </thead>
-
-
-              <tbody>
-
-                {loading && (
-
-                  <tr>
-
-                    <td
-                      colSpan="10"
-                      className="company-empty"
-                    >
-                      Loading salary structures...
-                    </td>
-
-                  </tr>
-
-                )}
-
-
-                {!loading &&
-                  visibleStructures.map(
-                    (structure) => (
-
-                      <tr
-                        key={
-                          structure.id
-                        }
-                      >
-
-                        <td>
-
-                          <strong>
-                            {
-                              structure.employee_name
-                            }
-                          </strong>
-
-                          <span className="company-address">
-                            {
-                              employeeById.get(
-                                Number(
-                                  structure.user
-                                )
-                              )?.employee_id ||
-                              '—'
-                            }
-                          </span>
-
-                        </td>
-
-
-                        <td>
-                          {companyDisplayName(
-                            structure.company,
-                            companies
-                          )}
-                        </td>
-
-
-                        <td className="hr-num">
-                          {formatMoney(
-                            structure.basic
-                          )}
-                        </td>
-
-
-                        <td className="hr-num">
-                          {formatMoney(
-                            structure.allowances
-                          )}
-                        </td>
-
-
-                        <td className="hr-num">
-                          {formatMoney(
-                            num(
-                              structure.incentives
-                            ) +
-                              num(
-                                structure.bonus
-                              ) +
-                              num(
-                                structure.other
-                              )
-                          )}
-                        </td>
-
-
-                        <td className="hr-num">
-                          {formatMoney(
-                            structure.deductions
-                          )}
-                        </td>
-
-
-                        <td className="hr-num">
-
-                          <strong>
-                            {formatMoney(
-                              netOf(
-                                structure
-                              )
-                            )}
-                          </strong>
-
-                        </td>
-
-
-                        <td>
-                          {formatDate(
-                            structure.effective_from
-                          )}
-                        </td>
-
-
-                        <td>
-
-                          <span className="company-status active">
-                            {
-                              structure.virtual
-                                ? 'Employee profile'
-                                : 'Salary structure'
-                            }
-                          </span>
-
-                        </td>
-
-
-                        <td className="company-actions">
-
-                          <button
-                            type="button"
-                            className="company-link"
-                            onClick={() =>
-                              openEdit(
-                                structure
-                              )
-                            }
-                          >
-                            Edit salary
-                          </button>
-
-
-                          {!structure.virtual && (
-
-                            <button
-                              type="button"
-                              className="company-link danger"
-                              onClick={() =>
-                                remove(
-                                  structure
-                                )
-                              }
-                            >
-                              Remove
-                            </button>
-
-                          )}
-
-                        </td>
-
-                      </tr>
-
-                    )
-                  )}
-
-
-                {!loading &&
-                  visibleStructures.length ===
-                    0 && (
-
-                    <tr>
-
-                      <td
-                        colSpan="10"
-                        className="company-empty"
-                      >
-                        No salary is configured
-                        for the selected company.
-                      </td>
-
-                    </tr>
-
-                  )}
-
-              </tbody>
-
-            </table>
-
-          </div>
-
-        )}
-
-
-        {tab ===
-          'payroll' && (
-
+        {tab === 'structures' && (
           <>
-
-            <div className="company-toolbar">
-
-              <div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                  <h2 style={{ margin: 0 }}>
-                    Payroll for {month}
-                  </h2>
-                  <span
-                    className={`company-status ${
-                      runStatus === 'PAID'
-                        ? 'active'
-                        : runStatus === 'APPROVED'
-                        ? 'active'
-                        : runStatus === 'PROCESSED'
-                        ? 'pending'
-                        : 'inactive'
-                    }`}
-                    style={{ textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}
-                  >
-                    ● {runStatus}
-                  </span>
+            {/* SALARY STRUCTURE ARCHITECTURE OVERVIEW */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 18 }}>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 18 }}>💰</span>
+                  <strong style={{ color: '#0f172a', fontSize: 14 }}>Earnings Components</strong>
                 </div>
-
-                <p style={{ margin: 0 }}>
-                  {payrollRows.length} employee{payrollRows.length === 1 ? '' : 's'} • {totals.paid} paid • Net Payable: <strong>{formatINR(totals.net)}</strong>
-                </p>
-
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#475569', lineHeight: 1.6 }}>
+                  <li><strong>Basic Wage:</strong> Core fixed salary component (statutory base for PF)</li>
+                  <li><strong>House Rent & Allowances:</strong> Fixed tax-optimized allowances</li>
+                  <li><strong>Incentives & Commission:</strong> Monthly production and KPI-driven payouts</li>
+                  <li><strong>Statutory Bonus & Ex-Gratia:</strong> Discretionary/annual allowances</li>
+                </ul>
               </div>
 
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 18 }}>🛡️</span>
+                  <strong style={{ color: '#0f172a', fontSize: 14 }}>Deductions & Compliance</strong>
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#475569', lineHeight: 1.6 }}>
+                  <li><strong>EPF (Employee PF):</strong> 12% of basic wages up to ₹15,000 wage ceiling</li>
+                  <li><strong>ESIC (Health Insurance):</strong> 0.75% of gross wages for gross ≤ ₹21,000/mo</li>
+                  <li><strong>Professional Tax (PT):</strong> State slab (₹200/mo above ₹12,000 threshold)</li>
+                  <li><strong>Voluntary Deductions:</strong> Loan recovery, salary advances and TDS</li>
+                </ul>
+              </div>
+            </div>
 
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
+            {/* STRUCTURES TOOLBAR */}
+            <div className="hr-toolbar" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+              <div className="hr-filters" style={{ flex: 1, minWidth: 280, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  className="company-search"
+                  placeholder="Search by employee name or ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ minWidth: 220, flex: 1 }}
+                />
+
+                <select
+                  className="field-input"
+                  value={companyFilter}
+                  onChange={(e) => setCompanyFilter(e.target.value)}
+                  style={{ minWidth: 150 }}
+                >
+                  <option value="ALL">All companies</option>
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {companyDisplayName(company.id, companies)}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className="field-input"
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  style={{ minWidth: 150 }}
+                >
+                  <option value="ALL">All departments</option>
+                  {departments.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
+
+                {(searchQuery || companyFilter !== 'ALL' || departmentFilter !== 'ALL') && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSearchQuery('')
+                      setCompanyFilter('ALL')
+                      setDepartmentFilter('ALL')
+                    }}
+                    style={{ fontSize: 12 }}
+                  >
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Button onClick={openCreate}>+ Add salary structure</Button>
+              </div>
+            </div>
+
+            <div className="company-table-wrap">
+              <table className="company-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Department</th>
+                    <th>Company</th>
+                    <th className="hr-num">Basic</th>
+                    <th className="hr-num">Allowances</th>
+                    <th className="hr-num">Other</th>
+                    <th className="hr-num">Deductions</th>
+                    <th className="hr-num">Net / Mo</th>
+                    <th>Effective</th>
+                    <th>Source</th>
+                    <th className="company-actions">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {loading && (
+                    <tr>
+                      <td colSpan="11" className="company-empty">
+                        Loading salary structures...
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading &&
+                    filteredStructures.map((structure) => {
+                      const emp = employeeById.get(Number(structure.user))
+                      return (
+                        <tr key={structure.id}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>
+                                {structure.employee_name ? structure.employee_name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() : 'E'}
+                              </div>
+                              <div>
+                                <strong>{structure.employee_name}</strong>
+                                <span className="company-address">{emp?.employee_id || '—'}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td>{emp?.department?.name || emp?.department || emp?.department_name || '—'}</td>
+
+                          <td>{companyDisplayName(structure.company, companies)}</td>
+
+                          <td className="hr-num">{formatMoney(structure.basic)}</td>
+
+                          <td className="hr-num">{formatMoney(structure.allowances)}</td>
+
+                          <td className="hr-num">
+                            {formatMoney(
+                              num(structure.incentives) + num(structure.bonus) + num(structure.other)
+                            )}
+                          </td>
+
+                          <td className="hr-num">{formatMoney(structure.deductions)}</td>
+
+                          <td className="hr-num">
+                            <strong>{formatMoney(netOf(structure))}</strong>
+                          </td>
+
+                          <td>{formatDate(structure.effective_from)}</td>
+
+                          <td>
+                            <span className="company-status active">
+                              {structure.virtual ? 'Employee profile' : 'Salary structure'}
+                            </span>
+                          </td>
+
+                          <td className="company-actions">
+                            <button
+                              type="button"
+                              className="company-link"
+                              onClick={() => openEdit(structure)}
+                            >
+                              Edit salary
+                            </button>
+
+                            {!structure.virtual && (
+                              <button
+                                type="button"
+                                className="company-link danger"
+                                onClick={() => remove(structure)}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+
+                  {!loading && filteredStructures.length === 0 && (
+                    <tr>
+                      <td colSpan="11" className="company-empty">
+                        {visibleStructures.length === 0
+                          ? 'No salary structures configured for the selected company.'
+                          : 'No employees match the current filters.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {tab === 'payroll' && (
+          <>
+            {/* PAYROLL STAGE ALERT BANNER */}
+            <div style={{ marginBottom: 16 }}>
+              {runStatus === 'DRAFT' && (
+                <div className="hr-note" style={{ background: '#f0f9ff', borderLeft: '4px solid #0284c7', margin: 0, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      📋 <strong>Draft Stage:</strong> Attendance is open for regularization and adjustments can be edited. Click <strong>Process Payroll</strong> to lock attendance and calculate final figures.
+                    </div>
+                    <Button onClick={processPayroll} disabled={payrollRows.length === 0 || payrollLoading}>
+                      ⚡ Process Payroll
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {runStatus === 'PROCESSED' && (
+                <div className="hr-note" style={{ background: '#fefce8', borderLeft: '4px solid #eab308', margin: 0, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      🔒 <strong>Processed Stage:</strong> Attendance records for {month} are frozen against edits. Verify figures and click <strong>Approve Payroll</strong>.
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Button variant="secondary" onClick={() => revertPayroll('DRAFT')}>
+                        ↺ Revert to Draft
+                      </Button>
+                      <Button onClick={approvePayroll} disabled={payrollRows.length === 0}>
+                        ✓ Approve Payroll
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {runStatus === 'APPROVED' && (
+                <div className="hr-note" style={{ background: '#f0fdf4', borderLeft: '4px solid #22c55e', margin: 0, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      ✅ <strong>Approved Stage:</strong> Approved by management. Upload bank transfer file to bank portal and click <strong>Disburse & Mark Paid</strong>.
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Button variant="secondary" onClick={() => revertPayroll('PROCESSED')}>
+                        ↺ Revert
+                      </Button>
+                      <Button onClick={markAllPaid} disabled={payrollRows.length === 0}>
+                        💰 Disburse & Mark Paid
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {runStatus === 'PAID' && (
+                <div className="hr-note" style={{ background: '#f0fdf4', borderLeft: '4px solid #16a34a', margin: 0, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      🎉 <strong>Finalized & Paid:</strong> All salaries for {month} have been disbursed and permanently archived. Download individual payslips or registers below.
+                    </div>
+                    <span className="status-badge status-approved" style={{ fontSize: 13, padding: '6px 14px' }}>
+                      ✓ All {payrollRows.length} Salaries Disbursed
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* MONTHLY PAYROLL TOOLBAR */}
+            <div className="hr-toolbar" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+              <div className="hr-filters" style={{ flex: 1, minWidth: 280, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  className="company-search"
+                  placeholder="Search employee name or ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ minWidth: 200, flex: 1 }}
+                />
 
                 <input
                   className="field-input"
                   type="month"
-                  value={
-                    month
-                  }
-                  onChange={(event) =>
-                    setMonth(
-                      event.target.value
-                    )
-                  }
+                  value={month}
+                  onChange={(e) => setMonth(e.target.value)}
+                  style={{ minWidth: 140 }}
+                  aria-label="Payroll Month"
                 />
-
 
                 <select
                   className="field-input"
-                  value={
-                    unmarkedPaid
-                      ? 'PAID'
-                      : 'UNPAID'
-                  }
-                  onChange={(event) =>
-                    setUnmarkedPaid(
-                      event.target.value ===
-                        'PAID'
-                    )
-                  }
+                  value={companyFilter}
+                  onChange={(e) => setCompanyFilter(e.target.value)}
+                  style={{ minWidth: 140 }}
                 >
-
-                  <option value="UNPAID">
-                    Unmarked days: unpaid
-                  </option>
-
-                  <option value="PAID">
-                    Unmarked days: paid
-                  </option>
-
+                  <option value="ALL">All companies</option>
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {companyDisplayName(company.id, companies)}
+                    </option>
+                  ))}
                 </select>
 
-                {runStatus === 'DRAFT' && (
+                <select
+                  className="field-input"
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  style={{ minWidth: 140 }}
+                >
+                  <option value="ALL">All departments</option>
+                  {departments.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className="field-input"
+                  value={unmarkedPaid ? 'PAID' : 'UNPAID'}
+                  onChange={(e) => setUnmarkedPaid(e.target.value === 'PAID')}
+                  style={{ minWidth: 160 }}
+                >
+                  <option value="UNPAID">Unmarked: Unpaid (LOP)</option>
+                  <option value="PAID">Unmarked: Paid days</option>
+                </select>
+
+                {(searchQuery || companyFilter !== 'ALL' || departmentFilter !== 'ALL') && (
                   <Button
-                    onClick={processPayroll}
-                    disabled={payrollRows.length === 0 || payrollLoading}
+                    variant="secondary"
+                    onClick={() => {
+                      setSearchQuery('')
+                      setCompanyFilter('ALL')
+                      setDepartmentFilter('ALL')
+                    }}
+                    style={{ fontSize: 12 }}
                   >
-                    ⚡ Process Payroll
+                    Clear filters
                   </Button>
                 )}
+              </div>
 
-                {runStatus === 'PROCESSED' && (
-                  <>
-                    <Button
-                      onClick={approvePayroll}
-                      disabled={payrollRows.length === 0}
-                    >
-                      ✓ Approve Payroll
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => revertPayroll('DRAFT')}
-                    >
-                      ↺ Revert to Draft
-                    </Button>
-                  </>
-                )}
-
-                {runStatus === 'APPROVED' && (
-                  <>
-                    <Button
-                      onClick={markAllPaid}
-                      disabled={payrollRows.length === 0}
-                    >
-                      💰 Disburse & Mark Paid
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => revertPayroll('PROCESSED')}
-                    >
-                      ↺ Revert
-                    </Button>
-                  </>
-                )}
-
-                {runStatus === 'PAID' && (
-                  <span
-                    className="company-status active"
-                    style={{ padding: '6px 12px', fontSize: 13 }}
-                  >
-                    ✓ Month Locked & Paid
-                  </span>
-                )}
-
-                <Button
-                  variant="secondary"
-                  onClick={
-                    exportPayroll
-                  }
-                  disabled={
-                    payrollRows.length ===
-                    0
-                  }
-                >
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Button variant="secondary" onClick={exportPayroll} disabled={payrollRows.length === 0}>
                   Register CSV
                 </Button>
-
-                <Button
-                  variant="secondary"
-                  onClick={
-                    exportBankTransfer
-                  }
-                  disabled={
-                    payrollRows.length ===
-                    0
-                  }
-                >
-                  Bank Transfer CSV
+                <Button variant="secondary" onClick={exportBankTransfer} disabled={payrollRows.length === 0}>
+                  Bank File CSV
                 </Button>
-
               </div>
-
             </div>
-
 
             {payrollError && (
-
-              <Alert type="error">
+              <Alert type="error" style={{ marginBottom: 16 }}>
                 {payrollError}
               </Alert>
-
             )}
-
-            {runStatus === 'DRAFT' && (
-              <div className="hr-note" style={{ background: '#f8fafc', borderLeft: '4px solid #0284c7' }}>
-                📋 <strong>Draft Stage:</strong> Attendance is open for regularization and adjustments can be edited. Click <strong>Process Payroll</strong> to lock attendance and freeze figures for approval.
-              </div>
-            )}
-
-            {runStatus === 'PROCESSED' && (
-              <div className="hr-note" style={{ background: '#fefce8', borderLeft: '4px solid #eab308' }}>
-                🔒 <strong>Processed Stage:</strong> Attendance records for {month} are now locked against edits. Verify figures and click <strong>Approve Payroll</strong>.
-              </div>
-            )}
-
-            {runStatus === 'APPROVED' && (
-              <div className="hr-note" style={{ background: '#f0fdf4', borderLeft: '4px solid #22c55e' }}>
-                ✅ <strong>Approved Stage:</strong> Ready for disbursement. Click <strong>Disburse & Mark Paid</strong> once the bank transfer file is uploaded to your bank portal.
-              </div>
-            )}
-
-            {runStatus === 'PAID' && (
-              <div className="hr-note" style={{ background: '#f0fdf4', borderLeft: '4px solid #16a34a' }}>
-                🎉 <strong>Completed & Finalized:</strong> All salaries for {month} have been disbursed and locked. Download individual payslips or bank transfer registers below.
-              </div>
-            )}
-
 
             <div className="company-table-wrap">
-
               <table className="company-table">
-
                 <thead>
-
                   <tr>
-
-                    <th>
-                      Employee
-                    </th>
-
-                    <th>
-                      Company
-                    </th>
-
-                    <th className="hr-num">
-                      Payable days
-                    </th>
-
-                    <th className="hr-num">
-                      Unpaid days
-                    </th>
-
-                    <th className="hr-num">
-                      Gross
-                    </th>
-
-                    <th className="hr-num">
-                      Statutory (PF/ESI/PT)
-                    </th>
-
-                    <th className="hr-num">
-                      Other Ded.
-                    </th>
-
-                    <th className="hr-num">
-                      Adjustment
-                    </th>
-
-                    <th className="hr-num">
-                      Net payable
-                    </th>
-
-                    <th>
-                      Status
-                    </th>
-
-                    <th className="company-actions">
-                      Action
-                    </th>
-
+                    <th>Employee</th>
+                    <th>Department</th>
+                    <th>Company</th>
+                    <th className="hr-num">Payable Days</th>
+                    <th className="hr-num">Unpaid (LOP)</th>
+                    <th className="hr-num">Gross</th>
+                    <th className="hr-num">Statutory (PF/ESI/PT)</th>
+                    <th className="hr-num">Other Ded.</th>
+                    <th className="hr-num">Adjustment</th>
+                    <th className="hr-num">Net Payable</th>
+                    <th>Status</th>
+                    <th className="company-actions">Actions</th>
                   </tr>
-
                 </thead>
 
-
                 <tbody>
-
                   {payrollLoading && (
-
                     <tr>
-
-                      <td
-                        colSpan="11"
-                        className="company-empty"
-                      >
+                      <td colSpan="12" className="company-empty">
                         Calculating payroll...
                       </td>
-
                     </tr>
-
                   )}
 
-
                   {!payrollLoading &&
-                    payrollRows.map(
-                      (row) => {
+                    filteredPayrollRows.map((row) => {
+                      const paid = row.payment?.status === 'PAID'
+                      const emp = row.employee || employeeById.get(Number(row.user))
 
-                        const paid =
-                          row.payment?.status ===
-                          'PAID'
+                      return (
+                        <tr key={row.user}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>
+                                {row.name ? row.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() : 'E'}
+                              </div>
+                              <div>
+                                <strong>{row.name}</strong>
+                                <span className="company-address">{row.code || '—'}</span>
+                              </div>
+                            </div>
+                          </td>
 
+                          <td>{emp?.department?.name || emp?.department || emp?.department_name || '—'}</td>
 
-                        return (
+                          <td>{companyDisplayName(row.company, companies)}</td>
 
-                          <tr
-                            key={
-                              row.user
-                            }
-                          >
+                          <td className="hr-num">
+                            <strong>{row.payableDays}</strong> / {row.days}
+                          </td>
 
-                            <td>
+                          <td className="hr-num" style={{ color: row.unpaidDays > 0 ? '#dc2626' : undefined }}>
+                            {row.unpaidDays}
+                          </td>
 
-                              <strong>
-                                {row.name}
-                              </strong>
+                          <td className="hr-num">{formatMoney(row.earnings)}</td>
 
-                              <span className="company-address">
-                                {
-                                  row.code ||
-                                  '—'
-                                }
-                              </span>
+                          <td className="hr-num" title={`PF: ${formatMoney(row.pfDeduction || 0)} | ESI: ${formatMoney(row.esiDeduction || 0)} | PT: ${formatMoney(row.ptDeduction || 0)}`}>
+                            {formatMoney((row.pfDeduction || 0) + (row.esiDeduction || 0) + (row.ptDeduction || 0))}
+                          </td>
 
-                            </td>
+                          <td className="hr-num">{formatMoney(row.otherDeductions || 0)}</td>
 
+                          <td className="hr-num">
+                            <input
+                              className="hr-adj-input"
+                              type="number"
+                              step="0.01"
+                              value={adjustments[`${month}|${row.user}`] ?? ''}
+                              onChange={(event) => setAdjustment(row.user, event.target.value)}
+                              disabled={paid || runStatus === 'PAID'}
+                            />
+                          </td>
 
-                            <td>
-                              {companyDisplayName(
-                                row.company,
-                                companies
-                              )}
-                            </td>
+                          <td className="hr-num">
+                            <strong style={{ color: '#0f172a', fontSize: 13 }}>{formatMoney(row.net)}</strong>
+                          </td>
 
+                          <td>
+                            <span className={`status-badge ${paid ? 'status-approved' : 'status-pending'}`}>
+                              {paid ? 'Paid' : 'Unpaid'}
+                            </span>
+                          </td>
 
-                            <td className="hr-num">
-                              {
-                                row.payableDays
-                              }
-                              {' / '}
-                              {
-                                row.days
-                              }
-                            </td>
+                          <td className="company-actions">
+                            <button
+                              type="button"
+                              className="company-link"
+                              onClick={() => setSelectedSlipRow(row)}
+                              title="View complete payslip drawer"
+                            >
+                              📄 Payslip
+                            </button>
 
+                            <button
+                              type="button"
+                              className="company-link"
+                              onClick={() => markPaid(row)}
+                              disabled={paid || runStatus === 'PAID'}
+                            >
+                              {paid ? 'Paid' : 'Pay'}
+                            </button>
 
-                            <td className="hr-num">
-                              {
-                                row.unpaidDays
-                              }
-                            </td>
+                            <button
+                              type="button"
+                              className="company-link"
+                              onClick={() => downloadSlip(row)}
+                              disabled={!paid}
+                            >
+                              Slip
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
 
-
-                            <td className="hr-num">
-                              {formatMoney(
-                                row.earnings
-                              )}
-                            </td>
-
-
-                            <td className="hr-num" title={`PF: ${formatMoney(row.pfDeduction || 0)} | ESI: ${formatMoney(row.esiDeduction || 0)} | PT: ${formatMoney(row.ptDeduction || 0)}`}>
-                              {formatMoney(
-                                (row.pfDeduction || 0) + (row.esiDeduction || 0) + (row.ptDeduction || 0)
-                              )}
-                            </td>
-
-                            <td className="hr-num">
-                              {formatMoney(
-                                row.otherDeductions || 0
-                              )}
-                            </td>
-
-
-                            <td className="hr-num">
-
-                              <input
-                                className="hr-adj-input"
-                                type="number"
-                                step="0.01"
-                                value={
-                                  adjustments[
-                                    `${month}|${row.user}`
-                                  ] ?? ''
-                                }
-                                onChange={(
-                                  event
-                                ) =>
-                                  setAdjustment(
-                                    row.user,
-                                    event.target.value
-                                  )
-                                }
-                                disabled={
-                                  paid || runStatus === 'PAID'
-                                }
-                              />
-
-                            </td>
-
-
-                            <td className="hr-num">
-
-                              <strong>
-                                {formatMoney(
-                                  row.net
-                                )}
-                              </strong>
-
-                            </td>
-
-
-                            <td>
-
-                              <span
-                                className={
-                                  paid
-                                    ? 'company-status active'
-                                    : 'company-status inactive'
-                                }
-                              >
-                                {
-                                  paid
-                                    ? 'Paid'
-                                    : 'Unpaid'
-                                }
-                              </span>
-
-                            </td>
-
-
-                            <td className="company-actions">
-
-                              <button
-                                type="button"
-                                className="company-link"
-                                onClick={() =>
-                                  markPaid(
-                                    row
-                                  )
-                                }
-                                disabled={
-                                  paid || runStatus === 'PAID'
-                                }
-                              >
-                                {
-                                  paid
-                                    ? 'Paid'
-                                    : 'Pay'
-                                }
-                              </button>
-
-
-                              <button
-                                type="button"
-                                className="company-link"
-                                onClick={() =>
-                                  downloadSlip(
-                                    row
-                                  )
-                                }
-                                disabled={
-                                  !paid
-                                }
-                              >
-                                Salary Slip
-                              </button>
-
-                            </td>
-
-                          </tr>
-
-                        )
-
-                      }
-                    )}
-
-
-                  {!payrollLoading &&
-                    payrollRows.length ===
-                      0 && (
-
+                  {!payrollLoading && filteredPayrollRows.length === 0 && (
                     <tr>
-
-                      <td
-                        colSpan="11"
-                        className="company-empty"
-                      >
-                        No salary configured
-                        for this company/month.
+                      <td colSpan="12" className="company-empty">
+                        {payrollRows.length === 0
+                          ? 'No salary configured for this company/month.'
+                          : 'No employees match the current filters.'}
                       </td>
-
                     </tr>
-
                   )}
 
-
-                  {!payrollLoading &&
-                    payrollRows.length >
-                      0 && (
-
+                  {!payrollLoading && filteredPayrollRows.length > 0 && (
                     <tr className="hr-total-row">
-
-                      <td colSpan="4">
-                        Total
+                      <td colSpan="5">
+                        Total ({filteredPayrollRows.length} employee{filteredPayrollRows.length === 1 ? '' : 's'})
                       </td>
-
+                      <td className="hr-num">
+                        {formatMoney(filteredPayrollRows.reduce((sum, r) => sum + r.earnings, 0))}
+                      </td>
                       <td className="hr-num">
                         {formatMoney(
-                          totals.earnings
+                          filteredPayrollRows.reduce(
+                            (sum, r) => sum + (r.pfDeduction || 0) + (r.esiDeduction || 0) + (r.ptDeduction || 0),
+                            0
+                          )
                         )}
                       </td>
-
                       <td className="hr-num">
-                        {formatMoney(
-                          payrollRows.reduce((sum, r) => sum + (r.pfDeduction || 0) + (r.esiDeduction || 0) + (r.ptDeduction || 0), 0)
-                        )}
+                        {formatMoney(filteredPayrollRows.reduce((sum, r) => sum + (r.otherDeductions || 0), 0))}
                       </td>
-
                       <td className="hr-num">
-                        {formatMoney(
-                          payrollRows.reduce((sum, r) => sum + (r.otherDeductions || 0), 0)
-                        )}
+                        {formatMoney(filteredPayrollRows.reduce((sum, r) => sum + r.adjustment, 0))}
                       </td>
-
                       <td className="hr-num">
-                        {formatMoney(
-                          totals.adjustment
-                        )}
+                        <strong>
+                          {formatMoney(filteredPayrollRows.reduce((sum, r) => sum + r.net, 0))}
+                        </strong>
                       </td>
-
-                      <td className="hr-num">
-                        {formatMoney(
-                          totals.net
-                        )}
-                      </td>
-
                       <td colSpan="2" />
-
                     </tr>
-
                   )}
-
                 </tbody>
-
               </table>
-
             </div>
-
           </>
-
         )}
-
       </section>
+
+      {/* PAYSLIP DETAIL DRAWER */}
+      {selectedSlipRow && (
+        <PayslipDrawer
+          row={selectedSlipRow}
+          month={month}
+          companies={companies}
+          onClose={() => setSelectedSlipRow(null)}
+          onDownload={() =>
+            downloadSalarySlip({
+              row: selectedSlipRow,
+              month,
+              companies,
+              payment: selectedSlipRow.payment,
+            })
+          }
+          onMarkPaid={() => {
+            markPaid(selectedSlipRow)
+            setSelectedSlipRow((prev) => ({
+              ...prev,
+              payment: {
+                status: 'PAID',
+                paidAt: new Date().toISOString(),
+                method: 'Bank Transfer',
+              },
+            }))
+          }}
+        />
+      )}
 
 
       {modalOpen && (
@@ -3729,250 +3722,155 @@ export default function Payroll() {
           )}
 
 
-          <form
-            onSubmit={
-              save
-            }
-          >
+          <form onSubmit={save}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {/* SECTION 1: EMPLOYEE & EFFECTIVE DATE */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>👤</span> Employee & Effective Date
+                </div>
+                <div className="company-form-grid">
+                  <div className="field company-form-full">
+                    <label className="field-label">Employee</label>
+                    <select
+                      className="field-input"
+                      name="user"
+                      value={form.user}
+                      onChange={handleChange}
+                      disabled={Boolean(editing)}
+                      required
+                    >
+                      <option value="">Select employee</option>
+                      {(editing ? employees : availableEmployees).map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.display_name || employee.username}
+                          {employee.employee_id ? ` (${employee.employee_id})` : ''}
+                          {' - '}
+                          {companyDisplayName(employee.primary_company, companies)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-            <div className="company-form-grid">
+                  <div className="field">
+                    <label className="field-label">Effective From</label>
+                    <input
+                      className="field-input"
+                      type="date"
+                      name="effective_from"
+                      value={form.effective_from}
+                      onChange={handleChange}
+                    />
+                  </div>
 
-              <div className="field company-form-full">
-
-                <label className="field-label">
-                  Employee
-                </label>
-
-                <select
-                  className="field-input"
-                  name="user"
-                  value={
-                    form.user
-                  }
-                  onChange={
-                    handleChange
-                  }
-                  disabled={
-                    Boolean(
-                      editing
-                    )
-                  }
-                  required
-                >
-
-                  <option value="">
-                    Select employee
-                  </option>
-
-                  {(
-                    editing
-                      ? employees
-                      : availableEmployees
-                  ).map(
-                    (employee) => (
-
-                      <option
-                        key={
-                          employee.id
-                        }
-                        value={
-                          employee.id
-                        }
-                      >
-
-                        {
-                          employee.display_name ||
-                          employee.username
-                        }
-
-                        {
-                          employee.employee_id
-                            ? ` (${employee.employee_id})`
-                            : ''
-                        }
-
-                        {' - '}
-
-                        {
-                          companyDisplayName(
-                            employee.primary_company,
-                            companies
-                          )
-                        }
-
-                      </option>
-
-                    )
-                  )}
-
-                </select>
-
+                  <div className="field">
+                    <label className="field-label">Remarks / Note</label>
+                    <input
+                      className="field-input"
+                      name="note"
+                      value={form.note}
+                      onChange={handleChange}
+                      placeholder="Optional remarks"
+                    />
+                  </div>
+                </div>
               </div>
 
+              {/* SECTION 2: EARNINGS COMPONENTS */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>💰</span> Earnings Components (₹ / Month)
+                </div>
+                <div className="company-form-grid">
+                  <Input
+                    label="Basic / Fixed Salary"
+                    name="basic"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.basic}
+                    onChange={handleChange}
+                    required
+                  />
 
-              <Input
-                label="Basic / Monthly Salary"
-                name="basic"
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  form.basic
-                }
-                onChange={
-                  handleChange
-                }
-                required
-              />
+                  <Input
+                    label="House Rent & Allowances"
+                    name="allowances"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.allowances}
+                    onChange={handleChange}
+                  />
 
+                  <Input
+                    label="Performance Incentives"
+                    name="incentives"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.incentives}
+                    onChange={handleChange}
+                  />
 
-              <Input
-                label="Allowances"
-                name="allowances"
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  form.allowances
-                }
-                onChange={
-                  handleChange
-                }
-              />
+                  <Input
+                    label="Statutory Bonus"
+                    name="bonus"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.bonus}
+                    onChange={handleChange}
+                  />
 
-
-              <Input
-                label="Incentives"
-                name="incentives"
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  form.incentives
-                }
-                onChange={
-                  handleChange
-                }
-              />
-
-
-              <Input
-                label="Bonus"
-                name="bonus"
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  form.bonus
-                }
-                onChange={
-                  handleChange
-                }
-              />
-
-
-              <Input
-                label="Other earnings"
-                name="other"
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  form.other
-                }
-                onChange={
-                  handleChange
-                }
-              />
-
-
-              <Input
-                label="Deductions"
-                name="deductions"
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  form.deductions
-                }
-                onChange={
-                  handleChange
-                }
-              />
-
-
-              <div className="field">
-
-                <label className="field-label">
-                  Effective from
-                </label>
-
-                <input
-                  className="field-input"
-                  type="date"
-                  name="effective_from"
-                  value={
-                    form.effective_from
-                  }
-                  onChange={
-                    handleChange
-                  }
-                />
-
+                  <div className="company-form-full">
+                    <Input
+                      label="Other Monthly Earnings"
+                      name="other"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.other}
+                      onChange={handleChange}
+                    />
+                  </div>
+                </div>
               </div>
 
-
-              <div className="field">
-
-                <label className="field-label">
-                  Note
-                </label>
-
-                <input
-                  className="field-input"
-                  name="note"
-                  value={
-                    form.note
-                  }
-                  onChange={
-                    handleChange
-                  }
-                  placeholder="Optional"
-                />
-
+              {/* SECTION 3: DEDUCTIONS */}
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#991b1b', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>🛡️</span> Other Deductions (₹ / Month)
+                </div>
+                <div className="company-form-grid">
+                  <div className="company-form-full">
+                    <Input
+                      label="Fixed / Other Deductions (Loan, advance, etc.)"
+                      name="deductions"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.deductions}
+                      onChange={handleChange}
+                    />
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                      * Note: Statutory deductions (EPF 12%, ESIC 0.75%, PT ₹200) are automatically calculated during monthly payroll runs based on compliance guidelines.
+                    </div>
+                  </div>
+                </div>
               </div>
 
+              {/* LIVE SUMMARY BANNER */}
+              <div style={{ background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', borderRadius: 12, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.9 }}>Monthly Net Estimation</div>
+                  <div style={{ fontSize: 20, fontWeight: 800 }}>{formatMoney(formNet)}</div>
+                </div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>
+                  Gross: <strong>{formatMoney(formGross)}</strong> • Deductions: <strong>{formatMoney(num(form.deductions))}</strong>
+                </div>
+              </div>
             </div>
-
-
-            <div className="hr-note">
-
-              Gross
-              {' '}
-              <strong>
-                {formatMoney(
-                  formGross
-                )}
-              </strong>
-
-              {' • Net '}
-
-              <strong>
-                {formatMoney(
-                  formNet
-                )}
-              </strong>
-
-              {' per full month.'}
-
-              <br />
-
-              The basic amount is also
-              synchronized back to the
-              employee monthly salary field.
-
-            </div>
-
           </form>
 
         </Modal>

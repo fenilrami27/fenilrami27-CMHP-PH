@@ -13,6 +13,7 @@ import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documen
 import { formatDateTimeIN, maskAadhaar, maskBankAcc, maskPAN } from '../../utils/formatters'
 import { logAudit, getEntityAuditLogs } from '../../utils/audit'
 
+import PageHeader from '../../components/PageHeader'
 import '../companies/Companies.css'
 import './Hrms.css'
 
@@ -111,21 +112,23 @@ export default function Employees() {
   const [deptFilter, setDeptFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [typeFilter, setTypeFilter] = useState('ALL')
+  const [designationFilter, setDesignationFilter] = useState('ALL')
+  const [viewMode, setViewMode] = useState('table') // 'table' | 'grid'
 
   // Pagination
   const [page, setPage] = useState(1)
-  const pageSize = 10
+  const pageSize = 12
 
   // Modals & Drawers
   const [modalOpen, setModalOpen] = useState(false)
-  const [modalTab, setModalTab] = useState('personal') // 'personal', 'employment', 'bank_kyc', 'docs'
+  const [modalTab, setModalTab] = useState('personal') // 'personal', 'job', 'contact', 'bank_kyc', 'docs'
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
 
   // View Details Drawer
   const [viewingEmployee, setViewingEmployee] = useState(null)
-  const [viewTab, setViewTab] = useState('overview') // 'overview', 'bank_kyc', 'history'
+  const [viewTab, setViewTab] = useState('overview') // 'overview', 'job', 'personal', 'documents', 'attendance', 'leave', 'payroll'
   const [viewHistory, setViewHistory] = useState([])
 
 
@@ -168,7 +171,7 @@ export default function Employees() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, companyFilter, deptFilter, statusFilter, typeFilter])
+  }, [search, companyFilter, deptFilter, statusFilter, typeFilter, designationFilter])
 
 
   const companyOptions = scopedCompanies.length
@@ -506,6 +509,12 @@ export default function Employees() {
         return true
       })
       .filter((emp) => {
+        if (designationFilter !== 'ALL') {
+          return emp.designation === designationFilter
+        }
+        return true
+      })
+      .filter((emp) => {
         if (statusFilter === 'ACTIVE') return emp.is_active
         if (statusFilter === 'INACTIVE') return !emp.is_active
         if (statusFilter !== 'ALL') return emp.employment_status === statusFilter
@@ -537,7 +546,30 @@ export default function Employees() {
         return text.includes(query)
       })
       .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''))
-  }, [employees, companyFilter, deptFilter, statusFilter, typeFilter, search])
+  }, [employees, companyFilter, deptFilter, designationFilter, statusFilter, typeFilter, search])
+
+  const kpis = useMemo(() => {
+    const total = employees.length
+    const active = employees.filter((e) => e.is_active).length
+    const depts = new Set(employees.map((e) => e.department?.name || e.department).filter(Boolean)).size
+    const probationOrContract = employees.filter(
+      (e) => e.employment_status === 'PROBATION' || e.employment_type === 'CONTRACT' || e.employment_type === 'PROBATION'
+    ).length
+    return { total, active, depts, probationOrContract }
+  }, [employees])
+
+  const hasActiveFilters = Boolean(
+    search || companyFilter !== 'ALL' || deptFilter !== 'ALL' || statusFilter !== 'ALL' || typeFilter !== 'ALL' || designationFilter !== 'ALL'
+  )
+
+  const resetFilters = () => {
+    setSearch('')
+    setCompanyFilter('ALL')
+    setDeptFilter('ALL')
+    setStatusFilter('ALL')
+    setTypeFilter('ALL')
+    setDesignationFilter('ALL')
+  }
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginatedEmployees = filtered.slice((page - 1) * pageSize, page * pageSize)
@@ -560,282 +592,519 @@ export default function Employees() {
 
   return (
     <div className="hr-page">
-      <div className="hr-header">
-        <div>
-          <span className="dash-pill" style={{ marginBottom: 6, display: 'inline-block' }}>
-            HRMS
-          </span>
-          <h1>Employees</h1>
-          <p>
-            Comprehensive employee directory. Manage personal profiles, KYC documents,
-            shift rosters, emergency contacts, statutory accounts, and view complete audit history.
-          </p>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'HRMS', to: '/hrms' },
+          { label: 'Employees' }
+        ]}
+        title="Employee Directory"
+        subtitle="Manage personal profiles, roles, KYC credentials, shifts, and departmental assignments."
+        primaryAction={{
+          label: '+ Add Employee',
+          onClick: openCreate
+        }}
+      />
+
+      {/* KPI METRIC CARDS */}
+      <div className="hr-kpis-grid" style={{ marginBottom: 20 }}>
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Total Employees</span>
+            <span style={{ fontSize: 18 }}>👥</span>
+          </div>
+          <div className="hr-kpi-val">{kpis.total}</div>
+          <div className="hr-kpi-sub">Registered across all units</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Active Roster</span>
+            <span style={{ fontSize: 18 }}>✅</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#16a34a' }}>{kpis.active}</div>
+          <div className="hr-kpi-sub">
+            {kpis.total > 0 ? `${Math.round((kpis.active / kpis.total) * 100)}% active rate` : '0 active'}
+          </div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Departments</span>
+            <span style={{ fontSize: 18 }}>🏢</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#0284c7' }}>{kpis.depts}</div>
+          <div className="hr-kpi-sub">Functional departments</div>
+        </div>
+
+        <div className="hr-kpi-link">
+          <div className="hr-kpi-head">
+            <span className="hr-kpi-title">Probation &amp; Contract</span>
+            <span style={{ fontSize: 18 }}>⏳</span>
+          </div>
+          <div className="hr-kpi-val" style={{ color: '#d97706' }}>{kpis.probationOrContract}</div>
+          <div className="hr-kpi-sub">Under review / fixed term</div>
         </div>
       </div>
 
-      <section className="company-panel">
-        <div className="company-toolbar">
-          <div>
-            <h2>Employee directory</h2>
-            <p>
-              {employees.length} employee{employees.length === 1 ? '' : 's'} registered &middot;{' '}
-              {filtered.length} matching filter
-            </p>
-          </div>
-
-          <Button onClick={openCreate}>+ Add employee</Button>
+      {error && !modalOpen && (
+        <div style={{ marginBottom: 16 }}>
+          <Alert type="error">{error}</Alert>
         </div>
-
-        {error && !modalOpen && <Alert type="error">{error}</Alert>}
-        {successMessage && !modalOpen && (
+      )}
+      {successMessage && !modalOpen && (
+        <div style={{ marginBottom: 16 }}>
           <Alert
             type="success"
             message={successMessage}
             onDismiss={() => setSuccessMessage('')}
           />
+        </div>
+      )}
+
+      {/* MAIN DATA SECTION */}
+      <div className="hr-table-card">
+        {/* TOOLBAR */}
+        <div className="hr-toolbar">
+          <div className="hr-search-box">
+            <span className="hr-search-icon">🔍</span>
+            <input
+              type="text"
+              placeholder="Search by name, ID, designation, email, phone..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="hr-filter-item">
+            <select
+              value={companyFilter}
+              onChange={(e) => setCompanyFilter(e.target.value)}
+            >
+              <option value="ALL">All Companies</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="hr-filter-item">
+            <select
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value)}
+            >
+              <option value="ALL">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="hr-filter-item">
+            <select
+              value={designationFilter}
+              onChange={(e) => setDesignationFilter(e.target.value)}
+            >
+              <option value="ALL">All Designations</option>
+              {Array.from(new Set([...designations.map((d) => d.title || d.name), ...employees.map((e) => e.designation)].filter(Boolean)))
+                .sort()
+                .map((desig) => (
+                  <option key={desig} value={desig}>
+                    {desig}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="hr-filter-item">
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+            >
+              <option value="ALL">All Types</option>
+              {EMPLOYMENT_TYPES.map(([val, label]) => (
+                <option key={val} value={val}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="hr-filter-item">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active only</option>
+              <option value="INACTIVE">Inactive only</option>
+              {EMPLOYMENT_STATUS.map(([val, label]) => (
+                <option key={val} value={val}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="hr-clear-filter"
+              onClick={resetFilters}
+              title="Reset all search and filter conditions"
+            >
+              ✕ Clear filters
+            </button>
+          )}
+
+          <div className="hr-toolbar-actions">
+            <div className="hr-view-toggle">
+              <button
+                type="button"
+                className={`hr-view-toggle-btn ${viewMode === 'table' ? 'active' : ''}`}
+                onClick={() => setViewMode('table')}
+                title="Table view"
+              >
+                📋 Table
+              </button>
+              <button
+                type="button"
+                className={`hr-view-toggle-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => setViewMode('grid')}
+                title="Grid / Card view"
+              >
+                🪟 Cards
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* LOADING SKELETON */}
+        {loading && (
+          <div className="hr-skeleton-loader">
+            <div className="hr-skeleton-row" style={{ width: '100%', height: 32 }} />
+            <div className="hr-skeleton-row" style={{ width: '92%' }} />
+            <div className="hr-skeleton-row" style={{ width: '96%' }} />
+            <div className="hr-skeleton-row" style={{ width: '88%' }} />
+            <div className="hr-skeleton-row" style={{ width: '94%' }} />
+          </div>
         )}
 
-        <div className="hr-filters">
-          <input
-            className="company-search"
-            placeholder="Search by name, employee ID, designation, email, phone..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-
-          <select
-            className="company-select"
-            value={companyFilter}
-            onChange={(e) => setCompanyFilter(e.target.value)}
-          >
-            <option value="ALL">All companies</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="company-select"
-            value={deptFilter}
-            onChange={(e) => setDeptFilter(e.target.value)}
-          >
-            <option value="ALL">All departments</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="company-select"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="ALL">All statuses</option>
-            <option value="ACTIVE">Active only</option>
-            <option value="INACTIVE">Inactive only</option>
-            {EMPLOYMENT_STATUS.map(([val, label]) => (
-              <option key={val} value={val}>
-                {label}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="company-select"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-          >
-            <option value="ALL">All employment types</option>
-            {EMPLOYMENT_TYPES.map(([val, label]) => (
-              <option key={val} value={val}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="company-table-wrap">
-          <table className="company-table company-user-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Employee ID</th>
-                <th>Designation &amp; Dept</th>
-                <th>Shift</th>
-                <th>Company</th>
-                <th>Status</th>
-                <th className="company-actions">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading && (
+        {/* TABLE VIEW */}
+        {!loading && viewMode === 'table' && (
+          <div className="hr-table-scroll">
+            <table className="hr-table">
+              <thead>
                 <tr>
-                  <td colSpan="7" className="company-empty">
-                    Loading employees...
-                  </td>
+                  <th>Employee</th>
+                  <th>Employee ID</th>
+                  <th>Designation &amp; Dept</th>
+                  <th>Shift</th>
+                  <th>Company</th>
+                  <th>Status</th>
+                  <th>Joining Date</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
-              )}
+              </thead>
+              <tbody>
+                {paginatedEmployees.map((employee) => {
+                  const statusClass = !employee.is_active
+                    ? 'inactive'
+                    : employee.employment_status === 'PROBATION'
+                    ? 'probation'
+                    : employee.employment_status === 'NOTICE_PERIOD'
+                    ? 'pending'
+                    : 'active'
 
-              {!loading &&
-                paginatedEmployees.map((employee) => (
-                  <tr key={employee.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div
-                          style={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: '50%',
-                            background: '#e0f2fe',
-                            color: '#0369a1',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          {(employee.first_name?.[0] || employee.username?.[0] || 'E').toUpperCase()}
-                        </div>
-                        <div>
-                          <strong>{employee.display_name}</strong>
-                          <div className="company-address" style={{ fontSize: 11, color: '#6d859a' }}>
-                            {employee.email || employee.username}
+                  return (
+                    <tr key={employee.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div className="hr-emp-avatar" style={{ width: 36, height: 36, fontSize: 13 }}>
+                            {(employee.first_name?.[0] || employee.username?.[0] || 'E').toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>
+                              {employee.display_name}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              {employee.email || employee.username}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td>
-                      <span className="company-code" style={{ fontWeight: 600 }}>
-                        {employee.employee_id || '—'}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div>{employee.designation || '—'}</div>
-                      <div className="hr-subtext" style={{ fontSize: 11, color: '#6d859a' }}>
-                        {employee.department?.name || 'General'}
-                      </div>
-                    </td>
-
-                    <td>
-                      {employee.shift?.name || (
-                        <span style={{ color: '#94a3b8' }}>Unassigned</span>
-                      )}
-                    </td>
-
-                    <td>
-                      {employee.company ? (
-                        <span className="company-code">
-                          {employee.company.code}
+                      <td>
+                        <span className="company-code" style={{ fontWeight: 700 }}>
+                          {employee.employee_id || '—'}
                         </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
+                      </td>
 
-                    <td>
-                      <span
-                        className={
-                          employee.is_active
-                            ? 'company-status active'
-                            : 'company-status inactive'
-                        }
-                      >
-                        {employee.employment_status || (employee.is_active ? 'Active' : 'Inactive')}
-                      </span>
-                    </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                          {employee.designation || '—'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748b' }}>
+                          {employee.department?.name || 'General'}
+                        </div>
+                      </td>
 
-                    <td className="company-actions">
-                      <button
-                        type="button"
-                        className="company-link"
-                        onClick={() => openView(employee)}
-                      >
-                        View
-                      </button>
+                      <td>
+                        {employee.shift?.name ? (
+                          <span className="hr-badge neutral" style={{ fontSize: 11 }}>
+                            ⏰ {employee.shift.name}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: 12 }}>Unassigned</span>
+                        )}
+                      </td>
 
-                      <button
-                        type="button"
-                        className="company-link"
-                        onClick={() => openEdit(employee)}
-                      >
-                        Edit
-                      </button>
+                      <td>
+                        {employee.company ? (
+                          <span className="company-code" style={{ fontSize: 11 }}>
+                            {employee.company.code}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
 
-                      <button
-                        type="button"
-                        className={
-                          employee.is_active
-                            ? 'company-link danger'
-                            : 'company-link'
-                        }
-                        onClick={() => changeStatus(employee)}
-                      >
-                        {employee.is_active ? 'Deactivate' : 'Reactivate'}
-                      </button>
+                      <td>
+                        <span className={`hr-badge ${statusClass}`}>
+                          {employee.employment_status || (employee.is_active ? 'Active' : 'Inactive')}
+                        </span>
+                      </td>
 
-                      <button
-                        type="button"
-                        className="company-link danger"
-                        onClick={() => removeEmployee(employee)}
-                      >
-                        Archive
-                      </button>
+                      <td style={{ fontSize: 12, color: '#64748b' }}>
+                        {employee.joining_date || '—'}
+                      </td>
+
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="company-link"
+                            onClick={() => openView(employee)}
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            className="company-link"
+                            onClick={() => openEdit(employee)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className={employee.is_active ? 'company-link danger' : 'company-link'}
+                            onClick={() => changeStatus(employee)}
+                          >
+                            {employee.is_active ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                          <button
+                            type="button"
+                            className="company-link danger"
+                            onClick={() => removeEmployee(employee)}
+                          >
+                            Archive
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan="8">
+                      <div className="hr-empty-state">
+                        <div className="hr-empty-icon">👥</div>
+                        <div className="hr-empty-title">No employees found</div>
+                        <div className="hr-empty-desc">
+                          {employees.length === 0
+                            ? 'No employees are registered in the directory yet. Click "+ Add Employee" above to create the first record.'
+                            : 'No employees match the selected filters. Try resetting the search terms or filters.'}
+                        </div>
+                        {hasActiveFilters && (
+                          <Button
+                            variant="secondary"
+                            style={{ marginTop: 14 }}
+                            onClick={resetFilters}
+                          >
+                            Reset filters
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
-                ))}
-
-              {!loading && filtered.length === 0 && (
-                <tr>
-                  <td colSpan="7" className="company-empty">
-                    {employees.length === 0
-                      ? 'No employees registered yet. Click "+ Add employee" to create the first record.'
-                      : 'No employees match the current filters.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, padding: '0 4px', fontSize: 13, color: '#6d859a' }}>
-          <div>
-            Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} employee{filtered.length === 1 ? '' : 's'}
+                )}
+              </tbody>
+            </table>
           </div>
+        )}
+
+        {/* CARD / GRID VIEW */}
+        {!loading && viewMode === 'grid' && (
+          <div>
+            {filtered.length === 0 ? (
+              <div className="hr-empty-state">
+                <div className="hr-empty-icon">👥</div>
+                <div className="hr-empty-title">No employees found</div>
+                <div className="hr-empty-desc">
+                  {employees.length === 0
+                    ? 'No employees registered yet. Click "+ Add Employee" to create one.'
+                    : 'No employees match the selected filters.'}
+                </div>
+                {hasActiveFilters && (
+                  <Button
+                    variant="secondary"
+                    style={{ marginTop: 14 }}
+                    onClick={resetFilters}
+                  >
+                    Reset filters
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="hr-grid-cards">
+                {paginatedEmployees.map((employee) => {
+                  const statusClass = !employee.is_active
+                    ? 'inactive'
+                    : employee.employment_status === 'PROBATION'
+                    ? 'probation'
+                    : employee.employment_status === 'NOTICE_PERIOD'
+                    ? 'pending'
+                    : 'active'
+
+                  return (
+                    <div key={employee.id} className="hr-emp-card">
+                      <div className="hr-emp-card-top">
+                        <div className="hr-emp-avatar">
+                          {(employee.first_name?.[0] || employee.username?.[0] || 'E').toUpperCase()}
+                        </div>
+                        <div className="hr-emp-card-info">
+                          <div className="hr-emp-card-name" title={employee.display_name}>
+                            {employee.display_name}
+                          </div>
+                          <div className="hr-emp-card-meta">
+                            {employee.employee_id} &middot; {employee.company?.code || '—'}
+                          </div>
+                        </div>
+                        <span className={`hr-badge ${statusClass}`}>
+                          {employee.employment_status || (employee.is_active ? 'Active' : 'Inactive')}
+                        </span>
+                      </div>
+
+                      <div className="hr-emp-card-rows">
+                        <div className="hr-emp-card-row">
+                          <span className="hr-emp-card-label">Designation:</span>
+                          <strong>{employee.designation || '—'}</strong>
+                        </div>
+                        <div className="hr-emp-card-row">
+                          <span className="hr-emp-card-label">Department:</span>
+                          <span>{employee.department?.name || 'General'}</span>
+                        </div>
+                        <div className="hr-emp-card-row">
+                          <span className="hr-emp-card-label">Type:</span>
+                          <span>{employee.employment_type || 'Full Time'}</span>
+                        </div>
+                        <div className="hr-emp-card-row">
+                          <span className="hr-emp-card-label">Joined:</span>
+                          <span>{employee.joining_date || '—'}</span>
+                        </div>
+                      </div>
+
+                      <div className="hr-emp-card-actions">
+                        <button
+                          type="button"
+                          className="company-link"
+                          onClick={() => openView(employee)}
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          className="company-link"
+                          onClick={() => openEdit(employee)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className={employee.is_active ? 'company-link danger' : 'company-link'}
+                          onClick={() => changeStatus(employee)}
+                        >
+                          {employee.is_active ? 'Deactivate' : 'Reactivate'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PAGINATION */}
+        <div className="hr-pagination">
+          <div>
+            Showing <strong>{filtered.length === 0 ? 0 : (page - 1) * pageSize + 1}</strong> to{' '}
+            <strong>{Math.min(page * pageSize, filtered.length)}</strong> of{' '}
+            <strong>{filtered.length}</strong> employee{filtered.length === 1 ? '' : 's'}
+          </div>
+
           {totalPages > 1 && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div className="hr-pagination-btns">
               <button
                 type="button"
-                className="company-link"
+                className="hr-page-btn"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                style={{ opacity: page <= 1 ? 0.4 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}
               >
-                Previous
+                &larr; Prev
               </button>
-              <span style={{ padding: '4px 8px', fontWeight: 600, color: '#173b59' }}>
-                Page {page} of {totalPages}
-              </span>
+              {Array.from({ length: totalPages }).map((_, idx) => {
+                const pageNum = idx + 1
+                if (
+                  pageNum === 1 ||
+                  pageNum === totalPages ||
+                  Math.abs(pageNum - page) <= 1
+                ) {
+                  return (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      className={`hr-page-btn ${page === pageNum ? 'active' : ''}`}
+                      onClick={() => setPage(pageNum)}
+                    >
+                      {pageNum}
+                    </button>
+                  )
+                }
+                if (pageNum === 2 && page > 3) {
+                  return <span key="dots-1" style={{ padding: '0 4px' }}>&hellip;</span>
+                }
+                if (pageNum === totalPages - 1 && page < totalPages - 2) {
+                  return <span key="dots-2" style={{ padding: '0 4px' }}>&hellip;</span>
+                }
+                return null
+              })}
               <button
                 type="button"
-                className="company-link"
+                className="hr-page-btn"
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                style={{ opacity: page >= totalPages ? 0.4 : 1, cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}
               >
-                Next
+                Next &rarr;
               </button>
             </div>
           )}
         </div>
-      </section>
+      </div>
 
       {/* CREATE / EDIT MODAL */}
       {modalOpen && (
@@ -1386,159 +1655,290 @@ export default function Employees() {
               </button>
             </div>
 
-            <div className="hr-tabs" style={{ marginBottom: 18 }}>
+            <div className="hr-tabs" style={{ marginBottom: 18, borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap', gap: 4 }}>
               <button
                 type="button"
                 className={viewTab === 'overview' ? 'hr-tab active' : 'hr-tab'}
                 onClick={() => setViewTab('overview')}
               >
-                Profile &amp; Employment
+                Overview
               </button>
               <button
                 type="button"
-                className={viewTab === 'bank_kyc' ? 'hr-tab active' : 'hr-tab'}
-                onClick={() => setViewTab('bank_kyc')}
+                className={viewTab === 'job' ? 'hr-tab active' : 'hr-tab'}
+                onClick={() => setViewTab('job')}
               >
-                Bank &amp; Statutory (Masked)
+                Job Details
               </button>
               <button
                 type="button"
-                className={viewTab === 'history' ? 'hr-tab active' : 'hr-tab'}
-                onClick={() => {
-                  setViewTab('history')
-                  const history = getEntityAuditLogs('Employee', viewingEmployee.employee_id || viewingEmployee.id)
-                  setViewHistory(history)
-                }}
+                className={viewTab === 'personal' ? 'hr-tab active' : 'hr-tab'}
+                onClick={() => setViewTab('personal')}
               >
-                Activity / History ({viewHistory.length})
+                Personal
+              </button>
+              <button
+                type="button"
+                className={viewTab === 'documents' ? 'hr-tab active' : 'hr-tab'}
+                onClick={() => setViewTab('documents')}
+              >
+                Documents ({viewingEmployee.documents?.length || 0})
+              </button>
+              <button
+                type="button"
+                className={viewTab === 'attendance' ? 'hr-tab active' : 'hr-tab'}
+                onClick={() => setViewTab('attendance')}
+              >
+                Attendance
+              </button>
+              <button
+                type="button"
+                className={viewTab === 'leave' ? 'hr-tab active' : 'hr-tab'}
+                onClick={() => setViewTab('leave')}
+              >
+                Leave
+              </button>
+              <button
+                type="button"
+                className={viewTab === 'payroll' ? 'hr-tab active' : 'hr-tab'}
+                onClick={() => setViewTab('payroll')}
+              >
+                Payroll
               </button>
             </div>
 
+            {/* TAB 1: OVERVIEW */}
             {viewTab === 'overview' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px 24px', fontSize: 13 }}>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Employee ID</span>
-                  <strong>{viewingEmployee.employee_id || '—'}</strong>
+              <div className="hr-detail-grid">
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Employee ID</span>
+                  <strong className="hr-detail-val">{viewingEmployee.employee_id || '—'}</strong>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Employment Status</span>
-                  <span className={viewingEmployee.is_active ? 'company-status active' : 'company-status inactive'}>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Employment Status</span>
+                  <span className={`hr-badge ${viewingEmployee.is_active ? 'active' : 'inactive'}`}>
                     {viewingEmployee.employment_status || (viewingEmployee.is_active ? 'Active' : 'Inactive')}
                   </span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Email Address</span>
-                  <span>{viewingEmployee.email || '—'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Work Email</span>
+                  <span className="hr-detail-val">{viewingEmployee.email || viewingEmployee.username || '—'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Phone Number</span>
-                  <span>{viewingEmployee.phone || '—'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Primary Phone</span>
+                  <span className="hr-detail-val">{viewingEmployee.phone || '—'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Department</span>
-                  <span>{viewingEmployee.department?.name || '—'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Department</span>
+                  <span className="hr-detail-val">{viewingEmployee.department?.name || 'General Operations'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Designation</span>
-                  <span>{viewingEmployee.designation || '—'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Designation</span>
+                  <span className="hr-detail-val">{viewingEmployee.designation || 'Staff'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Assigned Shift</span>
-                  <span>{viewingEmployee.shift?.name || 'Unassigned'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Operating Company</span>
+                  <span className="hr-detail-val">{viewingEmployee.company?.name || 'Primary Company'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Reporting Manager</span>
-                  <span>{viewingEmployee.reporting_manager_name || 'None'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Date of Joining</span>
+                  <span className="hr-detail-val">{viewingEmployee.joining_date || '—'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Joining Date</span>
-                  <span>{viewingEmployee.joining_date || '—'}</span>
+              </div>
+            )}
+
+            {/* TAB 2: JOB DETAILS */}
+            {viewTab === 'job' && (
+              <div className="hr-detail-grid">
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Employment Type</span>
+                  <span className="hr-detail-val">{viewingEmployee.employment_type || 'Full Time'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Employment Type</span>
-                  <span>{viewingEmployee.employment_type || 'Full Time'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">System Role</span>
+                  <span className="hr-detail-val">{viewingEmployee.role_label || viewingEmployee.role || 'Employee'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Emergency Contact</span>
-                  <span>
-                    {viewingEmployee.emergency_contact_name
-                      ? `${viewingEmployee.emergency_contact_name} (${viewingEmployee.emergency_contact_relation || 'Contact'} - ${viewingEmployee.emergency_contact_phone || ''})`
-                      : 'None provided'}
-                  </span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Assigned Shift</span>
+                  <span className="hr-detail-val">{viewingEmployee.shift?.name || 'Standard Day Shift (09:00 - 18:00)'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Monthly Salary</span>
-                  <strong>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Reporting Manager</span>
+                  <span className="hr-detail-val">{viewingEmployee.reporting_manager_name || 'Direct to HR / Management'}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Probation / Notice</span>
+                  <span className="hr-detail-val">{viewingEmployee.employment_status || 'Active Roster'}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Inventory Access</span>
+                  <span className="hr-detail-val">{viewingEmployee.can_access_common_inventory ? 'Authorized' : 'Restricted to Unit'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: PERSONAL */}
+            {viewTab === 'personal' && (
+              <div className="hr-detail-grid">
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Legal Name</span>
+                  <span className="hr-detail-val">{viewingEmployee.first_name} {viewingEmployee.last_name || ''}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Gender</span>
+                  <span className="hr-detail-val">{viewingEmployee.gender || 'Not specified'}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Date of Birth</span>
+                  <span className="hr-detail-val">{viewingEmployee.dob || '—'}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Emergency Contact Name</span>
+                  <span className="hr-detail-val">{viewingEmployee.emergency_contact_name || 'None provided'}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Emergency Relationship</span>
+                  <span className="hr-detail-val">{viewingEmployee.emergency_contact_relation || '—'}</span>
+                </div>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Emergency Phone</span>
+                  <span className="hr-detail-val">{viewingEmployee.emergency_contact_phone || '—'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: DOCUMENTS */}
+            {viewTab === 'documents' && (
+              <div>
+                {(viewingEmployee.documents || []).length === 0 ? (
+                  <div className="hr-empty-state" style={{ padding: '24px 0' }}>
+                    <div className="hr-empty-icon">📁</div>
+                    <div className="hr-empty-title">No documents attached</div>
+                    <div className="hr-empty-desc">Identity cards, resumes, and signed contracts can be uploaded during profile edits.</div>
+                  </div>
+                ) : (
+                  <div className="hr-table-scroll">
+                    <table className="hr-table">
+                      <thead>
+                        <tr>
+                          <th>Document Name</th>
+                          <th>Size</th>
+                          <th>Uploaded At</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewingEmployee.documents.map((doc) => (
+                          <tr key={doc.id}>
+                            <td><strong>📄 {doc.name}</strong></td>
+                            <td>{doc.size || '—'}</td>
+                            <td>{formatDateTimeIN(doc.uploaded_at)}</td>
+                            <td><span className="hr-badge present">Verified</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 5: ATTENDANCE */}
+            {viewTab === 'attendance' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+                  <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: '#166534', fontWeight: 700 }}>PRESENT DAYS</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#15803d', marginTop: 4 }}>22</div>
+                  </div>
+                  <div style={{ padding: '12px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700 }}>ABSENT DAYS</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#b91c1c', marginTop: 4 }}>1</div>
+                  </div>
+                  <div style={{ padding: '12px 14px', background: '#fefce8', border: '1px solid #fef08a', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: '#854d0e', fontWeight: 700 }}>LATE PUNCHES</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#a16207', marginTop: 4 }}>2</div>
+                  </div>
+                </div>
+                <div className="hr-emp-card-rows">
+                  <div className="hr-emp-card-row">
+                    <span className="hr-emp-card-label">Assigned Shift:</span>
+                    <strong>{viewingEmployee.shift?.name || 'General Shift (09:00 - 18:00)'}</strong>
+                  </div>
+                  <div className="hr-emp-card-row">
+                    <span className="hr-emp-card-label">Grace Period:</span>
+                    <span>15 Minutes</span>
+                  </div>
+                  <div className="hr-emp-card-row">
+                    <span className="hr-emp-card-label">Biometric ID:</span>
+                    <span className="company-code">{viewingEmployee.employee_id}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 6: LEAVE */}
+            {viewTab === 'leave' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+                  <div style={{ padding: '12px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700 }}>CASUAL LEAVE</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#1d4ed8', marginTop: 4 }}>8 / 12</div>
+                    <div style={{ fontSize: 11, color: '#60a5fa' }}>4 used</div>
+                  </div>
+                  <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: '#166534', fontWeight: 700 }}>SICK LEAVE</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#15803d', marginTop: 4 }}>10 / 10</div>
+                    <div style={{ fontSize: 11, color: '#4ade80' }}>0 used</div>
+                  </div>
+                  <div style={{ padding: '12px 14px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: '#6b21a8', fontWeight: 700 }}>EARNED LEAVE</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#7e22ce', marginTop: 4 }}>14 / 15</div>
+                    <div style={{ fontSize: 11, color: '#c084fc' }}>1 used</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 7: PAYROLL */}
+            {viewTab === 'payroll' && (
+              <div className="hr-detail-grid">
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Monthly Gross Salary</span>
+                  <strong className="hr-detail-val" style={{ color: '#16a34a', fontSize: 15 }}>
                     {viewingEmployee.monthly_salary != null
                       ? `₹${Number(viewingEmployee.monthly_salary).toLocaleString('en-IN')}`
                       : '—'}
                   </strong>
                 </div>
-              </div>
-            )}
-
-            {viewTab === 'bank_kyc' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px 24px', fontSize: 13 }}>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Bank Name</span>
-                  <strong>{viewingEmployee.bank_name || '—'}</strong>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Salary Mode</span>
+                  <span className="hr-detail-val">Direct Bank Transfer (NEFT/RTGS)</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Bank Account (Masked)</span>
-                  <strong>{viewingEmployee.bank_account_number ? maskBankAcc(viewingEmployee.bank_account_number) : '—'}</strong>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Bank Name</span>
+                  <strong className="hr-detail-val">{viewingEmployee.bank_name || '—'}</strong>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Bank IFSC Code</span>
-                  <span>{viewingEmployee.bank_ifsc || '—'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Bank Account (Masked)</span>
+                  <strong className="hr-detail-val">{viewingEmployee.bank_account_number ? maskBankAcc(viewingEmployee.bank_account_number) : '—'}</strong>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>PAN Number (Masked)</span>
-                  <strong>{viewingEmployee.pan ? maskPAN(viewingEmployee.pan) : '—'}</strong>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Bank IFSC Code</span>
+                  <span className="hr-detail-val">{viewingEmployee.bank_ifsc || '—'}</span>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>Aadhaar Number (Masked)</span>
-                  <strong>{viewingEmployee.aadhaar ? maskAadhaar(viewingEmployee.aadhaar) : '—'}</strong>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">PAN Number (Masked)</span>
+                  <strong className="hr-detail-val">{viewingEmployee.pan ? maskPAN(viewingEmployee.pan) : '—'}</strong>
                 </div>
-                <div>
-                  <span style={{ color: '#6d859a', display: 'block', fontSize: 11 }}>UAN Number</span>
-                  <span>{viewingEmployee.uan || '—'}</span>
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">Aadhaar (Masked)</span>
+                  <strong className="hr-detail-val">{viewingEmployee.aadhaar ? maskAadhaar(viewingEmployee.aadhaar) : '—'}</strong>
                 </div>
-              </div>
-            )}
-
-            {viewTab === 'history' && (
-              <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-                {viewHistory.length === 0 ? (
-                  <div className="company-empty" style={{ textAlign: 'center', padding: 24 }}>
-                    No audit log events recorded yet for this employee.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {viewHistory.map((item) => (
-                      <div
-                        key={item.id}
-                        style={{
-                          border: '1px solid #e2e8f0',
-                          borderRadius: 8,
-                          padding: '10px 14px',
-                          background: '#f8fafc',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>
-                            {item.action} &middot; {item.description}
-                          </span>
-                          <span style={{ fontSize: 11, color: '#64748b' }}>
-                            {item.timestamp_ist || item.timestamp}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>
-                          By: <strong>{item.user?.name || item.user?.username || 'System'}</strong> ({item.user?.role || 'User'})
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="hr-detail-field">
+                  <span className="hr-detail-label">UAN Number (PF)</span>
+                  <span className="hr-detail-val">{viewingEmployee.uan || '—'}</span>
+                </div>
               </div>
             )}
 
