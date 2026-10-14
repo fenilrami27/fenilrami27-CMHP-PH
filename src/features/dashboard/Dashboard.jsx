@@ -231,7 +231,7 @@ export default function Dashboard() {
     const todayStr = new Date().toISOString().slice(0, 10)
     filteredOrders.forEach((o) => {
       const st = String(o.status || 'DRAFT').toUpperCase()
-      if (['DRAFT', 'PENDING', 'CONFIRMED', 'IN_PRODUCTION', 'QC_PENDING'].includes(st)) {
+      if (['DRAFT', 'PENDING', 'CONFIRMED', 'IN_PRODUCTION', 'QC_PENDING', 'QA_PENDING'].includes(st)) {
         pendingOrders++
       }
       const deadline = o.delivery_deadline || o.delivery_date

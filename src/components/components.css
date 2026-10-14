@@ -448,15 +448,25 @@ input[type="checkbox"] {
    RESPONSIVE
    ========================================================= */
 
-@media (max-width: 650px) {
+@media (max-width: 640px) {
 
   .btn {
-    min-height: 39px;
+    min-height: 44px;
 
     padding:
-      8px 13px;
+      10px 16px;
 
-    font-size: 10px;
+    font-size: 13px;
   }
 
-}
+  .field-input {
+    min-height: 44px;
+    font-size: 16px !important;
+  }
+
+  .field-toggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+}

@@ -89,9 +89,34 @@ export function logAudit({
   remarks = '',
   user = null,
   company = null,
+  role = null,
   result = 'SUCCESS',
 }) {
-  const actor = user || getActor() || { id: 1, username: 'admin', role: 'SUPER_ADMIN' }
+  const fromStorage = getActor()
+  let actorObj = null
+  if (typeof user === 'string') {
+    actorObj = {
+      id: null,
+      username: user,
+      name: user,
+      role: role || fromStorage?.actor_role || 'ADMIN',
+    }
+  } else if (user && typeof user === 'object') {
+    actorObj = {
+      id: user.id || null,
+      username: user.username || user.name || 'System',
+      name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || user.name || 'System User',
+      role: role || user.role || user.profile?.role || fromStorage?.actor_role || 'USER',
+    }
+  } else {
+    actorObj = {
+      id: null,
+      username: fromStorage?.actor_name || 'admin',
+      name: fromStorage?.actor_name || 'System User',
+      role: role || fromStorage?.actor_role || 'SUPER_ADMIN',
+    }
+  }
+
   const companyId = company || getActiveCompanyId() || 1
   const companyName = Number(companyId) === 1 ? 'CMHP Pharma' : 'Tej Biocare'
 
@@ -100,25 +125,20 @@ export function logAudit({
     id: `AUD-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
     timestamp: now.toISOString(),
     timestamp_ist: formatDateTimeIN(now),
-    user: {
-      id: actor.id || null,
-      username: actor.username || actor.name || 'System',
-      name: `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || actor.username || 'System User',
-      role: actor.role || 'USER',
-    },
+    user: actorObj,
     company_id: Number(companyId),
     company_name: companyName,
-    module: String(module).toUpperCase(),
-    entity_type: String(entity_type),
+    module: String(module || 'SYSTEM').toUpperCase(),
+    entity_type: String(entity_type || 'General'),
     entity_id: String(entity_id || '—'),
-    action: String(action).toUpperCase(),
+    action: String(action || 'UPDATE').toUpperCase(),
     description: description || `${action} on ${entity_type} ${entity_id || ''}`.trim(),
     changes: Array.isArray(changes)
       ? changes.map((c) => ({
-          field: c.field,
-          label: c.label || c.field,
-          old_value: sanitizeValue(c.field, c.old_value),
-          new_value: sanitizeValue(c.field, c.new_value),
+          field: c?.field,
+          label: c?.label || c?.field,
+          old_value: sanitizeValue(c?.field, c?.old_value),
+          new_value: sanitizeValue(c?.field, c?.new_value),
         }))
       : [],
     remarks: remarks || '',
@@ -190,6 +210,14 @@ export function recordAudit({ action, payload, state }) {
     module = 'OPERATIONS'
     entity_type = 'Batch'
     entity_id = payload?.batch_number || payload?.id || '—'
+  } else if (actionName.includes('Sample')) {
+    module = 'INVENTORY'
+    entity_type = 'Sample'
+    entity_id = payload?.orderId ? `Order #${payload.orderId}` : '—'
+    actType = actionName.includes('confirm') ? 'CONFIRM' : 'UPDATE'
+    desc = actionName.includes('confirm')
+      ? `Confirmed sample quantity (${payload?.sampleQuantity}) for order #${payload?.orderId}`
+      : `Updated sample quantity to ${payload?.sampleQuantity} for order #${payload?.orderId}`
   }
 
   if (actionName.startsWith('add') || actionName.startsWith('create') || actionName.startsWith('apply')) {

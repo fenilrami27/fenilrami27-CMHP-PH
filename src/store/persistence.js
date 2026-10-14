@@ -98,6 +98,7 @@ export function loadPersistedERPState() {
       if (!Array.isArray(data.commonProducts)) data.commonProducts = []
       if (!Array.isArray(data.commonRawMaterials)) data.commonRawMaterials = []
       if (!Array.isArray(data.stockLedgerEntries)) data.stockLedgerEntries = []
+      if (!Array.isArray(data.stockRequests)) data.stockRequests = []
 
       return data
     }

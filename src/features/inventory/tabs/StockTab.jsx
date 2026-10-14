@@ -1,9 +1,57 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
+import useWorkspace from '../../../hooks/useWorkspace'
 import Button from '../../../components/Button'
 import './StockTab.css'
+import './StockLedger.css'
 import './CommonInventory.css'
+
+const FINANCIAL_YEARS = ['2026-27', '2025-26', '2024-25']
+
+/* =========================================================
+   SOURCE COMPANY HELPER (CMHP / TEJ / COMMON)
+   ========================================================= */
+
+export function getLotSourceCompany(lot, allProducts = []) {
+  // 1. Direct company ID check
+  const compId = Number(lot.source_company_id || lot.company || lot.companyId)
+  if (compId === 1) {
+    return { id: 1, name: 'CMHP Pharma', badgeClass: 'source-badge-cmhp' }
+  }
+  if (compId === 2) {
+    return { id: 2, name: 'Tej Biocare', badgeClass: 'source-badge-tej' }
+  }
+
+  // 2. String matching on source_company / supplier_name / mfg_company
+  const compStr = String(
+    lot.source_company || lot.mfg_company || lot.supplier_name || lot.company_name || ''
+  ).toLowerCase()
+  if (compStr.includes('tej')) {
+    return { id: 2, name: 'Tej Biocare', badgeClass: 'source-badge-tej' }
+  }
+  if (compStr.includes('cmhp')) {
+    return { id: 1, name: 'CMHP Pharma', badgeClass: 'source-badge-cmhp' }
+  }
+  if (compStr.includes('common')) {
+    return { id: null, name: 'Common Inventory', badgeClass: 'source-badge-common' }
+  }
+
+  // 3. Fallback: match with product catalog
+  const matchedProd = (allProducts || []).find(
+    (p) => Number(p.id) === Number(lot.item_id || lot.item) || (lot.item_code && p.code === lot.item_code)
+  )
+  if (matchedProd) {
+    const pCompId = Number(matchedProd.company || matchedProd.companyId)
+    if (pCompId === 1) return { id: 1, name: 'CMHP Pharma', badgeClass: 'source-badge-cmhp' }
+    if (pCompId === 2) return { id: 2, name: 'Tej Biocare', badgeClass: 'source-badge-tej' }
+    const pStr = String(matchedProd.mfg_company || matchedProd.company_name || '').toLowerCase()
+    if (pStr.includes('tej')) return { id: 2, name: 'Tej Biocare', badgeClass: 'source-badge-tej' }
+    if (pStr.includes('cmhp')) return { id: 1, name: 'CMHP Pharma', badgeClass: 'source-badge-cmhp' }
+  }
+
+  return { id: null, name: 'Common Inventory', badgeClass: 'source-badge-common' }
+}
 
 /* =========================================================
    URGENCY & STATUS HELPERS
@@ -94,16 +142,146 @@ function getLotStockStatus(lot) {
 
 export default function StockTab() {
   const navigate = useNavigate()
+  const { activeWorkspace } = useWorkspace()
 
   // Redux Selectors
-  const lots = useSelector((state) => state.erp?.lots || [])
+  const erpState = useSelector((state) => state.erp || {})
+  const allLots = useSelector((state) => state.erp?.lots || [])
+  const commonProducts = useSelector((state) => state.erp?.commonProducts || [])
+  const companyProducts = useSelector((state) => state.erp?.products || [])
+  const commonRawMaterials = useSelector((state) => state.erp?.commonRawMaterials || [])
   const orders = useSelector((state) => state.erp?.orders || [])
   const transactions = useSelector((state) => state.erp?.transactions || [])
   const issueHistory = useSelector((state) => state.erp?.issueHistory || [])
   const stockReturns = useSelector((state) => state.erp?.stockReturns || [])
 
+  // Combined product catalog for source matching and identification
+  const allFinishedProducts = useMemo(() => {
+    const list = []
+    const seen = new Set()
+    const rawList = [
+      ...(commonProducts || []),
+      ...(companyProducts || []),
+      ...(erpState.byCompany?.cmhp?.products || []),
+      ...(erpState.byCompany?.tej?.products || []),
+    ]
+    rawList.forEach((p) => {
+      const key = String(p.code || p.id).toUpperCase()
+      if (!seen.has(key)) {
+        seen.add(key)
+        list.push(p)
+      }
+    })
+    return list
+  }, [commonProducts, companyProducts, erpState])
+
+  // Filter ONLY finished-product lots from Redux store (No Raw Materials)
+  const finishedProductLots = useMemo(() => {
+    return (allLots || []).filter((lot) => {
+      // 1. Explicit item_type
+      if (lot.item_type === 'MEDICINE' || lot.item_type === 'FINISHED_GOODS') return true
+      if (lot.item_type === 'RAW_MATERIAL') return false
+
+      // 2. Reject known raw materials
+      const isRaw = (commonRawMaterials || []).some(
+        (m) => Number(m.id) === Number(lot.item_id || lot.item) || (lot.item_code && m.code === lot.item_code)
+      )
+      if (isRaw) return false
+
+      // 3. Match against finished products catalog
+      const isProd = allFinishedProducts.some(
+        (p) => Number(p.id) === Number(lot.item_id || lot.item) || (lot.item_code && p.code === lot.item_code)
+      )
+      if (isProd) return true
+
+      // 4. Reject raw material categories
+      const rawCategories = [
+        'active api',
+        'excipient',
+        'solvent',
+        'reagent',
+        'packaging material',
+        'chemical',
+        'raw material',
+      ]
+      const cat = String(lot.category || '').toLowerCase()
+      if (rawCategories.includes(cat)) return false
+
+      // 5. Source type check
+      if (lot.source_type === 'SUPPLIER') return false
+      if (lot.source_type === 'MANUFACTURER') return true
+
+      return true
+    })
+  }, [allLots, commonRawMaterials, allFinishedProducts])
+
+  // Active Workspace / Scoped Company ID (1 for CMHP, 2 for Tej, null for Common Inventory)
+  const scopedCompanyId = useMemo(() => {
+    if (activeWorkspace === 'company_a' || erpState.activeCompanyId === 1) return 1
+    if (activeWorkspace === 'company_b' || erpState.activeCompanyId === 2) return 2
+    return null
+  }, [activeWorkspace, erpState.activeCompanyId])
+
+  // Workspace company scoping:
+  // When a company is active -> show only that company's data; Common Inventory data stays shared
+  // When Common Inventory is active -> show all finished products
+  const workspaceScopedLots = useMemo(() => {
+    return finishedProductLots.filter((lot) => {
+      const source = getLotSourceCompany(lot, allFinishedProducts)
+      if (scopedCompanyId === 1) {
+        return source.id === 1 || source.id === null
+      }
+      if (scopedCompanyId === 2) {
+        return source.id === 2 || source.id === null
+      }
+      return true
+    })
+  }, [finishedProductLots, scopedCompanyId, allFinishedProducts])
+
   // Filter States
-  const [categoryChip, setCategoryChip] = useState('ALL') // 'ALL' | 'MEDICINE' | 'RAW_MATERIAL' | Specific category string
+  const [productDropdownOpen, setProductDropdownOpen] = useState(false)
+  const [productSearchQuery, setProductSearchQuery] = useState('')
+  const [selectedProductKey, setSelectedProductKey] = useState('ALL')
+  const productDropdownRef = useRef(null)
+
+  // Close product dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (productDropdownRef.current && !productDropdownRef.current.contains(e.target)) {
+        setProductDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Search-filtered finished products for dropdown
+  const searchableProducts = useMemo(() => {
+    if (!productSearchQuery.trim()) return allFinishedProducts
+    const q = productSearchQuery.trim().toLowerCase()
+    return allFinishedProducts.filter((p) => {
+      const code = (p.code || '').toLowerCase()
+      const name = (p.name || '').toLowerCase()
+      const cat = (p.category || '').toLowerCase()
+      return code.includes(q) || name.includes(q) || cat.includes(q)
+    })
+  }, [allFinishedProducts, productSearchQuery])
+
+  const activeProduct = useMemo(() => {
+    if (selectedProductKey === 'ALL') return null
+    return (
+      allFinishedProducts.find(
+        (p) => String(p.id) === String(selectedProductKey) || p.code === selectedProductKey
+      ) || null
+    )
+  }, [allFinishedProducts, selectedProductKey])
+
+  // Financial Year & Date Range Filters
+  const [financialYear, setFinancialYear] = useState('2026-27')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+
+  const [categoryChip, setCategoryChip] = useState('ALL')
   const [search, setSearch] = useState('')
   const [companyFilter, setCompanyFilter] = useState('ALL')
   const [stockStatusFilter, setStockStatusFilter] = useState('ALL') // 'ALL' | 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'EXPIRING_SOON'
@@ -114,28 +292,12 @@ export default function StockTab() {
   // Drawer Detail State
   const [selectedLot, setSelectedLot] = useState(null)
 
-  // Dynamic filter lists
-  const availableCompanies = useMemo(() => {
-    const set = new Set()
-    lots.forEach((l) => {
-      const comp = l.source_company || l.supplier_name
-      if (comp && String(comp).trim()) set.add(String(comp).trim())
-    })
-    return Array.from(set).sort()
-  }, [lots])
-
-  const specificCategories = useMemo(() => {
-    const set = new Set()
-    lots.forEach((l) => {
-      if (l.category && String(l.category).trim()) set.add(String(l.category).trim())
-    })
-    return Array.from(set).sort()
-  }, [lots])
-
-  // Map open orders to lots
+  // Map open customer orders & source company info to lots
   const lotsWithOrders = useMemo(() => {
-    return lots.map((lot) => {
-      // Find orders matching this lot item
+    return workspaceScopedLots.map((lot) => {
+      const sourceInfo = getLotSourceCompany(lot, allFinishedProducts)
+
+      // Find customer orders matching this lot item
       const matchedOrders = (orders || []).filter((ord) => {
         const isOpen = !['DELIVERED', 'COMPLETED', 'CANCELLED'].includes(String(ord.status).toUpperCase())
         if (!isOpen) return false
@@ -170,38 +332,67 @@ export default function StockTab() {
 
       return {
         ...lot,
+        sourceInfo,
         activeOrders: linked,
         hasOrders: linked.length > 0,
       }
     })
-  }, [lots, orders])
+  }, [workspaceScopedLots, orders, allFinishedProducts])
+
+  // Dynamic filter lists
+  const availableSourceCompanies = useMemo(() => {
+    if (scopedCompanyId === 1) {
+      return ['CMHP Pharma', 'Common Inventory']
+    }
+    if (scopedCompanyId === 2) {
+      return ['Tej Biocare', 'Common Inventory']
+    }
+    return ['CMHP Pharma', 'Tej Biocare', 'Common Inventory']
+  }, [scopedCompanyId])
+
+  const finishedCategories = useMemo(() => {
+    const set = new Set()
+    lotsWithOrders.forEach((l) => {
+      if (l.category && String(l.category).trim()) set.add(String(l.category).trim())
+    })
+    return Array.from(set).sort()
+  }, [lotsWithOrders])
 
   // Filtered lots
   const filteredLots = useMemo(() => {
     return lotsWithOrders.filter((lot) => {
+      // Product selector filter
+      if (selectedProductKey !== 'ALL') {
+        const isMatch =
+          (lot.item_id && String(lot.item_id) === String(selectedProductKey)) ||
+          (lot.item && String(lot.item) === String(selectedProductKey)) ||
+          (lot.item_code && String(lot.item_code) === String(selectedProductKey))
+        if (!isMatch) return false
+      }
+
+      // Date Range filter (using manufacture_date or received_date)
+      const lotDate = lot.manufacture_date || lot.received_date || ''
+      if (startDate && lotDate && lotDate < startDate) return false
+      if (endDate && lotDate && lotDate > endDate) return false
+
       // Category chip filter
-      if (categoryChip === 'MEDICINE') {
-        if (lot.item_type !== 'MEDICINE') return false
-      } else if (categoryChip === 'RAW_MATERIAL') {
-        if (lot.item_type !== 'RAW_MATERIAL') return false
-      } else if (categoryChip !== 'ALL') {
+      if (categoryChip !== 'ALL') {
         if (lot.category !== categoryChip) return false
       }
 
-      // Search (by item name, item code, or lot/batch number)
+      // Search (by item name, item code, lot/batch number, or source company)
       if (search.trim()) {
         const query = search.toLowerCase().trim()
         const matchName = String(lot.item_name || '').toLowerCase().includes(query)
         const matchCode = String(lot.item_code || '').toLowerCase().includes(query)
         const matchLot = String(lot.lot_number || '').toLowerCase().includes(query)
-        const matchSource = String(lot.source_company || lot.supplier_name || '').toLowerCase().includes(query)
+        const matchSource = String(lot.sourceInfo?.name || '').toLowerCase().includes(query)
         if (!matchName && !matchCode && !matchLot && !matchSource) return false
       }
 
-      // Manufacturer / Supplier Company filter
+      // Source Company filter (CMHP Pharma / Tej Biocare / Common Inventory)
       if (companyFilter !== 'ALL') {
-        const comp = lot.source_company || lot.supplier_name
-        if (comp !== companyFilter) return false
+        if (lot.sourceInfo?.name !== companyFilter) return false
       }
 
       // Stock status filter
@@ -216,29 +407,21 @@ export default function StockTab() {
 
       return true
     })
-  }, [lotsWithOrders, categoryChip, search, companyFilter, stockStatusFilter, orderStatusFilter])
+  }, [lotsWithOrders, selectedProductKey, startDate, endDate, categoryChip, search, companyFilter, stockStatusFilter, orderStatusFilter])
 
   // Summary Metrics - Updates live with filters
   const summaryMetrics = useMemo(() => {
     let totalStockQty = 0
-    let medicineStockQty = 0
-    let rawMaterialStockQty = 0
     let lowStockCount = 0
     let itemsWithOpenOrders = 0
-    let medicineLotsCount = 0
-    let rawMaterialLotsCount = 0
+    const categoryQtyMap = {}
 
     filteredLots.forEach((l) => {
       const qty = Number(l.available_quantity || 0)
       totalStockQty += qty
 
-      if (l.item_type === 'MEDICINE') {
-        medicineStockQty += qty
-        medicineLotsCount++
-      } else {
-        rawMaterialStockQty += qty
-        rawMaterialLotsCount++
-      }
+      const cat = l.category || 'Finished Goods'
+      categoryQtyMap[cat] = (categoryQtyMap[cat] || 0) + qty
 
       const st = getLotStockStatus(l)
       if (st.status === 'LOW_STOCK' || st.status === 'OUT_OF_STOCK') {
@@ -250,20 +433,23 @@ export default function StockTab() {
       }
     })
 
+    const topCategories = Object.entries(categoryQtyMap).slice(0, 3)
+
     return {
       totalStockQty,
-      medicineStockQty,
-      rawMaterialStockQty,
       lowStockCount,
       itemsWithOpenOrders,
-      medicineLotsCount,
-      rawMaterialLotsCount,
+      topCategories,
       totalLots: filteredLots.length,
     }
   }, [filteredLots])
 
   // Clear filters
   const clearFilters = () => {
+    setSelectedProductKey('ALL')
+    setFinancialYear('2026-27')
+    setStartDate('')
+    setEndDate('')
     setCategoryChip('ALL')
     setSearch('')
     setCompanyFilter('ALL')
@@ -273,12 +459,41 @@ export default function StockTab() {
   }
 
   const hasFilterActive = Boolean(
+    selectedProductKey !== 'ALL' ||
+    startDate ||
+    endDate ||
+    financialYear !== '2026-27' ||
     categoryChip !== 'ALL' ||
     search.trim() ||
     companyFilter !== 'ALL' ||
     stockStatusFilter !== 'ALL' ||
     orderStatusFilter !== 'ALL'
   )
+
+  // Export filtered lots to CSV (Excel format)
+  const handleExportExcel = () => {
+    let csv = 'Product Code,Product Name,Lot Number,Source Company,Category,Batch Size,Available Qty,UOM,Expiry Date,Stock Status,Open Orders\n'
+    filteredLots.forEach((lot) => {
+      const pCode = (lot.item_code || '').replace(/"/g, '""')
+      const pName = (lot.item_name || '').replace(/"/g, '""')
+      const lotNum = (lot.lot_number || '').replace(/"/g, '""')
+      const comp = (lot.sourceInfo?.name || '').replace(/"/g, '""')
+      const cat = (lot.category || '').replace(/"/g, '""')
+      const bSize = lot.batch_size || lot.quantity || ''
+      const avail = lot.available_quantity || 0
+      const uom = lot.uom || 'Pack'
+      const exp = lot.expiry_date || ''
+      const status = getLotStockStatus(lot).label
+      const ordersCount = lot.activeOrders?.length || 0
+      csv += `"${pCode}","${pName}","${lotNum}","${comp}","${cat}","${bSize}","${avail}","${uom}","${exp}","${status}","${ordersCount}"\n`
+    })
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `Stocks_and_Lots_${financialYear}.csv`
+    link.click()
+  }
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredLots.length / pageSize))
@@ -336,33 +551,7 @@ export default function StockTab() {
 
   return (
     <div className="stocks-container">
-      {/* 1. Header Toolbar */}
-      <div className="stocks-header">
-        <div className="stocks-header-titles">
-          <h2>Inventory — Stocks &amp; Lots</h2>
-          <p>
-            Real-time batch &amp; lot tracking across medicines (finished goods) and raw materials, complete with customer order linkage and fulfillment coverage.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => navigate('/inventory/issue-return')}
-          >
-            ⇄ Material Issue / Return
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            onClick={() => navigate('/inventory/orders')}
-          >
-            + View Orders
-          </Button>
-        </div>
-      </div>
-
-      {/* 2. Summary KPI Cards (Live updating with filters) */}
+      {/* 1. Summary KPI Cards (Live updating with filters) */}
       <div className="stocks-summary-grid">
         {/* Card 1: Total Stock Quantity */}
         <div className="stocks-card">
@@ -370,33 +559,36 @@ export default function StockTab() {
             📦
           </div>
           <div className="stocks-card-info">
-            <span className="stocks-card-label">Total Stock Quantity</span>
+            <span className="stocks-card-label">Total Finished Stock</span>
             <span className="stocks-card-value">
               {summaryMetrics.totalStockQty.toLocaleString('en-IN')}
             </span>
             <span className="stocks-card-subtext">
-              Across {summaryMetrics.totalLots} matching lot{summaryMetrics.totalLots === 1 ? '' : 's'}
+              Across {summaryMetrics.totalLots} matching finished lot{summaryMetrics.totalLots === 1 ? '' : 's'}
             </span>
           </div>
         </div>
 
-        {/* Card 2: Breakdown by Category */}
+        {/* Card 2: Breakdown by Dosage Form Category */}
         <div className="stocks-card">
           <div className="stocks-card-icon" style={{ background: '#f5f3ff', color: '#7c3aed' }}>
             🏷️
           </div>
           <div className="stocks-card-info">
-            <span className="stocks-card-label">Category Breakdown</span>
+            <span className="stocks-card-label">Dosage Forms Breakdown</span>
             <div className="stocks-category-breakdown">
-              <span className="stocks-breakdown-pill">
-                Medicines: <strong>{summaryMetrics.medicineStockQty.toLocaleString('en-IN')}</strong> ({summaryMetrics.medicineLotsCount} lots)
-              </span>
-              <span className="stocks-breakdown-pill">
-                Raw Materials: <strong>{summaryMetrics.rawMaterialStockQty.toLocaleString('en-IN')}</strong> ({summaryMetrics.rawMaterialLotsCount} lots)
-              </span>
+              {summaryMetrics.topCategories && summaryMetrics.topCategories.length > 0 ? (
+                summaryMetrics.topCategories.map(([cat, qty]) => (
+                  <span key={cat} className="stocks-breakdown-pill">
+                    {cat}: <strong>{qty.toLocaleString('en-IN')}</strong>
+                  </span>
+                ))
+              ) : (
+                <span className="stocks-card-subtext" style={{ margin: 0 }}>No stock recorded</span>
+              )}
             </div>
             <span className="stocks-card-subtext">
-              {hasFilterActive ? 'Filtered category view' : 'Finished Goods & Ingredients'}
+              {hasFilterActive ? 'Filtered dosage view' : 'Finished Goods & Dosages'}
             </span>
           </div>
         </div>
@@ -434,73 +626,210 @@ export default function StockTab() {
         </div>
       </div>
 
-      {/* 3. Filter Section */}
-      <div className="stocks-filter-card">
-        {/* Category Tabs / Chips */}
-        <div className="stocks-chips-row">
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginRight: 4 }}>
-            Category:
-          </span>
-          <button
-            type="button"
-            className={`stocks-chip ${categoryChip === 'ALL' ? 'active' : ''}`}
-            onClick={() => { setCategoryChip('ALL'); setPage(1); }}
-          >
-            All Items <span className="chip-count">{lots.length}</span>
-          </button>
-          <button
-            type="button"
-            className={`stocks-chip ${categoryChip === 'MEDICINE' ? 'active' : ''}`}
-            onClick={() => { setCategoryChip('MEDICINE'); setPage(1); }}
-          >
-            💊 Medicines (Finished Goods) <span className="chip-count">{lots.filter((l) => l.item_type === 'MEDICINE').length}</span>
-          </button>
-          <button
-            type="button"
-            className={`stocks-chip ${categoryChip === 'RAW_MATERIAL' ? 'active' : ''}`}
-            onClick={() => { setCategoryChip('RAW_MATERIAL'); setPage(1); }}
-          >
-            🧪 Raw Materials <span className="chip-count">{lots.filter((l) => l.item_type === 'RAW_MATERIAL').length}</span>
-          </button>
-          {specificCategories.map((cat) => (
+      {/* 2. Filter Section - Single White Rounded Card Matching Stock Ledger */}
+      <div className="stocks-toolbar-card">
+        {/* Row 1: Searchable item selector, Company, FY, Date Range, Search */}
+        <div className="stocks-toolbar-row1">
+          {/* Searchable Finished Product Combobox */}
+          <div className="stock-searchable-select-wrap" ref={productDropdownRef}>
             <button
-              key={cat}
               type="button"
-              className={`stocks-chip ${categoryChip === cat ? 'active' : ''}`}
-              onClick={() => { setCategoryChip(cat); setPage(1); }}
+              className={`stock-select-trigger ${productDropdownOpen ? 'open' : ''}`}
+              style={{ height: 40 }}
+              onClick={() => setProductDropdownOpen((prev) => !prev)}
             >
-              {cat}
+              <div className="stock-trigger-content">
+                {activeProduct ? (
+                  <>
+                    <span className="stock-trigger-code">{activeProduct.code || `PRD-${activeProduct.id}`}</span>
+                    <span className="stock-trigger-name">{activeProduct.name}</span>
+                    <span className="stock-trigger-sub">
+                      (1 {activeProduct.display_unit || 'Pack'} = {activeProduct.pack_size || 1} {activeProduct.uom || activeProduct.base_unit || 'Unit'})
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="stock-trigger-code" style={{ background: '#f1f5f9', color: '#475569' }}>ALL</span>
+                    <span className="stock-trigger-name">All Finished Products</span>
+                    <span className="stock-trigger-sub">({allFinishedProducts.length} items)</span>
+                  </>
+                )}
+              </div>
+              <span className="stock-trigger-arrow">{productDropdownOpen ? '▴' : '▾'}</span>
             </button>
-          ))}
-        </div>
 
-        {/* Dropdown Filters & Search */}
-        <div className="stocks-inputs-row">
-          <input
-            type="search"
-            placeholder="Search by item name, code, lot/batch #, company…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="company-input stocks-search-input"
-          />
+            {productDropdownOpen && (
+              <div className="stock-select-dropdown">
+                <div className="stock-select-search-box">
+                  <span className="stock-search-icon">🔍</span>
+                  <input
+                    type="text"
+                    className="stock-select-search-input"
+                    placeholder="Search product name, code (e.g. Paracetamol, PRD-1001)..."
+                    value={productSearchQuery}
+                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  {productSearchQuery && (
+                    <button
+                      type="button"
+                      className="stock-search-clear-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setProductSearchQuery('')
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
 
-          {/* Manufacturer / Supplier Company Filter */}
+                <div className="stock-select-options-list">
+                  {/* Option: All Finished Products */}
+                  <div
+                    className={`stock-select-option ${selectedProductKey === 'ALL' ? 'selected' : ''}`}
+                    onClick={() => {
+                      setSelectedProductKey('ALL')
+                      setProductDropdownOpen(false)
+                      setProductSearchQuery('')
+                      setPage(1)
+                    }}
+                  >
+                    <span className="stock-option-code" style={{ background: '#f1f5f9', color: '#475569' }}>ALL</span>
+                    <div className="stock-option-info">
+                      <span className="stock-option-name">All Finished Products</span>
+                      <span className="stock-option-meta">Show all products across inventory</span>
+                    </div>
+                    {selectedProductKey === 'ALL' && (
+                      <span className="stock-option-check">✓</span>
+                    )}
+                  </div>
+
+                  {searchableProducts.length === 0 ? (
+                    <div className="stock-select-no-results">
+                      <span>No matching products found for "{productSearchQuery}"</span>
+                    </div>
+                  ) : (
+                    searchableProducts.map((p) => {
+                      const pKey = String(p.id || p.code)
+                      const isSelected = selectedProductKey === pKey
+                      return (
+                        <div
+                          key={pKey}
+                          className={`stock-select-option ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setSelectedProductKey(pKey)
+                            setProductDropdownOpen(false)
+                            setProductSearchQuery('')
+                            setPage(1)
+                          }}
+                        >
+                          <span className="stock-option-code">{p.code || `PRD-${p.id}`}</span>
+                          <div className="stock-option-info">
+                            <span className="stock-option-name">{p.name}</span>
+                            <span className="stock-option-meta">
+                              1 {p.display_unit || 'Pack'} = {p.pack_size || 1} {p.uom || p.base_unit || 'Unit'} &middot; {p.category || 'Finished Goods'}
+                            </span>
+                          </div>
+                          {isSelected && <span className="stock-option-check">✓</span>}
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Source Company Filter (CMHP Pharma / Tej Biocare / Common Inventory) */}
           <select
+            className="company-input"
+            style={{ width: 170, height: 40 }}
             value={companyFilter}
             onChange={(e) => { setCompanyFilter(e.target.value); setPage(1); }}
-            className="company-input stocks-select-input"
           >
-            <option value="ALL">All Companies / Suppliers</option>
-            {availableCompanies.map((comp) => (
+            <option value="ALL">
+              {scopedCompanyId === 1
+                ? 'All (CMHP & Common)'
+                : scopedCompanyId === 2
+                ? 'All (Tej & Common)'
+                : 'All Source Companies'}
+            </option>
+            {availableSourceCompanies.map((comp) => (
               <option key={comp} value={comp}>{comp}</option>
             ))}
           </select>
 
-          {/* Stock Status Filter */}
+          {/* Financial Year Selector */}
           <select
+            className="company-input"
+            style={{ width: 120, height: 40 }}
+            value={financialYear}
+            onChange={(e) => setFinancialYear(e.target.value)}
+          >
+            {FINANCIAL_YEARS.map((fy) => (
+              <option key={fy} value={fy}>
+                FY {fy}
+              </option>
+            ))}
+          </select>
+
+          {/* Date Range Filters */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="date"
+              className="company-input"
+              style={{ width: 130, height: 40 }}
+              value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+              title="From Date"
+            />
+            <span style={{ color: '#94a3b8' }}>–</span>
+            <input
+              type="date"
+              className="company-input"
+              style={{ width: 130, height: 40 }}
+              value={endDate}
+              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+              title="To Date"
+            />
+          </div>
+
+          {/* Search Input */}
+          <input
+            type="text"
+            className="company-input"
+            style={{ width: 180, flex: '1 1 180px', height: 40 }}
+            placeholder="Search product, lot #, invoice..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
+
+        {/* Row 2: Action buttons row */}
+        <div className="stocks-toolbar-row2">
+          <button
+            type="button"
+            className="stock-btn-action stock-btn-inward"
+            onClick={() => navigate('/inventory/orders')}
+          >
+            + View Orders
+          </button>
+
+          <button
+            type="button"
+            className="stock-btn-action stock-btn-outward"
+            onClick={() => navigate('/inventory/issue-return')}
+          >
+            ⇄ Material Issue / Return
+          </button>
+
+          <select
+            className="company-input"
+            style={{ height: 38, width: 160, fontWeight: 600, fontSize: '12.5px', borderRadius: 8 }}
             value={stockStatusFilter}
             onChange={(e) => { setStockStatusFilter(e.target.value); setPage(1); }}
-            className="company-input stocks-select-input"
           >
             <option value="ALL">All Stock Statuses</option>
             <option value="IN_STOCK">In Stock</option>
@@ -509,37 +838,44 @@ export default function StockTab() {
             <option value="EXPIRING_SOON">Expiring Soon (≤ 60d)</option>
           </select>
 
-          {/* Order Status Filter */}
           <select
+            className="company-input"
+            style={{ height: 38, width: 160, fontWeight: 600, fontSize: '12.5px', borderRadius: 8 }}
             value={orderStatusFilter}
             onChange={(e) => { setOrderStatusFilter(e.target.value); setPage(1); }}
-            className="company-input stocks-select-input"
           >
             <option value="ALL">All Order Statuses</option>
             <option value="HAS_ORDER">Has Open Order</option>
             <option value="NO_ORDERS">No Orders</option>
           </select>
 
-          {/* Rows Per Page */}
           <select
+            className="company-input"
+            style={{ height: 38, width: 110, fontWeight: 600, fontSize: '12.5px', borderRadius: 8 }}
             value={pageSize}
             onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-            className="company-input"
-            style={{ width: 110 }}
           >
             <option value={10}>10 / page</option>
             <option value={25}>25 / page</option>
             <option value={50}>50 / page</option>
           </select>
 
-          {/* Clear Filters Button */}
+          <button
+            type="button"
+            className="stock-btn-action stock-btn-secondary"
+            onClick={handleExportExcel}
+            title="Download CSV workbook for finished product lots"
+          >
+            📥 Export Excel
+          </button>
+
           {hasFilterActive && (
             <button
               type="button"
-              className="stocks-clear-btn"
+              className="stock-btn-action stock-btn-secondary"
               onClick={clearFilters}
             >
-              ✕ Clear filters
+              ✕ Clear Filters
             </button>
           )}
         </div>
@@ -548,14 +884,24 @@ export default function StockTab() {
       {/* 4. Lot-Wise Stock Table */}
       {filteredLots.length === 0 ? (
         <div className="ci-empty-card">
-          <div className="ci-empty-icon">🔍</div>
-          <div className="ci-empty-title">No lots match your filters</div>
+          <div className="ci-empty-icon">{hasFilterActive ? '🔍' : '📦'}</div>
+          <div className="ci-empty-title">
+            {hasFilterActive ? 'No finished lots match your filters' : 'No finished product lots in stock'}
+          </div>
           <p className="ci-empty-desc">
-            Try adjusting your search terms or clearing filters to see the full pharmaceutical inventory.
+            {hasFilterActive
+              ? 'Try adjusting your search query, source company, or clear filters to view available inventory.'
+              : scopedCompanyId === 1
+              ? 'No finished goods lots currently recorded for CMHP Pharma or Common Inventory. New production lots will appear here automatically.'
+              : scopedCompanyId === 2
+              ? 'No finished goods lots currently recorded for Tej Biocare or Common Inventory. New production lots will appear here automatically.'
+              : 'No finished product lots received in common inventory yet. Batches will appear here once manufactured and released.'}
           </p>
-          <Button type="button" variant="secondary" onClick={clearFilters}>
-            Clear filters
-          </Button>
+          {hasFilterActive && (
+            <Button type="button" variant="secondary" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          )}
         </div>
       ) : (
         <div className="stocks-table-card">
@@ -576,7 +922,6 @@ export default function StockTab() {
               <tbody>
                 {paginatedLots.map((lot) => {
                   const stockStatus = getLotStockStatus(lot)
-                  const isMedicine = lot.item_type === 'MEDICINE'
                   const primaryOrder = lot.activeOrders?.[0]
                   const urgency = primaryOrder ? getOrderUrgency(primaryOrder.delivery_deadline) : null
 
@@ -630,14 +975,10 @@ export default function StockTab() {
 
                       {/* Source Company */}
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span className="stocks-company-tag">
-                            {lot.source_company || lot.supplier_name}
-                          </span>
-                          <span className="stocks-role-subtext">
-                            {isMedicine ? '🏭 Manufacturer' : '🚚 Supplier'}
-                          </span>
-                        </div>
+                        <span className={`stocks-source-badge ${lot.sourceInfo?.badgeClass || 'source-badge-common'}`}>
+                          <span className="source-dot" />
+                          {lot.sourceInfo?.name || 'Common Inventory'}
+                        </span>
                       </td>
 
                       {/* Mfg & Expiry Dates */}
@@ -770,14 +1111,14 @@ export default function StockTab() {
             <div className="stocks-drawer-body">
               {/* Section 1: Manufacturer & Source Information */}
               <div className="stocks-drawer-section">
-                <h4>🏭 {selectedLot.item_type === 'MEDICINE' ? 'Manufacturing & Intake Details' : 'Supplier & Material Origin'}</h4>
+                <h4>🏭 Manufacturing &amp; Intake Details</h4>
                 <div className="stocks-info-grid">
                   <div className="stocks-info-item">
                     <span className="stocks-info-label">Source Company:</span>
-                    <span className="stocks-info-val" style={{ color: '#2563eb' }}>
-                      {selectedLot.source_company || selectedLot.supplier_name}
-                      <span style={{ fontSize: 11, fontWeight: 500, color: '#64748b', marginLeft: 4 }}>
-                        ({selectedLot.item_type === 'MEDICINE' ? 'Manufacturer' : 'Supplier'})
+                    <span className="stocks-info-val">
+                      <span className={`stocks-source-badge ${selectedLot.sourceInfo?.badgeClass || 'source-badge-common'}`}>
+                        <span className="source-dot" />
+                        {selectedLot.sourceInfo?.name || 'Common Inventory'}
                       </span>
                     </span>
                   </div>
@@ -828,7 +1169,7 @@ export default function StockTab() {
                   </div>
                   <div className="stocks-info-item">
                     <span className="stocks-info-label">Batch Type:</span>
-                    <span className="stocks-info-val">{selectedLot.item_type === 'MEDICINE' ? 'Finished Goods Formulation' : 'Active Raw Ingredient'}</span>
+                    <span className="stocks-info-val">Finished Goods Formulation</span>
                   </div>
                 </div>
               </div>

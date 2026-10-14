@@ -173,6 +173,21 @@
   }
 }
 
+@media (max-width: 640px) {
+  .qc-filter {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .qc-trace-picker {
+    max-width: 100%;
+  }
+}
+
+
 /* =========================================================
    FORMULA APPROVALS TAB (QC / QA)
    ========================================================= */

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 import {
   NavLink,
   Outlet,
   useNavigate,
+  useLocation,
 } from 'react-router-dom'
 
 import useAuth from '../hooks/useAuth'
@@ -16,7 +17,9 @@ import {
   TruckIcon,
   ShieldCheckIcon,
   UsersIcon,
+  UserIcon,
   MenuIcon,
+  CloseIcon,
   LogoutIcon,
   ReceiptIcon,
   ClockIcon,
@@ -32,6 +35,8 @@ import {
 
 import WorkspaceSwitcher
   from '../components/WorkspaceSwitcher'
+import NotificationBell
+  from '../components/NotificationBell'
 
 import {
   WORKSPACES,
@@ -68,6 +73,7 @@ const NAV_SECTIONS = [
         icon: FlaskIcon,
         accent: '#22b8a6',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER'],
       },
 
       {
@@ -76,6 +82,7 @@ const NAV_SECTIONS = [
         icon: ClipboardIcon,
         accent: '#f2b84b',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER', 'HR_MANAGER'],
       },
 
       {
@@ -84,6 +91,7 @@ const NAV_SECTIONS = [
         icon: ShieldCheckIcon,
         accent: '#34d399',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER'],
       },
 
       {
@@ -92,6 +100,7 @@ const NAV_SECTIONS = [
         icon: ReceiptIcon,
         accent: '#0b73df',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT'],
       },
 
       {
@@ -100,6 +109,7 @@ const NAV_SECTIONS = [
         icon: TruckIcon,
         accent: '#f5a623',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -108,6 +118,7 @@ const NAV_SECTIONS = [
         icon: UsersIcon,
         accent: '#34d399',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER'],
       },
 
       {
@@ -117,6 +128,7 @@ const NAV_SECTIONS = [
         accent: '#34d399',
         companyOnly: true,
         requiresCompanyAccess: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'HR_ADMINISTRATOR', 'HR_MANAGER'],
       },
 
     ],
@@ -134,6 +146,7 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -142,6 +155,7 @@ const NAV_SECTIONS = [
         icon: FlaskIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -150,6 +164,7 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -158,6 +173,7 @@ const NAV_SECTIONS = [
         icon: ClipboardIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -166,6 +182,7 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -174,6 +191,7 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -182,6 +200,25 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Samples',
+        path: '/inventory/samples',
+        icon: FlaskIcon,
+        accent: '#8b7cf6',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Stock Requests',
+        path: '/inventory/requests',
+        icon: ClipboardIcon,
+        accent: '#f59e0b',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
     ],
@@ -323,205 +360,106 @@ function visibleSections(
   user,
   activeWorkspace
 ) {
-
   const role =
     user?.profile?.role ||
     user?.role ||
     ''
 
-
-  const commonInventory =
-    activeWorkspace ===
-    WORKSPACES.COMMON
-
-
-  const companyWorkspace =
-    activeWorkspace ===
-    WORKSPACES.COMPANY_A ||
-    activeWorkspace ===
-    WORKSPACES.COMPANY_B ||
-    (!commonInventory && Boolean(activeWorkspace))
-
+  const isCommonInventory =
+    activeWorkspace === WORKSPACES.COMMON
 
   /*
    * ADMIN CHECK
    */
-
   const isAdmin =
-    Boolean(
-      user?.is_superuser
-    ) ||
+    Boolean(user?.is_superuser) ||
     role === 'SUPER_ADMIN'
-
 
   /*
    * COMPANY ACCESS
    */
-
   const companyAccess =
     isAdmin ||
     role === 'MANAGEMENT' ||
     role === 'HR_ADMINISTRATOR' ||
     role === 'HR_MANAGER'
 
-
   /*
    * HR MANAGEMENT ACCESS
    */
-
   const hrmsManageAccess =
     isAdmin ||
     role === 'HR_ADMINISTRATOR' ||
     role === 'HR_MANAGER' ||
     role === 'MANAGEMENT'
 
-
   /*
    * HR MASTER ACCESS
    */
-
   const hrmsMastersAccess =
     isAdmin ||
     role === 'HR_ADMINISTRATOR'
 
+  // Requirement 1:
+  // When Common Inventory is selected, show ONLY the Inventory section.
+  // When a Company workspace is selected, show ONLY company sections (Main menu and HRMS).
+  const targetSections = isCommonInventory
+    ? NAV_SECTIONS.filter((section) => section.title === 'Inventory')
+    : NAV_SECTIONS.filter((section) => section.title !== 'Inventory')
 
-  return NAV_SECTIONS
+  return targetSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        // In Common Inventory, hide companyOnly items
+        if (isCommonInventory && item.companyOnly) {
+          return false
+        }
 
-    .map(
-      (section) => ({
+        // In Company workspace, hide Common Inventory only items
+        if (!isCommonInventory && item.commonInventoryOnly) {
+          return false
+        }
 
-        ...section,
+        // Admin sees all permitted items within the current workspace (except nonAdminOnly)
+        if (isAdmin) {
+          if (item.nonAdminOnly) return false
+          return true
+        }
 
-        items:
-          section.items.filter(
-            (item) => {
+        // Company and HR role checks for non-admin
+        if (item.requiresCompanyAccess && !companyAccess) {
+          return false
+        }
 
-              /*
-               * COMMON INVENTORY
-               */
+        if (item.requiresHrmsManage && !hrmsManageAccess) {
+          return false
+        }
 
-              if (
-                commonInventory
-              ) {
+        if (item.requiresHrmsMasters && !hrmsMastersAccess) {
+          return false
+        }
 
-                return Boolean(
-                  item.commonInventoryOnly
-                )
+        if (item.adminOnly) {
+          return false
+        }
 
-              }
+        if (item.nonAdminOnly && isAdmin) {
+          return false
+        }
 
+        if (
+          Array.isArray(item.roles) &&
+          item.roles.length > 0 &&
+          !item.roles.includes(role)
+        ) {
+          return false
+        }
 
-              /*
-               * COMPANY WORKSPACE
-               */
-
-              if (
-                companyWorkspace &&
-                item.commonInventoryOnly
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * COMPANY ONLY
-               */
-
-              if (
-                item.companyOnly &&
-                !companyWorkspace
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * COMPANY MANAGEMENT
-               */
-
-              if (
-                item.requiresCompanyAccess &&
-                !companyAccess
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * HR MANAGEMENT
-               */
-
-              if (
-                item.requiresHrmsManage &&
-                !hrmsManageAccess
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * HR MASTER
-               */
-
-              if (
-                item.requiresHrmsMasters &&
-                !hrmsMastersAccess
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * ADMIN ONLY
-               */
-
-              if (
-                item.adminOnly &&
-                !isAdmin
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * NON ADMIN ONLY
-               */
-
-              if (
-                item.nonAdminOnly &&
-                isAdmin
-              ) {
-
-                return false
-
-              }
-
-
-              return true
-
-            }
-          ),
-
-      })
-    )
-
-    .filter(
-      (section) =>
-        section.items.length > 0
-    )
-
+        return true
+      }),
+    }))
+    .filter((section) => section.items.length > 0)
 }
 
 
@@ -641,17 +579,82 @@ export default function MainLayout() {
 
   const navigate =
     useNavigate()
+  const location =
+    useLocation()
 
+  const [expandedSections, setExpandedSections] = useState({
+    'Main menu': true,
+    'Inventory': true,
+    'HRMS': true,
+  })
+
+  const toggleSection = (title) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [title]: prev[title] === undefined ? false : !prev[title],
+    }))
+  }
 
   const [
     menuOpen,
     setMenuOpen,
   ] = useState(false)
 
+  const menuButtonRef = useRef(null)
+  const drawerRef = useRef(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && menuOpen) {
+        setMenuOpen(false)
+        menuButtonRef.current?.focus()
+      }
+    }
+
+    if (menuOpen) {
+      window.addEventListener('keydown', handleKeyDown)
+      const prevOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      drawerRef.current?.focus()
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown)
+        document.body.style.overflow = prevOverflow
+      }
+    }
+  }, [menuOpen])
 
   const [
     collapsed,
   ] = useState(false)
+
+  const [
+    profileOpen,
+    setProfileOpen,
+  ] = useState(false)
+
+  const profileRef = useRef(null)
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false)
+      }
+    }
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setProfileOpen(false)
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener('mousedown', handleOutsideClick)
+      document.addEventListener('keydown', handleEscape)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [profileOpen])
 
 
   const effectiveWorkspace =
@@ -739,7 +742,11 @@ export default function MainLayout() {
           ===================================================== */}
 
       <aside
+        id="app-sidebar"
+        ref={drawerRef}
+        tabIndex={-1}
         className={sidebarClass}
+        aria-label="Navigation drawer"
       >
 
         <div className="sidebar-brand">
@@ -756,6 +763,10 @@ export default function MainLayout() {
                 alt={
                   currentCompanyName
                 }
+                loading="eager"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
                 style={{
                   width: '100%',
                   height: '100%',
@@ -795,6 +806,18 @@ export default function MainLayout() {
 
           </div>
 
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={() => {
+              setMenuOpen(false)
+              menuButtonRef.current?.focus()
+            }}
+            aria-label="Close navigation menu"
+          >
+            <CloseIcon size={18} />
+          </button>
+
         </div>
 
 
@@ -802,51 +825,63 @@ export default function MainLayout() {
           className="sidebar-nav"
           aria-label="Main navigation"
         >
+          {sections.map((section) => {
+            const isSectionActive = section.items.some(
+              (item) =>
+                location.pathname === item.path ||
+                (item.path !== '/' && location.pathname.startsWith(item.path))
+            )
+            const isExpanded =
+              expandedSections[section.title] !== undefined
+                ? expandedSections[section.title]
+                : true
 
-          {sections.map(
-            (section) => (
-
-              <div
-                key={section.title}
-              >
-
-                <p className="nav-section-title">
-
+            return (
+              <div key={section.title} className="nav-section-group">
+                <button
+                  type="button"
+                  className={`nav-section-header ${isSectionActive ? 'is-active-section' : ''}`}
+                  onClick={() => toggleSection(section.title)}
+                  aria-expanded={isExpanded}
+                  title={`Toggle ${section.title}`}
+                >
                   <span className="nav-section-text">
                     {section.title}
                   </span>
+                  <svg
+                    className={`nav-section-chevron ${isExpanded ? 'is-expanded' : ''}`}
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
 
-                </p>
-
-
-                <div className="nav-list">
-
-                  {section.items.map(
-                    (item) => (
-
+                {isExpanded && (
+                  <div className="nav-list">
+                    {section.items.map((item) => (
                       <NavItem
                         key={item.label}
                         item={item}
-                        collapsed={
-                          collapsed
-                        }
-                        onNavigate={() =>
-                          setMenuOpen(
-                            false
-                          )
-                        }
+                        collapsed={collapsed}
+                        onNavigate={() => {
+                          setMenuOpen(false)
+                          menuButtonRef.current?.focus()
+                        }}
                       />
-
-                    )
-                  )}
-
-                </div>
-
+                    ))}
+                  </div>
+                )}
               </div>
-
             )
-          )}
-
+          })}
         </nav>
 
 
@@ -911,9 +946,11 @@ export default function MainLayout() {
 
         <div
           className="layout-overlay"
-          onClick={() =>
+          onClick={() => {
             setMenuOpen(false)
-          }
+            menuButtonRef.current?.focus()
+          }}
+          aria-label="Close navigation overlay"
         />
 
       )}
@@ -930,15 +967,39 @@ export default function MainLayout() {
           <button
             type="button"
             className="menu-toggle"
+            ref={menuButtonRef}
             onClick={() =>
-              setMenuOpen(true)
+              setMenuOpen((prev) => !prev)
             }
-            aria-label="Open menu"
+            aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={menuOpen}
+            aria-controls="app-sidebar"
           >
 
-            <MenuIcon size={17} />
+            <MenuIcon size={18} />
 
           </button>
+
+          <div className="mobile-header-brand" aria-label={currentCompanyName}>
+            <span className="mobile-header-logo" aria-hidden="true">
+              {companyLogo ? (
+                <img
+                  src={companyLogo}
+                  alt=""
+                  loading="eager"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+              ) : (
+                <BuildingIcon size={18} />
+              )}
+            </span>
+            <div className="mobile-header-info">
+              <span className="mobile-header-name">{currentCompanyName}</span>
+              <span className="mobile-header-sub">ERP</span>
+            </div>
+          </div>
 
 
           <div className="header-search">
@@ -978,97 +1039,77 @@ export default function MainLayout() {
             <WorkspaceSwitcher />
 
 
-            <button
-              type="button"
-              className="header-icon-btn"
-              aria-label="Notifications"
-            >
+            <NotificationBell />
 
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+
+            {/* PROFILE MENU */}
+            <div className="user-profile-menu" ref={profileRef}>
+              <button
+                type="button"
+                className={`user-chip user-chip-button ${profileOpen ? 'is-open' : ''}`}
+                onClick={() => setProfileOpen((prev) => !prev)}
+                title="Account menu"
+                aria-label="Account menu"
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
               >
-
-                <path
-                  d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"
-                />
-
-                <path d="M10 21h4" />
-
-              </svg>
-
-
-              <span
-                className="header-notification-dot"
-              />
-
-            </button>
-
-
-            {/* PROFILE */}
-
-            <button
-              type="button"
-              className="user-chip user-chip-button"
-              onClick={() =>
-                navigate('/profile')
-              }
-              title="Open my profile"
-              aria-label="Open my profile"
-            >
-
-              <span className="user-avatar">
-
-                {initial}
-
-              </span>
-
-
-              <span className="user-meta">
-
-                <span className="user-name">
-
-                  {displayName}
-
+                <span className="user-avatar">
+                  {initial}
                 </span>
 
-
-                {user?.email && (
-
-                  <span className="user-email">
-
-                    {user.email}
-
+                <span className="user-meta">
+                  <span className="user-name">
+                    {displayName}
                   </span>
+                  <span className="user-role-label">
+                    {user?.profile?.role_display || user?.profile?.role || user?.role || 'Employee'}
+                  </span>
+                </span>
+              </button>
 
-                )}
+              {profileOpen && (
+                <div className="user-profile-popover" role="menu">
+                  <div className="user-popover-header">
+                    <div className="user-popover-name">
+                      {displayName}
+                    </div>
+                    {user?.email && (
+                      <div className="user-popover-email">
+                        {user.email}
+                      </div>
+                    )}
+                  </div>
 
-              </span>
+                  <div className="user-popover-divider" />
 
-            </button>
+                  <button
+                    type="button"
+                    className="user-popover-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileOpen(false)
+                      navigate('/profile')
+                    }}
+                  >
+                    <UserIcon size={16} />
+                    <span>My Profile</span>
+                  </button>
 
-
-            <button
-              type="button"
-              className="logout-btn"
-              onClick={logout}
-              title="Logout"
-              aria-label="Logout"
-            >
-
-              <LogoutIcon size={15} />
-
-              <span>
-                Logout
-              </span>
-
-            </button>
+                  <button
+                    type="button"
+                    className="user-popover-item is-signout"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileOpen(false)
+                      logout()
+                    }}
+                  >
+                    <LogoutIcon size={16} />
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
           </div>
 

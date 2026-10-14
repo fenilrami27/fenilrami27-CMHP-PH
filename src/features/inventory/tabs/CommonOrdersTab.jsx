@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
+import { useNavigate } from 'react-router-dom'
 import Button from '../../../components/Button'
 import Input from '../../../components/Input'
 import Alert from '../../../components/Alert'
@@ -9,7 +10,10 @@ import {
   editOrder,
   deleteOrder,
   setOrderStatus,
+  confirmSampleQuantity,
+  updateSampleQuantity,
 } from '../../../store/erpSlice'
+import { dispatchNotification } from '../../../utils/notifications'
 import { logAudit } from '../../../utils/audit'
 import { confirmAction } from '../../../utils/confirmAction'
 import { previewDocumentNumber, commitDocumentNumber } from '../../../utils/documentNumbers'
@@ -21,23 +25,52 @@ import {
 import { checkFormulaStockAvailability, selectItemStock } from '../../../utils/stockSelectors'
 import { operationsService } from '../../operations/operationsService'
 import { store } from '../../../store/store'
+import { storage } from '../../../utils/storage'
+import { isSuperAdmin } from '../../../utils/companyScope'
+import OrderDetailModal from '../../operations/components/OrderDetailModal'
+import {
+  getOrderRole,
+  canViewOrders,
+  canCreateOrders,
+  canEditOrders,
+  canDeleteOrders,
+  canApproveOrders,
+  canMoveOrderStage,
+  filterOrderEditPayload,
+  ORDER_ROLES,
+} from '../../operations/orderPermissions'
+import {
+  getSectionAStatus,
+  getSectionBStatus,
+  getSectionCStatus,
+} from '../../operations/orderConstants'
 
 const ORDER_STATUSES = [
   'DRAFT',
   'CONFIRMED',
+  'QC_PENDING',
+  'QA_PENDING',
   'IN_PRODUCTION',
+  'READY_TO_INVOICE',
+  'INVOICED',
   'DISPATCHED',
   'DELIVERED',
+  'PAID',
+  'COMPLETED',
   'CANCELLED',
 ]
 
 const STATUS_LABELS = {
   DRAFT: 'Draft',
   CONFIRMED: 'Confirmed',
-  IN_PRODUCTION: 'In Production',
   QC_PENDING: 'QC Pending',
+  QA_PENDING: 'QA Pending',
+  IN_PRODUCTION: 'In Production',
+  READY_TO_INVOICE: 'Ready to Invoice',
+  INVOICED: 'Invoiced',
   DISPATCHED: 'Dispatched',
   DELIVERED: 'Delivered',
+  PAID: 'Paid',
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
 }
@@ -45,31 +78,51 @@ const STATUS_LABELS = {
 const STATUS_COLORS = {
   DRAFT: { bg: '#f1f5f9', color: '#475569' },
   CONFIRMED: { bg: '#e0f2fe', color: '#0369a1' },
-  IN_PRODUCTION: { bg: '#fef3c7', color: '#b45309' },
   QC_PENDING: { bg: '#fef9c3', color: '#a16207' },
+  QA_PENDING: { bg: '#fef3c7', color: '#b45309' },
+  IN_PRODUCTION: { bg: '#fef3c7', color: '#b45309' },
+  READY_TO_INVOICE: { bg: '#e0e7ff', color: '#4338ca' },
+  INVOICED: { bg: '#ede9fe', color: '#6d28d9' },
   DISPATCHED: { bg: '#ede9fe', color: '#6d28d9' },
   DELIVERED: { bg: '#dcfce7', color: '#15803d' },
+  PAID: { bg: '#dcfce7', color: '#15803d' },
   COMPLETED: { bg: '#dcfce7', color: '#15803d' },
   CANCELLED: { bg: '#fee2e2', color: '#b91c1c' },
 }
 
-export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
+export default function CommonOrdersTab({
+  role,
+  isCompanyScoped = false,
+  initialMode = null,
+  initialOrderId = null,
+}) {
+  const navigate = useNavigate()
   const dispatch = useDispatch()
   const activeCompanyId = useSelector(selectActiveCompanyId)
   const activeCompanyKey = useSelector(selectActiveCompanyKey)
   const formulas = useSelector(selectFormulas)
 
-  const rawOrders = useSelector((state) => {
+  const currentUser = storage.getUser()
+  const userRole = getOrderRole(currentUser)
+
+  const userCanCreate = canCreateOrders(currentUser)
+  const userCanDelete = canDeleteOrders(currentUser)
+  const userCanApprove = canApproveOrders(currentUser)
+
+  const ordersSlice = useSelector((state) => state.erp?.orders)
+  const byCompanySlice = useSelector((state) => state.erp?.byCompany)
+
+  const rawOrders = useMemo(() => {
     if (isCompanyScoped) {
       const key = activeCompanyKey || (activeCompanyId === 2 ? 'tej' : 'cmhp')
       const compId = Number(activeCompanyId) || 1
       const list = []
-      if (Array.isArray(state.erp?.byCompany?.[key]?.orders)) {
-        list.push(...state.erp.byCompany[key].orders)
+      if (Array.isArray(byCompanySlice?.[key]?.orders)) {
+        list.push(...byCompanySlice[key].orders)
       }
-      if (Array.isArray(state.erp?.orders)) {
-        state.erp.orders.forEach((o) => {
-          if (Number(o.company) === compId && !list.some((existing) => existing.id === o.id)) {
+      if (Array.isArray(ordersSlice)) {
+        ordersSlice.forEach((o) => {
+          if (o && Number(o.company) === compId && !list.some((existing) => existing?.id === o.id)) {
             list.push(o)
           }
         })
@@ -78,9 +131,9 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
     }
 
     const list = []
-    if (Array.isArray(state.erp?.orders)) list.push(...state.erp.orders)
-    if (state.erp?.byCompany) {
-      Object.values(state.erp.byCompany).forEach((co) => {
+    if (Array.isArray(ordersSlice)) list.push(...ordersSlice)
+    if (byCompanySlice) {
+      Object.values(byCompanySlice).forEach((co) => {
         if (Array.isArray(co?.orders)) list.push(...co.orders)
       })
     }
@@ -90,7 +143,43 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
       if (ord && ord.id) map.set(ord.id, ord)
     })
     return Array.from(map.values())
-  })
+  }, [isCompanyScoped, activeCompanyKey, activeCompanyId, ordersSlice, byCompanySlice])
+
+  // Role-based stage filtering
+  const roleScopedOrders = useMemo(() => {
+    if ([ORDER_ROLES.ADMIN, ORDER_ROLES.MANAGER, ORDER_ROLES.STORE_MANAGER].includes(userRole)) {
+      return rawOrders
+    }
+    if (userRole === ORDER_ROLES.QC) {
+      return rawOrders.filter((o) =>
+        ['QC_PENDING', 'QC_APPROVED', 'QC_REJECTED', 'IN_PRODUCTION'].includes(
+          String(o.status || '').toUpperCase()
+        )
+      )
+    }
+    if (userRole === ORDER_ROLES.QA) {
+      return rawOrders.filter((o) =>
+        ['QA_PENDING', 'QA_APPROVED', 'QC_APPROVED', 'IN_PRODUCTION'].includes(
+          String(o.status || '').toUpperCase()
+        )
+      )
+    }
+    if (userRole === ORDER_ROLES.ACCOUNTS) {
+      return rawOrders.filter((o) =>
+        ['READY_TO_INVOICE', 'INVOICED', 'DELIVERED', 'PAID', 'COMPLETED'].includes(
+          String(o.status || '').toUpperCase()
+        )
+      )
+    }
+    if (userRole === ORDER_ROLES.DISPATCH) {
+      return rawOrders.filter((o) =>
+        ['READY_TO_INVOICE', 'INVOICED', 'DISPATCHED', 'DELIVERED'].includes(
+          String(o.status || '').toUpperCase()
+        )
+      )
+    }
+    return rawOrders
+  }, [rawOrders, userRole])
 
   const customers = useSelector((state) => state.erp?.customers || [])
   const commonProducts = useSelector((state) => state.erp?.commonProducts || [])
@@ -114,30 +203,44 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
 
   // Modals
   const [selectedOrder, setSelectedOrder] = useState(null)
-  const [detailModalOpen, setDetailModalOpen] = useState(false)
-  const [editModalOpen, setEditModalOpen] = useState(false)
-  const [addModalOpen, setAddModalOpen] = useState(false)
-  const [orderForm, setOrderForm] = useState({
-    number: '',
-    company: isCompanyScoped ? Number(activeCompanyId) || 1 : 1,
-    customer: '',
-    customer_name: '',
-    order_date: new Date().toISOString().slice(0, 10),
-    delivery_deadline: '',
-    status: 'DRAFT',
-    total_amount: 0,
-    lines: [],
-  })
+  const [orderModalOpen, setOrderModalOpen] = useState(false)
+  const [orderModalMode, setOrderModalMode] = useState('create') // 'create' | 'edit' | 'view'
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // Sample Quantity Modal State
+  const [sampleModalOrder, setSampleModalOrder] = useState(null)
+  const [sampleInputVal, setSampleInputVal] = useState(0)
+  const [sampleError, setSampleError] = useState('')
+
+  // Handle deep-link initialMode
+  useEffect(() => {
+    if (initialMode === 'create' && canCreateOrders(currentUser)) {
+      setSelectedOrder(null)
+      setOrderModalMode('create')
+      setOrderModalOpen(true)
+    } else if (initialMode === 'edit' && initialOrderId) {
+      const found = rawOrders.find(
+        (o) => String(o.id) === String(initialOrderId) || String(o.number) === String(initialOrderId)
+      )
+      if (found && canEditOrders(currentUser, found)) {
+        setSelectedOrder(found)
+        setOrderModalMode('edit')
+        setOrderModalOpen(true)
+      }
+    }
+  }, [initialMode, initialOrderId, rawOrders, currentUser])
+
   // Helper to get customer name
   const getCustomerName = (ord) => {
-    if (ord.customer_name) return ord.customer_name
-    if (ord.customer) {
+    if (!ord) return 'Direct Customer'
+    if (ord.customer_name && typeof ord.customer_name === 'string') return ord.customer_name
+    if (ord.customer && typeof ord.customer === 'object' && ord.customer.name) return String(ord.customer.name)
+    if (ord.customer && Array.isArray(customers)) {
       const cust = customers.find((c) => Number(c.id) === Number(ord.customer))
       if (cust) return cust.name
     }
+    if (typeof ord.customer === 'string' && ord.customer.trim()) return ord.customer
     return 'Direct Customer'
   }
 
@@ -179,12 +282,12 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
     let dueSoon = 0
     let overdue = 0
 
-    rawOrders.forEach((o) => {
+    roleScopedOrders.forEach((o) => {
       total++
       const st = String(o.status || 'DRAFT').toUpperCase()
-      if (['DRAFT', 'PENDING', 'CONFIRMED'].includes(st)) pending++
-      if (['IN_PRODUCTION', 'PRODUCTION', 'QC_PENDING', 'PROCESSING', 'DISPATCHED'].includes(st)) inProgress++
-      if (['DELIVERED', 'COMPLETED'].includes(st)) completed++
+      if (['DRAFT', 'PENDING', 'CONFIRMED', 'QC_PENDING', 'QA_PENDING'].includes(st)) pending++
+      if (['IN_PRODUCTION', 'PRODUCTION', 'PROCESSING', 'DISPATCHED'].includes(st)) inProgress++
+      if (['READY_TO_INVOICE', 'INVOICED', 'DELIVERED', 'PAID', 'COMPLETED'].includes(st)) completed++
 
       const deadline = o.delivery_deadline || o.delivery_date
       const analysis = getDeadlineAnalysis(deadline, st)
@@ -193,11 +296,11 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
     })
 
     return { total, pending, inProgress, completed, dueSoon, overdue }
-  }, [rawOrders])
+  }, [roleScopedOrders])
 
   // Filtered and Sorted Orders (Default: nearest deadline first)
   const filteredOrders = useMemo(() => {
-    return rawOrders
+    return roleScopedOrders
       .filter((o) => {
         if (!search) return true
         const s = search.toLowerCase()
@@ -234,7 +337,7 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
         // Nearest deadline first
         const deadA = a.delivery_deadline || a.delivery_date || '9999-12-31'
         const deadB = b.delivery_deadline || b.delivery_date || '9999-12-31'
-        return deadA.localeCompare(deadB)
+        return String(deadA).localeCompare(String(deadB))
       })
   }, [rawOrders, search, companyFilter, statusFilter, deadlineToFilter, startDate, endDate, customers])
 
@@ -351,8 +454,8 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
 
       setSuccess(`Production started for Batch #${finalBatchNum}. Raw materials issued outward from stock ledger and routed to QC.`)
       setProduceModalOrder(null)
-      if (detailModalOpen && selectedOrder?.id === produceModalOrder.id) {
-        setDetailModalOpen(false)
+      if (orderModalOpen && selectedOrder?.id === produceModalOrder.id) {
+        setOrderModalOpen(false)
       }
     } catch (err) {
       setProduceError(err?.message || 'Failed to start production.')
@@ -361,8 +464,111 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
     }
   }
 
+  // Sample Quantity Modal Handlers
+  const openSampleModal = (ord) => {
+    setSampleModalOrder(ord)
+    setSampleInputVal(ord.sample_quantity !== undefined ? ord.sample_quantity : 0)
+    setSampleError('')
+  }
+
+  const handleConfirmSample = () => {
+    if (!sampleModalOrder) return
+    const val = Number(sampleInputVal)
+    const totalProduced = Number(
+      sampleModalOrder.qa_approved_qty ||
+      sampleModalOrder.produced_quantity ||
+      sampleModalOrder.quantity ||
+      100
+    )
+
+    if (isNaN(val) || !Number.isInteger(val)) {
+      setSampleError('Sample quantity must be a whole number (no decimals).')
+      return
+    }
+    if (val < 0) {
+      setSampleError('Sample quantity cannot be negative (minimum is 0).')
+      return
+    }
+    if (val > totalProduced) {
+      setSampleError(`Sample quantity cannot exceed total produced quantity (${totalProduced} pcs).`)
+      return
+    }
+
+    const isEdit = Boolean(sampleModalOrder.sample_confirmed)
+    const isAdminUser = Boolean(
+      currentUser?.is_superuser === true ||
+      userRole === ORDER_ROLES.ADMIN ||
+      currentUser?.role === 'SUPER_ADMIN'
+    )
+
+    if (isEdit && !isAdminUser) {
+      setSampleError('Permission denied: Confirmed sample quantities can only be edited by Admin.')
+      return
+    }
+
+    if (isEdit) {
+      dispatch(updateSampleQuantity({
+        orderId: sampleModalOrder.id,
+        sampleQuantity: val,
+        user: currentUser,
+      }))
+      logAudit({
+        module: 'INVENTORY',
+        entity_type: 'Sample',
+        entity_id: `Order #${sampleModalOrder.number || sampleModalOrder.id}`,
+        action: 'SAMPLE_UPDATED',
+        description: `Admin updated sample quantity for Order #${sampleModalOrder.number || sampleModalOrder.id} to ${val} pcs`,
+        company: sampleModalOrder.company,
+        user: currentUser?.username || currentUser?.email || 'Admin',
+        role: userRole,
+      })
+      dispatchNotification({
+        category: 'inventory',
+        title: 'Sample Quantity Updated',
+        message: `Admin updated sample quantity for Order #${sampleModalOrder.number || sampleModalOrder.id} to ${val} units. Remaining ${totalProduced - val} units for packaging.`,
+        severity: 'info',
+        link: '/inventory/samples',
+        referenceId: String(sampleModalOrder.id),
+        targetRoles: ['SUPER_ADMIN', 'STORES_MANAGER', 'MANAGEMENT'],
+      })
+      setSuccess(`Sample quantity for Order #${sampleModalOrder.number || sampleModalOrder.id} updated to ${val} pcs.`)
+    } else {
+      dispatch(confirmSampleQuantity({
+        orderId: sampleModalOrder.id,
+        sampleQuantity: val,
+        user: currentUser,
+      }))
+      logAudit({
+        module: 'INVENTORY',
+        entity_type: 'Sample',
+        entity_id: `Order #${sampleModalOrder.number || sampleModalOrder.id}`,
+        action: 'SAMPLE_CONFIRMED',
+        description: `Confirmed sample quantity of ${val} pcs for Order #${sampleModalOrder.number || sampleModalOrder.id}`,
+        company: sampleModalOrder.company,
+        user: currentUser?.username || currentUser?.email || 'User',
+        role: userRole,
+      })
+      dispatchNotification({
+        category: 'inventory',
+        title: 'Sample Quantity Confirmed',
+        message: `Sample quantity confirmed: ${val} units kept as samples for Order #${sampleModalOrder.number || sampleModalOrder.id}. Remaining ${totalProduced - val} units routed to packaging.`,
+        severity: 'info',
+        link: '/inventory/samples',
+        referenceId: String(sampleModalOrder.id),
+        targetRoles: ['SUPER_ADMIN', 'STORES_MANAGER', 'MANAGEMENT'],
+      })
+      setSuccess(`Sample quantity confirmed: ${val} pcs deducted for testing/retention; ${totalProduced - val} pcs ready for packaging.`)
+    }
+
+    setSampleModalOrder(null)
+  }
+
   // Delete Order handler
   const handleDeleteOrder = (order) => {
+    if (!canDeleteOrders(currentUser)) {
+      setError('Access Denied: Only Admin roles can delete orders.')
+      return
+    }
     confirmAction(
       `Are you sure you want to delete Order #${order.number || order.id}?`,
       () => {
@@ -374,125 +580,171 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
           action: 'ORDER_DELETED',
           description: `Deleted order #${order.number || order.id}`,
           company: order.company,
+          user: currentUser?.username || currentUser?.email || 'User',
+          role: userRole,
         })
         setSuccess(`Order #${order.number || order.id} deleted.`)
-        if (detailModalOpen && selectedOrder?.id === order.id) setDetailModalOpen(false)
+        if (orderModalOpen && selectedOrder?.id === order.id) setOrderModalOpen(false)
       }
     )
   }
 
-  // Open Create Order
+  // Open Create Order (Admin only)
   const openCreateOrder = () => {
-    const defaultCo = isCompanyScoped ? Number(activeCompanyId) || 1 : 1
-    const nextNum = previewDocumentNumber('ORDER', defaultCo)
-    setOrderForm({
-      number: nextNum,
-      company: defaultCo,
-      customer: customers[0]?.id || '',
-      customer_name: customers[0]?.name || '',
-      order_date: new Date().toISOString().slice(0, 10),
-      delivery_deadline: '',
-      status: 'DRAFT',
-      total_amount: 0,
-      lines: [
-        {
-          product_name: commonProducts[0]?.name || '',
-          quantity: 100,
-          unit_price: commonProducts[0]?.unit_cost || 0,
-        },
-      ],
-    })
+    if (!canCreateOrders(currentUser)) {
+      setError('Access Denied: Only Admin can create orders.')
+      return
+    }
     setError('')
-    setAddModalOpen(true)
+    setSelectedOrder(null)
+    setOrderModalMode('create')
+    setOrderModalOpen(true)
   }
 
-  // Open Edit Order
+  // Open Edit Order (Role-specific section permissions)
   const openEditOrder = (order) => {
-    setSelectedOrder(order)
-    setOrderForm({
-      number: order.number || '',
-      company: order.company || 1,
-      customer: order.customer || '',
-      customer_name: getCustomerName(order),
-      order_date: order.order_date || new Date().toISOString().slice(0, 10),
-      delivery_deadline: order.delivery_deadline || order.delivery_date || '',
-      status: order.status || 'DRAFT',
-      total_amount: order.total_amount || 0,
-      lines: order.lines && order.lines.length ? order.lines : [
-        {
-          product_name: order.product_name || 'Standard Product',
-          quantity: order.quantity || 100,
-          unit_price: order.price || 0,
-        },
-      ],
-    })
+    if (!canEditOrders(currentUser, order)) {
+      setError('Access Denied: Your role does not have permission to edit orders.')
+      return
+    }
     setError('')
-    setEditModalOpen(true)
+    setSelectedOrder(order)
+    setOrderModalMode('edit')
+    setOrderModalOpen(true)
   }
 
-  // Save new order
-  const handleSaveNewOrder = (e) => {
-    e.preventDefault()
-    const targetComp = orderForm.company || (isCompanyScoped ? Number(activeCompanyId) || 1 : 1)
-    const num = commitDocumentNumber('ORDER', targetComp)
-    const calculatedTotal = orderForm.lines.reduce(
-      (sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
-      0
-    )
-
-    const payload = {
-      ...orderForm,
-      number: num,
-      total_amount: calculatedTotal || Number(orderForm.total_amount) || 0,
-      delivery_deadline: orderForm.delivery_deadline,
-      delivery_date: orderForm.delivery_deadline,
-    }
-
-    dispatch(addOrder(payload))
-
-    logAudit({
-      module: 'ORDERS',
-      entity_type: 'Order',
-      entity_id: num,
-      action: 'ORDER_CREATED',
-      description: `Created Order #${num} for ${orderForm.customer_name || 'Customer'}`,
-      company: orderForm.company,
-    })
-
-    setSuccess(`Order #${num} created successfully.`)
-    setAddModalOpen(false)
+  // Open View Order (All roles)
+  const openViewOrder = (order) => {
+    setError('')
+    setSelectedOrder(order)
+    setOrderModalMode('view')
+    setOrderModalOpen(true)
   }
 
-  // Save edit order
-  const handleSaveEditOrder = (e) => {
-    e.preventDefault()
-    if (!selectedOrder) return
+  // Handle Save from OrderDetailModal (Create or Edit)
+  const handleSaveOrderFromModal = (modalFormData, section = 'all') => {
+    if (orderModalMode === 'create') {
+      if (!canCreateOrders(currentUser)) {
+        setError('Access Denied: Only Admin can create orders.')
+        return
+      }
 
-    const calculatedTotal = orderForm.lines.reduce(
-      (sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
-      0
-    )
+      const targetComp = Number(modalFormData.company_id) || (isCompanyScoped ? Number(activeCompanyId) || 1 : 1)
+      const num = commitDocumentNumber('ORDER', targetComp)
+      const calculatedTotal = (modalFormData.lines || []).reduce(
+        (sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
+        0
+      )
 
-    const payload = {
-      ...orderForm,
-      total_amount: calculatedTotal || Number(orderForm.total_amount) || 0,
-      delivery_deadline: orderForm.delivery_deadline,
-      delivery_date: orderForm.delivery_deadline,
+      const newOrderPayload = {
+        ...modalFormData,
+        id: Date.now(),
+        number: num,
+        company: targetComp,
+        order_number: num,
+        order_date: modalFormData.date_of_order || new Date().toISOString().slice(0, 10),
+        delivery_deadline: modalFormData.planned_mfg_date,
+        delivery_date: modalFormData.planned_mfg_date,
+        status: modalFormData.materials_allocated ? 'CONFIRMED' : 'DRAFT',
+        total_amount: calculatedTotal,
+        quantity: Number(modalFormData.lines?.[0]?.quantity) || 100,
+        price: Number(modalFormData.lines?.[0]?.unit_price) || 0,
+      }
+
+      dispatch(addOrder(newOrderPayload))
+
+      logAudit({
+        module: 'ORDERS',
+        entity_type: 'Order',
+        entity_id: num,
+        action: 'ORDER_CREATED',
+        description: `Created Order #${num} for ${modalFormData.customer_name || 'Customer'} [Product: ${modalFormData.product_name}]`,
+        company: targetComp,
+        user: currentUser?.username || currentUser?.email || 'Admin',
+        role: userRole,
+      })
+
+      setSuccess(`Order #${num} created successfully.`)
+      setOrderModalOpen(false)
+      if (initialMode) {
+        navigate('/orders', { replace: true })
+      }
+    } else {
+      // Edit existing order
+      if (!selectedOrder) return
+      if (!canEditOrders(currentUser, selectedOrder)) {
+        setError('Access Denied: Your role does not have permission to edit this order.')
+        return
+      }
+
+      const filteredPayload = filterOrderEditPayload(modalFormData, currentUser, selectedOrder)
+      const calculatedTotal = (modalFormData.lines || []).reduce(
+        (sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
+        0
+      )
+
+      const shouldAdvanceToConfirmed =
+        section === 'C' &&
+        modalFormData.materials_allocated &&
+        selectedOrder.status === 'DRAFT'
+
+      const updated = {
+        ...selectedOrder,
+        ...filteredPayload,
+        status: shouldAdvanceToConfirmed ? 'CONFIRMED' : (filteredPayload.status || selectedOrder.status),
+        total_amount: calculatedTotal || selectedOrder.total_amount || 0,
+        delivery_deadline: modalFormData.planned_mfg_date || selectedOrder.delivery_deadline,
+        delivery_date: modalFormData.planned_mfg_date || selectedOrder.delivery_date,
+        order_date: modalFormData.date_of_order || selectedOrder.order_date,
+      }
+
+      dispatch(editOrder({ id: selectedOrder.id, payload: updated }))
+
+      const changes = []
+      if (selectedOrder.product_name !== updated.product_name) {
+        changes.push({
+          field: 'product_name',
+          old_value: `${selectedOrder.product_name || 'None'} (${selectedOrder.product_code || ''})`,
+          new_value: `${updated.product_name} (${updated.product_code || ''})`,
+        })
+      }
+      if (selectedOrder.status !== updated.status) {
+        changes.push({ field: 'status', old_value: selectedOrder.status, new_value: updated.status })
+      }
+      if (selectedOrder.batch_no !== updated.batch_no && updated.batch_no) {
+        changes.push({ field: 'batch_no', old_value: selectedOrder.batch_no || 'None', new_value: updated.batch_no })
+      }
+      if (selectedOrder.packing_type !== updated.packing_type && updated.packing_type) {
+        changes.push({ field: 'packing_type', old_value: selectedOrder.packing_type || 'None', new_value: updated.packing_type })
+      }
+      if (selectedOrder.mrp_for_printing !== updated.mrp_for_printing && updated.mrp_for_printing) {
+        changes.push({ field: 'mrp_for_printing', old_value: selectedOrder.mrp_for_printing || '0', new_value: updated.mrp_for_printing })
+      }
+
+      const productChanged = selectedOrder.product_name !== updated.product_name
+      const logDescription = productChanged
+        ? `Updated Order #${selectedOrder.number || selectedOrder.id}: Product changed from "${selectedOrder.product_name}" to "${updated.product_name}"`
+        : `Updated Order #${selectedOrder.number || selectedOrder.id} [Section ${section}]`
+
+      logAudit({
+        module: 'ORDERS',
+        entity_type: 'Order',
+        entity_id: selectedOrder.number || String(selectedOrder.id),
+        action: 'ORDER_EDITED',
+        description: logDescription,
+        changes,
+        company: selectedOrder.company,
+        user: currentUser?.username || currentUser?.email || 'User',
+        role: userRole,
+      })
+
+      setSuccess(`Order #${selectedOrder.number || selectedOrder.id} updated successfully.`)
+      setSelectedOrder(updated)
+      setOrderModalOpen(false)
+      if (initialMode) {
+        navigate('/orders', { replace: true })
+      }
     }
-
-    dispatch(editOrder({ id: selectedOrder.id, payload }))
-
-    logAudit({
-      module: 'ORDERS',
-      entity_type: 'Order',
-      entity_id: selectedOrder.number || String(selectedOrder.id),
-      action: 'ORDER_EDITED',
-      description: `Updated Order #${selectedOrder.number || selectedOrder.id}`,
-      company: selectedOrder.company,
-    })
-
-    setSuccess(`Order #${selectedOrder.number || selectedOrder.id} updated successfully.`)
-    setEditModalOpen(false)
   }
 
   return (
@@ -507,9 +759,11 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
               : 'Consolidated order view across CMHP Pharma and Tej Biocare with Common Inventory stock check.'}
           </p>
         </div>
-        <Button type="button" onClick={openCreateOrder}>
-          + Create Order
-        </Button>
+        {userCanCreate && (
+          <Button type="button" onClick={openCreateOrder}>
+            + Create Order
+          </Button>
+        )}
       </div>
 
       {error && <Alert type="error" message={error} />}
@@ -684,13 +938,17 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
               <thead>
                 <tr>
                   <th>Order #</th>
-                  {!isCompanyScoped && <th>Company</th>}
+                  <th>Product</th>
+                  <th>Company</th>
+                  <th>Date of Order</th>
+                  <th>Planned Mfg Date</th>
+                  <th>Batch No.</th>
+                  <th>Section Badges</th>
                   <th>Customer</th>
-                  <th>Order Date</th>
-                  <th>Deadline</th>
-                  <th>Deadline Status</th>
                   <th>Total Amount</th>
                   <th>Status</th>
+                  <th>Sample Qty</th>
+                  <th>Packaging Qty</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -702,71 +960,112 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
                     ? { bg: '#e0e7ff', color: '#3730a3', name: 'Tej Biocare' }
                     : { bg: '#fef3c7', color: '#92400e', name: 'CMHP Pharma' }
 
-                  const deadline = ord.delivery_deadline || ord.delivery_date
-                  const analysis = getDeadlineAnalysis(deadline, ord.status)
+                  const deadline = ord.planned_mfg_date || ord.delivery_deadline || ord.delivery_date
                   const st = String(ord.status || 'DRAFT').toUpperCase()
                   const stColor = STATUS_COLORS[st] || STATUS_COLORS.DRAFT
 
+                  const secA = getSectionAStatus(ord)
+                  const secB = getSectionBStatus(ord)
+                  const secC = getSectionCStatus(ord)
+
+                  const productName =
+                    (typeof ord.product_name === 'string' && ord.product_name) ||
+                    (typeof ord.product === 'string' && ord.product) ||
+                    (ord.product && typeof ord.product === 'object' && ord.product.name) ||
+                    (ord.lines?.[0]?.product_name) ||
+                    '—'
+
                   return (
                     <tr key={ord.id}>
-                      <td><strong>{ord.number || `ORD-${ord.id}`}</strong></td>
-                      {!isCompanyScoped && (
-                        <td>
-                          <span
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: 12,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              background: companyBadgeStyle.bg,
-                              color: companyBadgeStyle.color,
-                            }}
-                          >
-                            {companyBadgeStyle.name}
-                          </span>
-                        </td>
-                      )}
-                      <td>{getCustomerName(ord)}</td>
-                      <td>{ord.order_date || '—'}</td>
+                      <td>
+                        <strong>{ord.number || ord.order_number || `ORD-${ord.id}`}</strong>
+                      </td>
+                      <td>
+                        <strong>{productName}</strong>
+                        {ord.product_code && (
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            Code: {ord.product_code}
+                          </div>
+                        )}
+                      </td>
                       <td>
                         <span
                           style={{
+                            padding: '3px 8px',
+                            borderRadius: 12,
+                            fontSize: 11,
                             fontWeight: 600,
-                            color:
-                              analysis.status === 'overdue'
-                                ? '#dc2626'
-                                : analysis.status === 'due-soon'
-                                ? '#d97706'
-                                : '#334155',
+                            background: companyBadgeStyle.bg,
+                            color: companyBadgeStyle.color,
                           }}
                         >
+                          {ord.company_name || companyBadgeStyle.name}
+                        </span>
+                      </td>
+                      <td>{ord.date_of_order || ord.order_date || '—'}</td>
+                      <td>
+                        <span style={{ fontWeight: 600, color: '#334155' }}>
                           {deadline || '—'}
                         </span>
                       </td>
                       <td>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            padding: '2px 8px',
-                            borderRadius: 6,
-                            background:
-                              analysis.status === 'overdue'
-                                ? '#fee2e2'
-                                : analysis.status === 'due-soon'
-                                ? '#fef3c7'
-                                : '#f1f5f9',
-                            color:
-                              analysis.status === 'overdue'
-                                ? '#991b1b'
-                                : analysis.status === 'due-soon'
-                                ? '#92400e'
-                                : '#475569',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {analysis.label}
-                        </span>
+                        <code style={{ fontSize: 12, padding: '2px 4px', background: '#f1f5f9', borderRadius: 4 }}>
+                          {ord.batch_no || '—'}
+                        </code>
                       </td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 6,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: secA === 'Completed' ? '#dcfce7' : '#fef3c7',
+                              color: secA === 'Completed' ? '#166534' : '#92400e',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <span>A (Admin):</span>
+                            <span>{secA === 'Completed' ? '✓' : '●'} {secA}</span>
+                          </span>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 6,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: secB === 'Completed' ? '#dcfce7' : '#fef3c7',
+                              color: secB === 'Completed' ? '#166534' : '#92400e',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <span>B (Mgr):</span>
+                            <span>{secB === 'Completed' ? '✓' : '●'} {secB}</span>
+                          </span>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 6,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: secC === 'Completed' ? '#dcfce7' : '#fef3c7',
+                              color: secC === 'Completed' ? '#166534' : '#92400e',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <span>C (Store):</span>
+                            <span>{secC === 'Completed' ? '✓' : '●'} {secC}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td>{getCustomerName(ord)}</td>
                       <td>
                         <strong>
                           ₹{Number(ord.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -786,8 +1085,88 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
                           {STATUS_LABELS[st] || st}
                         </span>
                       </td>
+                      <td>
+                        {ord.sample_confirmed ? (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: '#f5f3ff',
+                              color: '#7c3aed',
+                              border: '1px solid #ddd6fe',
+                            }}
+                          >
+                            {ord.sample_quantity} pcs
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        {ord.sample_confirmed ? (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: '#ecfdf5',
+                              color: '#059669',
+                              border: '1px solid #a7f3d0',
+                            }}
+                          >
+                            {ord.packaging_quantity} pcs
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {(!ord.status || ord.status === 'DRAFT' || ord.status === 'CONFIRMED') && (
+                        {/* Sample / Packaging Button */}
+                        <Button
+                          variant="secondary"
+                          size="small"
+                          style={{
+                            marginRight: 6,
+                            backgroundColor: ord.sample_confirmed ? '#f5f3ff' : '#eff6ff',
+                            color: ord.sample_confirmed ? '#6d28d9' : '#1d4ed8',
+                            borderColor: ord.sample_confirmed ? '#ddd6fe' : '#bfdbfe',
+                            fontWeight: 600,
+                          }}
+                          onClick={() => openSampleModal(ord)}
+                          title="Manage Sample Quantity & Packaging Allocation"
+                        >
+                          {ord.sample_confirmed ? `Sample: ${ord.sample_quantity}` : 'Sample / Packaging'}
+                        </Button>
+                        {userCanApprove && ord.status === 'DRAFT' && (
+                          <Button
+                            variant="secondary"
+                            size="small"
+                            style={{
+                              marginRight: 6,
+                              backgroundColor: '#f0fdf4',
+                              color: '#15803d',
+                              borderColor: '#86efac',
+                              fontWeight: 600,
+                            }}
+                            onClick={async () => {
+                              try {
+                                await operationsService.confirmOrder(ord.id, storage.getUser())
+                                setSuccess(`Order #${ord.number || ord.id} confirmed and routed to Quality Control (QC inspection generated).`)
+                              } catch (err) {
+                                setError(err?.message || 'Failed to confirm order')
+                              }
+                            }}
+                            title="Confirm order and route to Quality Control for inspection"
+                          >
+                            Confirm (QC)
+                          </Button>
+                        )}
+                        {userCanApprove && (!ord.status || ['DRAFT', 'CONFIRMED', 'PENDING', 'QC_PENDING', 'QA_PENDING', 'QC_APPROVED'].includes(ord.status)) && (
                           <Button
                             variant="secondary"
                             size="small"
@@ -807,29 +1186,30 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
                         <Button
                           variant="secondary"
                           size="small"
-                          onClick={() => {
-                            setSelectedOrder(ord)
-                            setDetailModalOpen(true)
-                          }}
+                          onClick={() => openViewOrder(ord)}
                           style={{ marginRight: 6 }}
                         >
                           Details
                         </Button>
-                        <Button
-                          variant="secondary"
-                          size="small"
-                          onClick={() => openEditOrder(ord)}
-                          style={{ marginRight: 6 }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="small"
-                          onClick={() => handleDeleteOrder(ord)}
-                        >
-                          Delete
-                        </Button>
+                        {canEditOrders(currentUser, ord) && (
+                          <Button
+                            variant="secondary"
+                            size="small"
+                            onClick={() => openEditOrder(ord)}
+                            style={{ marginRight: 6 }}
+                          >
+                            Edit
+                          </Button>
+                        )}
+                        {userCanDelete && (
+                          <Button
+                            variant="danger"
+                            size="small"
+                            onClick={() => handleDeleteOrder(ord)}
+                          >
+                            Delete
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   )
@@ -870,421 +1250,22 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
         </>
       )}
 
-      {/* Order Detail Modal with Common Inventory Availability Check */}
-      {detailModalOpen && (
-        <Modal
-          isOpen={detailModalOpen}
-          onClose={() => setDetailModalOpen(false)}
-          title={selectedOrder ? `Order Details: #${selectedOrder.number || selectedOrder.id}` : 'Order Details'}
-        >
-        {selectedOrder && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Meta info */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 12,
-                background: '#f8fafc',
-                padding: 14,
-                borderRadius: 8,
-              }}
-            >
-              <div>
-                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Company</span>
-                <div style={{ fontWeight: 600 }}>
-                  {Number(selectedOrder.company) === 2 ? 'Tej Biocare' : 'CMHP Pharma'}
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Customer</span>
-                <div style={{ fontWeight: 600 }}>{getCustomerName(selectedOrder)}</div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Order Date</span>
-                <div style={{ fontWeight: 600 }}>{selectedOrder.order_date || '—'}</div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Delivery Deadline</span>
-                <div style={{ fontWeight: 600 }}>
-                  {selectedOrder.delivery_deadline || selectedOrder.delivery_date || '—'}
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Total Amount</span>
-                <div style={{ fontWeight: 700, color: '#0f172a' }}>
-                  ₹{Number(selectedOrder.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Status</span>
-                <div>
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: 10,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      background: STATUS_COLORS[selectedOrder.status]?.bg || '#f1f5f9',
-                      color: STATUS_COLORS[selectedOrder.status]?.color || '#475569',
-                    }}
-                  >
-                    {STATUS_LABELS[selectedOrder.status] || selectedOrder.status}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Status Change */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Change Status:</span>
-              {ORDER_STATUSES.map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => handleQuickStatusChange(selectedOrder.id, st)}
-                  disabled={selectedOrder.status === st}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    border: '1px solid #cbd5e1',
-                    background: selectedOrder.status === st ? '#2563eb' : '#fff',
-                    color: selectedOrder.status === st ? '#fff' : '#334155',
-                    cursor: selectedOrder.status === st ? 'default' : 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  {STATUS_LABELS[st] || st}
-                </button>
-              ))}
-            </div>
-
-            {/* Line Items & Stock Availability Check */}
-            <div>
-              <h4 style={{ margin: '0 0 10px', fontSize: 14, color: '#1e293b' }}>
-                Order Line Items &amp; Common Inventory Stock Availability:
-              </h4>
-
-              {(() => {
-                const lines =
-                  selectedOrder.lines && selectedOrder.lines.length
-                    ? selectedOrder.lines
-                    : [
-                        {
-                          product_name: selectedOrder.product_name || 'Standard Product',
-                          quantity: selectedOrder.quantity || 100,
-                          unit_price: selectedOrder.price || 0,
-                        },
-                      ]
-
-                return (
-                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>Product</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'center' }}>Required Qty</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'center' }}>Common Inv Stock</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>Availability Status</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'right' }}>Price</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lines.map((line, idx) => {
-                          const pName = line.product_name || line.name || `Item ${idx + 1}`
-                          const reqQty = Number(line.quantity || 0)
-
-                          // Look up in commonProducts
-                          const matchedProduct = commonProducts.find(
-                            (cp) =>
-                              cp.name?.toLowerCase() === pName.toLowerCase() ||
-                              cp.code?.toLowerCase() === (line.code || '').toLowerCase()
-                          )
-
-                          const availableStock = matchedProduct ? Number(matchedProduct.current_stock || 0) : 0
-                          const isAvailable = matchedProduct && availableStock >= reqQty
-                          const shortage = reqQty - availableStock
-
-                          return (
-                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '10px 12px', fontWeight: 600 }}>{pName}</td>
-                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>{reqQty}</td>
-                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                <strong>{matchedProduct ? availableStock : '0 (Not in inventory)'}</strong>
-                              </td>
-                              <td style={{ padding: '10px 12px' }}>
-                                {isAvailable ? (
-                                  <span
-                                    style={{
-                                      padding: '3px 8px',
-                                      borderRadius: 12,
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      background: '#dcfce7',
-                                      color: '#15803d',
-                                    }}
-                                  >
-                                    ✓ In Stock (Available: {availableStock})
-                                  </span>
-                                ) : (
-                                  <span
-                                    style={{
-                                      padding: '3px 8px',
-                                      borderRadius: 12,
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      background: '#fee2e2',
-                                      color: '#b91c1c',
-                                    }}
-                                  >
-                                    ⚠️ Shortage of {shortage > 0 ? shortage : reqQty} (Available: {availableStock})
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                                ₹{Number(line.unit_price || line.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              })()}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
-              {selectedOrder && (!selectedOrder.status || selectedOrder.status === 'DRAFT' || selectedOrder.status === 'CONFIRMED') && (
-                <Button
-                  type="button"
-                  style={{
-                    backgroundColor: '#10b981',
-                    borderColor: '#10b981',
-                    color: '#fff',
-                    fontWeight: 600,
-                    marginRight: 'auto',
-                  }}
-                  onClick={() => {
-                    const ord = selectedOrder
-                    setDetailModalOpen(false)
-                    openProduceModal(ord)
-                  }}
-                >
-                  ⚡ Produce Batch (Formula BOM)
-                </Button>
-              )}
-              <Button type="button" variant="secondary" onClick={() => setDetailModalOpen(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        )}
-        </Modal>
-      )}
-
-      {/* Create Order Modal */}
-      {addModalOpen && (
-        <Modal
-          isOpen={addModalOpen}
-          onClose={() => setAddModalOpen(false)}
-          title="Create New Order"
-        >
-        <form onSubmit={handleSaveNewOrder} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {error && <Alert type="error" message={error} />}
-
-          <div style={{ display: 'grid', gridTemplateColumns: isCompanyScoped ? '1fr' : '1fr 1fr', gap: 12 }}>
-            {!isCompanyScoped && (
-              <div className="company-field">
-                <label>Company *</label>
-                <select
-                  className="company-input"
-                  value={orderForm.company}
-                  onChange={(e) => setOrderForm({ ...orderForm, company: Number(e.target.value) })}
-                >
-                  <option value={1}>CMHP Pharma</option>
-                  <option value={2}>Tej Biocare</option>
-                </select>
-              </div>
-            )}
-
-            <div className="company-field">
-              <label>Customer *</label>
-              <select
-                className="company-input"
-                value={orderForm.customer}
-                onChange={(e) => {
-                  const cust = customers.find((c) => String(c.id) === e.target.value)
-                  setOrderForm({
-                    ...orderForm,
-                    customer: e.target.value,
-                    customer_name: cust ? cust.name : '',
-                  })
-                }}
-              >
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Input
-              label="Order Date *"
-              type="date"
-              value={orderForm.order_date}
-              onChange={(e) => setOrderForm({ ...orderForm, order_date: e.target.value })}
-              required
-            />
-            <Input
-              label="Delivery Deadline *"
-              type="date"
-              value={orderForm.delivery_deadline}
-              onChange={(e) => setOrderForm({ ...orderForm, delivery_deadline: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="company-field">
-            <label>Product Name *</label>
-            <input
-              type="text"
-              className="company-input"
-              value={orderForm.lines[0]?.product_name || ''}
-              onChange={(e) => {
-                const lines = [...orderForm.lines]
-                lines[0] = { ...lines[0], product_name: e.target.value }
-                setOrderForm({ ...orderForm, lines })
-              }}
-              placeholder="Select or enter product name"
-              required
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Input
-              label="Order Quantity *"
-              type="number"
-              min="1"
-              value={orderForm.lines[0]?.quantity || 100}
-              onChange={(e) => {
-                const lines = [...orderForm.lines]
-                lines[0] = { ...lines[0], quantity: Number(e.target.value) }
-                setOrderForm({ ...orderForm, lines })
-              }}
-              required
-            />
-            <Input
-              label="Unit Price (₹) *"
-              type="number"
-              step="0.01"
-              min="0"
-              value={orderForm.lines[0]?.unit_price || 0}
-              onChange={(e) => {
-                const lines = [...orderForm.lines]
-                lines[0] = { ...lines[0], unit_price: Number(e.target.value) }
-                setOrderForm({ ...orderForm, lines })
-              }}
-              required
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
-            <Button type="button" variant="secondary" onClick={() => setAddModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit">
-              Create Order
-            </Button>
-          </div>
-        </form>
-        </Modal>
-      )}
-
-      {/* Edit Order Modal */}
-      {editModalOpen && (
-        <Modal
-          isOpen={editModalOpen}
-          onClose={() => setEditModalOpen(false)}
-          title={selectedOrder ? `Edit Order #${selectedOrder.number || selectedOrder.id}` : 'Edit Order'}
-        >
-        <form onSubmit={handleSaveEditOrder} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {error && <Alert type="error" message={error} />}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Input
-              label="Delivery Deadline *"
-              type="date"
-              value={orderForm.delivery_deadline}
-              onChange={(e) => setOrderForm({ ...orderForm, delivery_deadline: e.target.value })}
-              required
-            />
-            <div className="company-field">
-              <label>Status</label>
-              <select
-                className="company-input"
-                value={orderForm.status}
-                onChange={(e) => setOrderForm({ ...orderForm, status: e.target.value })}
-              >
-                {ORDER_STATUSES.map((st) => (
-                  <option key={st} value={st}>{STATUS_LABELS[st] || st}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="company-field">
-            <label>Product Name</label>
-            <input
-              type="text"
-              className="company-input"
-              value={orderForm.lines[0]?.product_name || ''}
-              onChange={(e) => {
-                const lines = [...orderForm.lines]
-                lines[0] = { ...lines[0], product_name: e.target.value }
-                setOrderForm({ ...orderForm, lines })
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Input
-              label="Quantity"
-              type="number"
-              min="1"
-              value={orderForm.lines[0]?.quantity || 1}
-              onChange={(e) => {
-                const lines = [...orderForm.lines]
-                lines[0] = { ...lines[0], quantity: Number(e.target.value) }
-                setOrderForm({ ...orderForm, lines })
-              }}
-            />
-            <Input
-              label="Unit Price (₹)"
-              type="number"
-              step="0.01"
-              min="0"
-              value={orderForm.lines[0]?.unit_price || 0}
-              onChange={(e) => {
-                const lines = [...orderForm.lines]
-                lines[0] = { ...lines[0], unit_price: Number(e.target.value) }
-                setOrderForm({ ...orderForm, lines })
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
-            <Button type="button" variant="secondary" onClick={() => setEditModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit">
-              Update Order
-            </Button>
-          </div>
-        </form>
-        </Modal>
+      {/* Three-Section Order Modal (Add, Edit, View) with RBAC */}
+      {orderModalOpen && (
+        <OrderDetailModal
+          isOpen={orderModalOpen}
+          mode={orderModalMode}
+          order={selectedOrder}
+          activeCompanyId={isCompanyScoped ? Number(activeCompanyId) || 1 : 1}
+          currentUser={currentUser}
+          onClose={() => {
+            setOrderModalOpen(false)
+            if (initialMode) {
+              navigate('/orders', { replace: true })
+            }
+          }}
+          onSaveOrder={handleSaveOrderFromModal}
+        />
       )}
 
       {/* Produce Batch (Formula BOM) Modal */}
@@ -1427,6 +1408,161 @@ export default function CommonOrdersTab({ role, isCompanyScoped = false }) {
               </Button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* Sample Quantity & Packaging Modal */}
+      {sampleModalOrder && (
+        <Modal
+          title={
+            sampleModalOrder.sample_confirmed
+              ? `Edit Sample Quantity — Order #${sampleModalOrder.number || sampleModalOrder.id}`
+              : `Confirm Sample Quantity — Order #${sampleModalOrder.number || sampleModalOrder.id}`
+          }
+          isOpen={Boolean(sampleModalOrder)}
+          onClose={() => setSampleModalOrder(null)}
+        >
+          {(() => {
+            const totalProduced = Number(
+              sampleModalOrder.qa_approved_qty ||
+              sampleModalOrder.produced_quantity ||
+              sampleModalOrder.quantity ||
+              100
+            )
+            const sampleNum = Number(sampleInputVal) || 0
+            const remainingForPackaging = Math.max(0, totalProduced - sampleNum)
+            const isConfirmed = Boolean(sampleModalOrder.sample_confirmed)
+            const isAdmin = Boolean(
+              currentUser?.is_superuser === true ||
+              userRole === ORDER_ROLES.ADMIN ||
+              currentUser?.role === 'SUPER_ADMIN'
+            )
+            const isReadOnly = isConfirmed && !isAdmin
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {sampleError && (
+                  <Alert variant="danger">
+                    {sampleError}
+                  </Alert>
+                )}
+
+                {isConfirmed && !isAdmin && (
+                  <div style={{ background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', padding: 12, borderRadius: 6, fontSize: 13 }}>
+                    🔒 <strong>Sample Confirmed:</strong> Sample quantity has already been confirmed for this order. Only Administrators can edit confirmed sample quantities.
+                  </div>
+                )}
+
+                {isConfirmed && isAdmin && (
+                  <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', color: '#6d28d9', padding: 12, borderRadius: 6, fontSize: 13 }}>
+                    ⚡ <strong>Admin Edit Mode:</strong> Modifying the sample quantity will automatically update the sellable stock, record a Stock Ledger movement, and log an audit entry.
+                  </div>
+                )}
+
+                {/* Order Details summary */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Product</span>
+                    <strong style={{ fontSize: 13, color: '#0f172a' }}>
+                      {sampleModalOrder.product_name || sampleModalOrder.product || '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Batch Number</span>
+                    <code style={{ fontSize: 12, padding: '2px 4px', background: '#e2e8f0', borderRadius: 4 }}>
+                      {sampleModalOrder.batch_no || '—'}
+                    </code>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Customer</span>
+                    <span style={{ fontSize: 13 }}>{getCustomerName(sampleModalOrder)}</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Order Stage</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{sampleModalOrder.status || 'READY_TO_INVOICE'}</span>
+                  </div>
+                </div>
+
+                {/* Calculation Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: 12, alignItems: 'center' }}>
+                  {/* Read-only Total Produced */}
+                  <div style={{ background: '#f1f5f9', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block' }}>
+                      Total Produced (Read-only)
+                    </span>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                      {totalProduced} <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>pcs</span>
+                    </div>
+                  </div>
+
+                  {/* Sample Input */}
+                  <div style={{ background: '#faf5ff', padding: 14, borderRadius: 8, border: '1px solid #d8b4fe' }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+                      Sample Quantity (Pieces)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={totalProduced}
+                      step="1"
+                      disabled={isReadOnly}
+                      value={sampleInputVal}
+                      onChange={(e) => {
+                        setSampleInputVal(e.target.value)
+                        setSampleError('')
+                      }}
+                      className="company-input"
+                      style={{
+                        width: '100%',
+                        fontSize: 18,
+                        fontWeight: 700,
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #c084fc',
+                        background: isReadOnly ? '#f1f5f9' : '#ffffff',
+                      }}
+                      placeholder="e.g. 5 or 10"
+                    />
+                  </div>
+
+                  {/* Live Remaining for Packaging */}
+                  <div style={{ background: '#f0fdf4', padding: 14, borderRadius: 8, border: '1px solid #86efac' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase', display: 'block' }}>
+                      Remaining for Packaging
+                    </span>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#15803d', marginTop: 4 }}>
+                      {remainingForPackaging} <span style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>pcs</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px dashed #cbd5e1' }}>
+                  ℹ️ <strong>Business Rule:</strong> Samples (typically 5–10 pieces) are retained for lab retention and statutory quality control. Only the remaining {remainingForPackaging} pieces proceed to packaging, dispatch and invoicing. Samples are unbilled and recorded as an outward movement in the Stock Ledger.
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                  <Button type="button" variant="secondary" onClick={() => setSampleModalOrder(null)}>
+                    {isReadOnly ? 'Close' : 'Cancel'}
+                  </Button>
+                  {!isReadOnly && (
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={handleConfirmSample}
+                      style={{
+                        backgroundColor: '#7c3aed',
+                        borderColor: '#6d28d9',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {isConfirmed ? 'Save Changes (Admin)' : 'Confirm Sample Quantity'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
         </Modal>
       )}
     </div>

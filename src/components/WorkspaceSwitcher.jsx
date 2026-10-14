@@ -36,20 +36,22 @@ function WorkspaceIcon({
   workspaceId,
   size = 17,
 }) {
+  const [hasError, setHasError] = useState(false)
+
   if (type === 'inventory' || workspaceId === WORKSPACES.COMMON) {
     return <InventoryIcon size={size} />
   }
 
   const logo = getCompanyLogo(workspaceId)
 
-  if (logo) {
+  if (logo && !hasError) {
     return (
       <img
         src={logo}
-        alt=""
-        aria-hidden="true"
-        onError={(e) => {
-          e.currentTarget.style.display = 'none'
+        alt="Workspace Logo"
+        loading="eager"
+        onError={() => {
+          setHasError(true)
         }}
         style={{
           width: '100%',

@@ -8,6 +8,8 @@ import CommonOrdersTab from './tabs/CommonOrdersTab'
 import StockTab from './tabs/StockTab'
 import IssueReturnTab from './tabs/IssueReturnTab'
 import StockLedgerTab from './tabs/StockLedgerTab'
+import SamplesTab from './tabs/SamplesTab'
+import StockRequestsTab from './tabs/StockRequestsTab'
 
 import './Inventory.css'
 
@@ -28,6 +30,11 @@ const INVENTORY_HERO_CONFIG = {
     title: 'Raw Materials',
     subtitle: 'Central store of chemical raw materials, active ingredients, excipients, and supplier sourcing.',
   },
+  requests: {
+    eyebrow: 'MATERIAL REQUISITIONS & SHORTAGES',
+    title: 'Stock Requests',
+    subtitle: 'Manage and fulfill raw material replenishment requests triggered from Sales Orders.',
+  },
   orders: {
     eyebrow: 'CENTRAL SALES & PRODUCTION ALLOCATIONS',
     title: 'Common Orders',
@@ -37,6 +44,11 @@ const INVENTORY_HERO_CONFIG = {
     eyebrow: 'BATCH & WAREHOUSE LOT BALANCES',
     title: 'Stocks & Lots',
     subtitle: 'Real-time lot tracking, chemical batches, expiry dates, and warehouse balance breakdown.',
+  },
+  samples: {
+    eyebrow: 'FINISHED MEDICINES SAMPLES & RETENTION',
+    title: 'Samples Register',
+    subtitle: 'Track retained medicine samples from completed production orders before packaging and dispatch.',
   },
   'issue-return': {
     eyebrow: 'MATERIAL ISSUANCE & VERIFIED RETURNS',
@@ -78,15 +90,19 @@ export default function Inventory() {
                 ? 'products'
                 : activePath === '/inventory/materials'
                     ? 'materials'
-                    : activePath === '/inventory/orders'
-                        ? 'orders'
-                        : activePath === '/inventory/stock'
-                            ? 'stock'
-                            : activePath === '/inventory/issue-return'
-                                ? 'issue-return'
-                                : (activePath === '/inventory/ledger' || activePath === '/inventory/stock-ledger')
-                                    ? 'ledger'
-                                    : 'overview'
+                    : (activePath === '/inventory/requests' || activePath === '/inventory/stock-requests')
+                        ? 'requests'
+                        : activePath === '/inventory/orders'
+                            ? 'orders'
+                            : activePath === '/inventory/stock'
+                                ? 'stock'
+                                : activePath === '/inventory/samples'
+                                    ? 'samples'
+                                : activePath === '/inventory/issue-return'
+                                    ? 'issue-return'
+                                    : (activePath === '/inventory/ledger' || activePath === '/inventory/stock-ledger')
+                                        ? 'ledger'
+                                        : 'overview'
 
     const heroConfig = INVENTORY_HERO_CONFIG[activeSection] || INVENTORY_HERO_CONFIG.overview
 
@@ -98,6 +114,9 @@ export default function Inventory() {
     const canAccess =
         user?.is_superuser === true ||
         role === 'SUPER_ADMIN' ||
+        role === 'MANAGEMENT' ||
+        role === 'STORES_MANAGER' ||
+        role === 'STORES_USER' ||
         user?.profile?.can_access_common_inventory === true
 
 
@@ -202,6 +221,22 @@ export default function Inventory() {
             {activeSection === 'ledger' && (
 
                 <StockLedgerTab />
+
+            )}
+
+            {activeSection === 'samples' && (
+
+                <SamplesTab
+                    role={role}
+                />
+
+            )}
+
+            {activeSection === 'requests' && (
+
+                <StockRequestsTab
+                    role={role}
+                />
 
             )}
 

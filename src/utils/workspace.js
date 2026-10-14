@@ -204,10 +204,6 @@ export function getCurrentWorkspace(user) {
     return workspace
   }
 
-  if (available.length > 0) {
-    return available[0].id
-  }
-
   return null
 }
 

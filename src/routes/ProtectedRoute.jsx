@@ -145,8 +145,8 @@ export default function ProtectedRoute() {
   }
 
   if (
-    location.pathname ===
-    '/profile'
+    location.pathname === '/profile' ||
+    location.pathname === '/notifications'
   ) {
     return <Outlet />
   }

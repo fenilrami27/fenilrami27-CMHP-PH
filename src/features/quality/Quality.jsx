@@ -683,12 +683,32 @@ export default function Quality() {
                     <td>{qc.inspector || '—'}</td>
                     <td>{qc.inspection_date || '—'}</td>
                     <td>
-                      <Button
-                        variant="secondary"
-                        onClick={() => openOrderQc(qc)}
-                      >
-                        {qc.status === 'PENDING' ? 'Inspect' : 'Review'}
-                      </Button>
+                      {qc.status === 'PENDING' ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => openOrderQc(qc)}
+                        >
+                          Inspect
+                        </Button>
+                      ) : qc.status === 'PASSED' ? (
+                        <Button
+                          variant="primary"
+                          onClick={() => {
+                            setTab('order_qa')
+                            setOrderQaSearch(qc.order_number)
+                          }}
+                          title="Take Approval from QA"
+                        >
+                          Take Approval →
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          onClick={() => openOrderQc(qc)}
+                        >
+                          Review
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1315,7 +1335,7 @@ export default function Quality() {
                   loading={saving}
                   onClick={() => submitOrderQc('PASS')}
                 >
-                  ✓ Pass Inspection
+                  ✓ Pass & Take Approval
                 </Button>
               </div>
             </div>

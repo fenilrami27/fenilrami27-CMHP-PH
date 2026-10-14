@@ -11,27 +11,60 @@ import {
   addCommonRawMaterial,
 } from '../../../store/erpSlice'
 import { logAudit } from '../../../utils/audit'
+import useWorkspace from '../../../hooks/useWorkspace'
+import { SEED_COMPANIES, SEED_SUPPLIERS } from '../../../store/seedData'
+import { numberToWordsINR } from '../../../utils/formatters'
+import InwardReceiptPreviewModal from '../components/InwardReceiptPreviewModal'
+import { INWARD_RECEIPT_CONFIG } from '../config/inwardReceiptConfig'
 import './StockLedger.css'
 
 const FINANCIAL_YEARS = ['2026-27', '2025-26', '2024-25', '2027-28']
+
+/**
+ * Auto-generate next sequential Goods Receipt Note (GRN) number for Raw Materials
+ * Format: GRN-YYYY-0001
+ */
+export function getNextGrnNumber(stockLedgerEntries = [], financialYear = '2026-27') {
+  const yearStr = financialYear ? financialYear.split('-')[0] : String(new Date().getFullYear())
+  const prefix = `GRN-${yearStr}-`
+  let maxSeq = 0
+
+  if (Array.isArray(stockLedgerEntries)) {
+    stockLedgerEntries.forEach((entry) => {
+      const num = entry?.receipt_no || entry?.grn_no || entry?.grn_number
+      if (typeof num === 'string') {
+        const clean = num.trim().toUpperCase()
+        if (clean.startsWith(prefix)) {
+          const suffix = clean.slice(prefix.length)
+          const seq = parseInt(suffix, 10)
+          if (!isNaN(seq) && seq > maxSeq) {
+            maxSeq = seq
+          }
+        }
+      }
+    })
+  }
+
+  const nextSeq = maxSeq + 1
+  return `${prefix}${String(nextSeq).padStart(4, '0')}`
+}
 
 export default function StockLedgerTab() {
   const dispatch = useDispatch()
   const erpState = useSelector((state) => state.erp || {})
   const currentUser = useSelector((state) => state.auth?.user || {})
 
-  // All available raw materials, common products & items in the store
+  // All available raw materials & items in the store (Raw Materials only)
   const commonRawMaterials = useSelector((state) => state.erp?.commonRawMaterials || [])
-  const commonProducts = useSelector((state) => state.erp?.commonProducts || [])
   const registeredItems = useSelector((state) => state.erp?.items || [])
   const stockLedgerEntries = useSelector((state) => state.erp?.stockLedgerEntries || [])
 
-  // Auto-fetched catalog combining all raw materials, chemicals & products
+  // Auto-fetched catalog combining raw materials & chemicals only
   const allItemsCatalog = useMemo(() => {
     const list = []
     const seen = new Set()
 
-    // 1. Raw Materials & Chemicals
+    // 1. Raw Materials & Chemicals from central store
     commonRawMaterials.forEach((m) => {
       const key = String(m.code || m.id).toUpperCase()
       if (!seen.has(key)) {
@@ -51,48 +84,39 @@ export default function StockLedgerTab() {
       }
     })
 
-    // 2. Common Products
-    commonProducts.forEach((p) => {
-      const key = String(p.code || p.id).toUpperCase()
-      if (!seen.has(key)) {
-        seen.add(key)
-        list.push({
-          id: p.id,
-          code: p.code || `PRD-${p.id}`,
-          name: p.name,
-          category: p.category || 'Finished Product',
-          base_unit: p.uom || 'KG',
-          pack_size: Number(p.pack_size) || 25,
-          display_unit: p.display_unit || 'BAG',
-          current_stock: Number(p.current_stock) || 0,
-          reorder_level: Number(p.reorder_level) || 0,
-          type: 'FINISHED_GOODS',
-        })
-      }
-    })
-
-    // 3. Generic items if any
+    // 2. Additional chemical & raw material items if registered (excluding any finished goods)
     registeredItems.forEach((i) => {
       const key = String(i.code || i.id).toUpperCase()
-      if (!seen.has(key)) {
+      const isFinishedGood =
+        i.type === 'FINISHED_GOODS' ||
+        i.item_type === 'MEDICINE' ||
+        i.item_type === 'FINISHED_GOODS' ||
+        i.category === 'Finished Product' ||
+        i.category === 'Tablets' ||
+        i.category === 'Capsules' ||
+        i.category === 'Syrups' ||
+        i.category === 'Injections' ||
+        i.category === 'Ointments'
+
+      if (!isFinishedGood && !seen.has(key)) {
         seen.add(key)
         list.push({
           id: i.id,
           code: i.code || `ITM-${i.id}`,
           name: i.name,
-          category: 'Chemical',
-          base_unit: 'KG',
-          pack_size: 25,
-          display_unit: 'BAG',
-          current_stock: Number(i.available_quantity) || 0,
-          reorder_level: 0,
+          category: i.category || 'Chemical',
+          base_unit: i.uom || 'KG',
+          pack_size: Number(i.pack_size) || 25,
+          display_unit: i.display_unit || 'BAG',
+          current_stock: Number(i.available_quantity || i.current_stock) || 0,
+          reorder_level: Number(i.reorder_level) || 0,
           type: 'RAW_MATERIAL',
         })
       }
     })
 
     return list.sort((a, b) => (a.code || '').localeCompare(b.code || ''))
-  }, [commonRawMaterials, commonProducts, registeredItems])
+  }, [commonRawMaterials, registeredItems])
 
   // Searchable Item Dropdown State
   const [itemDropdownOpen, setItemDropdownOpen] = useState(false)
@@ -271,31 +295,49 @@ export default function StockLedgerTab() {
     return list
   }, [erpState])
 
-  // Auto-fetched Products from Store
-  const autoFetchedProducts = useMemo(() => {
-    const list = []
-    const seen = new Set()
-    const allProds = [
-      ...(erpState.byCompany?.cmhp?.products || []),
-      ...(erpState.byCompany?.tej?.products || []),
-      ...(erpState.products || []),
-      ...(erpState.commonProducts || []),
-    ]
-    allProds.forEach((p) => {
-      const name = p.name || p.product_name
-      if (name && !seen.has(name.toUpperCase())) {
-        seen.add(name.toUpperCase())
-        list.push(name)
-      }
-    })
-    return list
-  }, [erpState])
+
+
+  // =========================================================
+  // WORKSPACE & COMPANY RESOLUTION
+  // =========================================================
+
+  const { activeWorkspace } = useWorkspace()
+  const companies = erpState.companies?.length ? erpState.companies : SEED_COMPANIES
+  const suppliers = erpState.suppliers?.length ? erpState.suppliers : SEED_SUPPLIERS
+
+  // Active company resolution
+  const activeCompany = useMemo(() => {
+    if (activeWorkspace === 'company_a' || erpState.activeCompanyId === 1) {
+      return companies.find((c) => c.id === 1) || SEED_COMPANIES[0]
+    }
+    if (activeWorkspace === 'company_b' || erpState.activeCompanyId === 2) {
+      return companies.find((c) => c.id === 2) || SEED_COMPANIES[1]
+    }
+    return {
+      id: null,
+      name: INWARD_RECEIPT_CONFIG.company.name || 'Common Inventory',
+      legal_name: INWARD_RECEIPT_CONFIG.company.legal_name || '',
+      code: 'CI-CENTRAL',
+      gstin: INWARD_RECEIPT_CONFIG.company.gstin || '',
+      pan: INWARD_RECEIPT_CONFIG.company.pan || '',
+      state: INWARD_RECEIPT_CONFIG.company.state || '',
+      state_code: '',
+      registered_address: INWARD_RECEIPT_CONFIG.company.address || '',
+      contact_email: INWARD_RECEIPT_CONFIG.company.email || '',
+      contact_phone: INWARD_RECEIPT_CONFIG.company.phone || '',
+    }
+  }, [activeWorkspace, erpState.activeCompanyId, companies])
 
   // =========================================================
   // MODAL STATES
   // =========================================================
 
   const [inwardModalOpen, setInwardModalOpen] = useState(false)
+  const [inwardReceiptNo, setInwardReceiptNo] = useState('')
+  const [inwardModalError, setInwardModalError] = useState('')
+  const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false)
+  const [previewReceiptData, setPreviewReceiptData] = useState(null)
+
   const [inwardForm, setInwardForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     invoice_no: '',
@@ -344,10 +386,13 @@ export default function StockLedgerTab() {
       setNotification({ type: 'error', message: 'Please select an item first.' })
       return
     }
+    const nextGrn = getNextGrnNumber(stockLedgerEntries, financialYear)
+    setInwardReceiptNo(nextGrn)
+    setInwardModalError('')
     setInwardForm({
       date: new Date().toISOString().slice(0, 10),
       invoice_no: '',
-      supplier: autoFetchedSuppliers[0] || 'NENSHI HEALTHCARE',
+      supplier: autoFetchedSuppliers[0] || 'Solchem Industries',
       received_quantity: '',
       price: '',
     })
@@ -360,20 +405,142 @@ export default function StockLedgerTab() {
     const packSize = activeItem?.pack_size || 25
     if (qty <= 0) return ''
     const containers = Math.floor(qty / packSize)
-    const remainder = qty % packSize
+    const remainder = Math.round((qty % packSize) * 100) / 100
     if (remainder > 0) {
-      return `${containers}*${packSize}KG + ${remainder}KG`
+      return `${containers}*${packSize}${activeItem?.base_unit || 'KG'} + ${remainder}${activeItem?.base_unit || 'KG'}`
     }
-    return `${containers}*${packSize}KG`
+    return `${containers}*${packSize}${activeItem?.base_unit || 'KG'}`
   }, [inwardForm.received_quantity, activeItem])
+
+  // Handle "Generate Receipt" (Validates and opens preview without saving)
+  const handleGenerateReceipt = (e) => {
+    if (e && e.preventDefault) e.preventDefault()
+
+    const missing = []
+    if (!inwardForm.date) missing.push('Receipt Date')
+    if (!inwardForm.invoice_no?.trim()) missing.push('Invoice No')
+    if (!inwardForm.supplier?.trim()) missing.push('Supplier / Vendor')
+    const qty = Number(inwardForm.received_quantity)
+    if (!qty || qty <= 0) missing.push('Received Quantity (must be > 0)')
+
+    if (missing.length > 0) {
+      setInwardModalError(`Please fill in required fields: ${missing.join(', ')}`)
+      return
+    }
+    setInwardModalError('')
+
+    const currentReceiptNum = inwardReceiptNo || getNextGrnNumber(stockLedgerEntries, financialYear)
+    if (!inwardReceiptNo) setInwardReceiptNo(currentReceiptNum)
+
+    const supplierMatch = suppliers.find(
+      (s) => s.name?.toLowerCase() === inwardForm.supplier.trim().toLowerCase()
+    )
+
+    const supplierObj = {
+      name: inwardForm.supplier.trim(),
+      invoice_no: inwardForm.invoice_no.trim(),
+      code: supplierMatch?.code || 'SUP-DIRECT',
+      gstin: INWARD_RECEIPT_CONFIG.supplier.gstin || '',
+      address: INWARD_RECEIPT_CONFIG.supplier.address || '',
+      phone: INWARD_RECEIPT_CONFIG.supplier.contact || '',
+    }
+
+    const priceNum = Number(inwardForm.price) || 0
+    const totalVal = qty * priceNum
+
+    const receiptData = {
+      receiptNo: currentReceiptNum,
+      receiptDate: inwardForm.date,
+      financialYear: financialYear,
+      company: activeCompany,
+      supplier: supplierObj,
+      material: {
+        code: activeItem.code,
+        name: activeItem.name,
+        category: activeItem.category,
+        base_unit: activeItem.base_unit,
+        display_unit: activeItem.display_unit,
+        pack_size: activeItem.pack_size,
+      },
+      receivedQuantity: qty,
+      noOfContainers: computedInwardContainers,
+      rate: priceNum,
+      totalAmount: totalVal,
+      amountInWords: totalVal > 0 ? numberToWordsINR(totalVal) : '',
+      receivedBy: currentUser.username || currentUser.name || 'Stores Receiving',
+      checkedBy: 'QC Quality Inspector',
+      authorisedSignatory: `Plant Manager (${activeCompany.name})`,
+    }
+
+    setPreviewReceiptData(receiptData)
+    setReceiptPreviewOpen(true)
+  }
+
+  // Handle viewing / reprinting an existing inward receipt
+  const handleViewSavedReceipt = (entry) => {
+    const supplierMatch = suppliers.find(
+      (s) => s.name?.toLowerCase() === entry.supplier?.toLowerCase()
+    )
+    const priceNum = parseFloat(String(entry.price || '').replace(/[^0-9.]/g, '')) || 0
+    const qtyNum = Number(entry.received_quantity) || 0
+    const totalVal = qtyNum * priceNum
+
+    const receiptData = {
+      receiptNo: entry.receipt_no || `GRN-${(entry.financial_year || financialYear).split('-')[0]}-${String(entry.id).padStart(4, '0')}`,
+      receiptDate: entry.date,
+      financialYear: entry.financial_year || financialYear,
+      company: activeCompany,
+      supplier: {
+        name: entry.supplier,
+        invoice_no: entry.invoice_no,
+        code: supplierMatch?.code || 'SUP-DIRECT',
+        gstin: INWARD_RECEIPT_CONFIG.supplier.gstin || '',
+        address: INWARD_RECEIPT_CONFIG.supplier.address || '',
+        phone: INWARD_RECEIPT_CONFIG.supplier.contact || '',
+      },
+      material: {
+        code: activeItem.code,
+        name: activeItem.name,
+        category: activeItem.category,
+        base_unit: activeItem.base_unit,
+        display_unit: activeItem.display_unit,
+        pack_size: activeItem.pack_size,
+      },
+      receivedQuantity: qtyNum,
+      noOfContainers: entry.no_of_containers,
+      rate: priceNum,
+      totalAmount: totalVal,
+      amountInWords: totalVal > 0 ? numberToWordsINR(totalVal) : '',
+      receivedBy: entry.created_by || 'Stores Receiving',
+      checkedBy: 'QC Quality Inspector',
+      authorisedSignatory: `Plant Manager (${activeCompany.name})`,
+    }
+
+    setPreviewReceiptData(receiptData)
+    setReceiptPreviewOpen(true)
+  }
 
   const handleSaveInward = (e) => {
     e.preventDefault()
     const qty = Number(inwardForm.received_quantity)
     if (!qty || qty <= 0) {
-      setNotification({ type: 'error', message: 'Please enter a valid received quantity.' })
+      setInwardModalError('Please enter a valid received quantity.')
       return
     }
+    if (!inwardForm.date) {
+      setInwardModalError('Please select a receipt date.')
+      return
+    }
+    if (!inwardForm.invoice_no?.trim()) {
+      setInwardModalError('Please enter an invoice number.')
+      return
+    }
+    if (!inwardForm.supplier?.trim()) {
+      setInwardModalError('Please enter a supplier name.')
+      return
+    }
+
+    const finalReceiptNo = inwardReceiptNo || getNextGrnNumber(stockLedgerEntries, financialYear)
 
     dispatch(
       addStockLedgerEntry({
@@ -384,6 +551,7 @@ export default function StockLedgerTab() {
         financial_year: financialYear,
         date: inwardForm.date,
         invoice_no: inwardForm.invoice_no.trim() || 'RECEIPT',
+        receipt_no: finalReceiptNo,
         supplier: inwardForm.supplier.trim() || 'SUPPLIER',
         received_quantity: qty,
         no_of_containers: computedInwardContainers,
@@ -396,14 +564,15 @@ export default function StockLedgerTab() {
       module: 'STOCK_LEDGER',
       action: 'INWARD_RECEIPT',
       entity_id: activeItem.code,
-      details: `Received ${qty} KG (${computedInwardContainers}) of ${activeItem.name} via Inv #${inwardForm.invoice_no}`,
+      details: `Received ${qty} KG (${computedInwardContainers}) of ${activeItem.name} via Inv #${inwardForm.invoice_no} [${finalReceiptNo}]`,
     })
 
     setNotification({
       type: 'success',
-      message: `Inward of ${qty} KG (${computedInwardContainers}) recorded successfully.`,
+      message: `Inward of ${qty} KG (${computedInwardContainers}) recorded successfully under Receipt ${finalReceiptNo}.`,
     })
     setInwardModalOpen(false)
+    setInwardModalError('')
   }
 
   // =========================================================
@@ -418,7 +587,7 @@ export default function StockLedgerTab() {
     setOutwardForm({
       date: new Date().toISOString().slice(0, 10),
       batch_no: '',
-      product_name: autoFetchedProducts[0] || '',
+      product_name: '',
       issued_quantity: '',
       customRemark: '',
     })
@@ -722,7 +891,7 @@ export default function StockLedgerTab() {
                     </span>
                   </>
                 ) : (
-                  <span className="stock-trigger-placeholder">Select Chemical / Material...</span>
+                  <span className="stock-trigger-placeholder">Select Chemical / Raw Material...</span>
                 )}
               </div>
               <span className="stock-trigger-arrow">{itemDropdownOpen ? '▴' : '▾'}</span>
@@ -735,7 +904,7 @@ export default function StockLedgerTab() {
                   <input
                     type="text"
                     className="stock-select-search-input"
-                    placeholder="Search chemical name, code (e.g. CL01, Lactose)..."
+                    placeholder="Search chemical name, code (e.g. MAT-2001, Lactose)..."
                     value={itemSearchQuery}
                     onChange={(e) => setItemSearchQuery(e.target.value)}
                     autoFocus
@@ -840,7 +1009,7 @@ export default function StockLedgerTab() {
             type="text"
             className="company-input"
             style={{ width: 170, height: 40 }}
-            placeholder="Search invoice, batch, product..."
+            placeholder="Search invoice, batch, supplier..."
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
           />
@@ -1029,7 +1198,34 @@ export default function StockLedgerTab() {
                   {displayedInwards.map((entry) => (
                     <tr key={entry.id} className={entry.reversed ? 'row-reversed' : ''}>
                       <td>{entry.date}</td>
-                      <td style={{ fontWeight: 700 }}>{entry.invoice_no}</td>
+                      <td>
+                        <div style={{ fontWeight: 700 }}>{entry.invoice_no}</div>
+                        {entry.receipt_no && (
+                          <div style={{ marginTop: 2 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleViewSavedReceipt(entry)}
+                              title="View / Print Receipt"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                background: '#f0fdf4',
+                                border: '1px solid #bbf7d0',
+                                color: '#15803d',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <span>📄</span>
+                              <span>{entry.receipt_no}</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td>{entry.supplier}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#047857' }}>
                         {Number(entry.received_quantity).toLocaleString()} {activeItem.base_unit}
@@ -1093,7 +1289,7 @@ export default function StockLedgerTab() {
                   <tr>
                     <th>Date</th>
                     <th>Batch No</th>
-                    <th>Name of Product</th>
+                    <th>Issue Purpose / Formulation</th>
                     <th style={{ textAlign: 'right' }}>Issued Qty ({activeItem.base_unit})</th>
                     <th>Remark</th>
                     <th style={{ textAlign: 'center' }}>Actions</th>
@@ -1161,6 +1357,74 @@ export default function StockLedgerTab() {
           onClose={() => setInwardModalOpen(false)}
         >
           <form onSubmit={handleSaveInward}>
+            {/* Auto-generated Receipt (GRN) No Banner */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: 6,
+                marginBottom: 14,
+                fontSize: 13,
+              }}
+            >
+              <span style={{ color: '#166534', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>🧾</span>
+                <span>Auto Receipt (GRN) No:</span>
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    color: '#15803d',
+                    fontWeight: 700,
+                    background: '#ffffff',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    border: '1px solid #86efac',
+                  }}
+                >
+                  {inwardReceiptNo || 'GRN-AUTO'}
+                </span>
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: '#166534',
+                  background: '#dcfce7',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  fontWeight: 600,
+                }}
+              >
+                {activeCompany?.name || 'Active Company'}
+              </span>
+            </div>
+
+            {/* Validation alert if Generate Receipt or Submit clicked with missing fields */}
+            {inwardModalError && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 6,
+                  marginBottom: 14,
+                  color: '#b91c1c',
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                <span>⚠️</span>
+                <span>{inwardModalError}</span>
+              </div>
+            )}
+
             <div className="stock-form-grid">
               <div className="field">
                 <label className="field-label">Receipt Date *</label>
@@ -1168,7 +1432,10 @@ export default function StockLedgerTab() {
                   type="date"
                   className="field-input"
                   value={inwardForm.date}
-                  onChange={(e) => setInwardForm({ ...inwardForm, date: e.target.value })}
+                  onChange={(e) => {
+                    setInwardModalError('')
+                    setInwardForm({ ...inwardForm, date: e.target.value })
+                  }}
                   required
                 />
               </div>
@@ -1180,7 +1447,10 @@ export default function StockLedgerTab() {
                   className="field-input"
                   placeholder="e.g. T0826"
                   value={inwardForm.invoice_no}
-                  onChange={(e) => setInwardForm({ ...inwardForm, invoice_no: e.target.value })}
+                  onChange={(e) => {
+                    setInwardModalError('')
+                    setInwardForm({ ...inwardForm, invoice_no: e.target.value })
+                  }}
                   required
                 />
               </div>
@@ -1193,7 +1463,10 @@ export default function StockLedgerTab() {
                   className="field-input"
                   placeholder="Select or enter supplier name..."
                   value={inwardForm.supplier}
-                  onChange={(e) => setInwardForm({ ...inwardForm, supplier: e.target.value })}
+                  onChange={(e) => {
+                    setInwardModalError('')
+                    setInwardForm({ ...inwardForm, supplier: e.target.value })
+                  }}
                   required
                 />
                 <datalist id="supplier-options">
@@ -1212,9 +1485,10 @@ export default function StockLedgerTab() {
                   className="field-input"
                   placeholder="e.g. 225"
                   value={inwardForm.received_quantity}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setInwardModalError('')
                     setInwardForm({ ...inwardForm, received_quantity: e.target.value })
-                  }
+                  }}
                   required
                 />
               </div>
@@ -1254,17 +1528,46 @@ export default function StockLedgerTab() {
               )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <Button variant="secondary" onClick={() => setInwardModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                Confirm Inward Receipt
-              </Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleGenerateReceipt}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  borderColor: '#0284c7',
+                  color: '#0369a1',
+                  background: '#f0f9ff',
+                  fontWeight: 600,
+                }}
+              >
+                <span>📄</span>
+                <span>Generate Receipt</span>
+              </button>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Button variant="secondary" onClick={() => setInwardModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary">
+                  Confirm Inward Receipt
+                </Button>
+              </div>
             </div>
           </form>
         </Modal>
       )}
+
+      {/* =========================================================
+          INWARD RECEIPT PREVIEW & PRINT/PDF MODAL
+          ========================================================= */}
+      <InwardReceiptPreviewModal
+        isOpen={receiptPreviewOpen}
+        onClose={() => setReceiptPreviewOpen(false)}
+        receiptData={previewReceiptData}
+      />
 
       {/* =========================================================
           MODAL 2: ADD OUTWARD ISSUE
@@ -1311,21 +1614,15 @@ export default function StockLedgerTab() {
               </div>
 
               <div className="field stock-form-full">
-                <label className="field-label">Name of Product / Formulation *</label>
+                <label className="field-label">Issue Purpose / Batch / Formulation *</label>
                 <input
                   type="text"
-                  list="product-options"
                   className="field-input"
-                  placeholder="Select product or type formulation name..."
+                  placeholder="e.g. Batch GH2609, Production Line 1, or Formulation Issue"
                   value={outwardForm.product_name}
                   onChange={(e) => setOutwardForm({ ...outwardForm, product_name: e.target.value })}
                   required
                 />
-                <datalist id="product-options">
-                  {autoFetchedProducts.map((p) => (
-                    <option key={p} value={p} />
-                  ))}
-                </datalist>
               </div>
 
               <div className="field">
@@ -1559,7 +1856,7 @@ export default function StockLedgerTab() {
                   <option value="Excipient">Excipient</option>
                   <option value="Solvent">Solvent</option>
                   <option value="Packaging Material">Packaging Material</option>
-                  <option value="Finished Product">Finished Product</option>
+                  <option value="Reagent">Reagent</option>
                 </select>
               </div>
 

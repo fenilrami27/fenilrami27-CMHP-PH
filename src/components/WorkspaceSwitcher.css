@@ -551,11 +551,12 @@
 @media (max-width: 1050px) {
 
   .workspace-trigger {
-    min-width: 42px;
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
 
-    width: 42px;
-
-    padding: 5px;
+    padding: 0;
 
     justify-content: center;
   }
@@ -585,7 +586,16 @@
 @media (max-width: 700px) {
 
   .workspace-switcher {
-    display: none;
+    display: inline-flex;
+  }
+
+  .workspace-trigger {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
   }
 
 
@@ -603,4 +613,4 @@
     max-width: none;
   }
 
-}
+}

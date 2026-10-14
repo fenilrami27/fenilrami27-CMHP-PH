@@ -70,6 +70,14 @@ function buildInitialERPState() {
     }
   })
 
+  // Ensure notifications and stockRequests array exists
+  if (!Array.isArray(result.notifications)) {
+    result.notifications = []
+  }
+  if (!Array.isArray(result.stockRequests)) {
+    result.stockRequests = []
+  }
+
   // Ensure byCompany structure exists
   if (!result.byCompany) {
     result.byCompany = { cmhp: {}, tej: {} }
@@ -84,7 +92,8 @@ function buildInitialERPState() {
     'purchaseBills', 'internalAllocations', 'dispatches', 'salesReturns',
     'recalls', 'creditNotes', 'designations', 'shifts', 'holidays',
     'leaveTypes', 'attendance', 'leaveRequests', 'salaryStructures',
-    'payrollRuns', 'payrollAdjustments', 'attendanceRegularizations', 'quotations'
+    'payrollRuns', 'payrollAdjustments', 'attendanceRegularizations', 'quotations',
+    'stockRequests'
   ]
 
   companySlices.forEach((slice) => {
