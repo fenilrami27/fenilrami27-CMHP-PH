@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import useAuth from '../../hooks/useAuth'
 import useWorkspace from '../../hooks/useWorkspace'
 
@@ -13,9 +13,7 @@ import {
 
 import {
   selectActiveCompanyId,
-  selectActiveCompanyKey,
 } from '../../utils/companySelectors'
-import { inventoryService } from '../inventory/inventoryService'
 import { getErrorMessage } from '../../utils/errors'
 import CheckInOutSection from '../hrms/CheckInOutSection'
 
@@ -112,12 +110,10 @@ function formatRelativeTime(timestamp) {
 export default function Dashboard() {
   const { user } = useAuth()
   const { activeWorkspace } = useWorkspace()
-  const navigate = useNavigate()
 
   // Redux state
   const erpState = useSelector((state) => state.erp || {})
   const activeCompIdFromSelector = useSelector(selectActiveCompanyId)
-  const activeCompKeyFromSelector = useSelector(selectActiveCompanyKey)
 
   // Determine active company target
   const targetCompanyId = activeWorkspace?.companyId
@@ -157,16 +153,6 @@ export default function Dashboard() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
 
-  // Retain existing inventory dashboard background data for widgets
-  const [invSummary, setInvSummary] = useState(null)
-  const [invError, setInvError] = useState('')
-
-  useEffect(() => {
-    inventoryService
-      .getDashboardSummary()
-      .then((res) => setInvSummary(res.data))
-      .catch((err) => setInvError(getErrorMessage(err)))
-  }, [])
 
   /* =========================================================
      COMPANY DATA EXTRACTION (Strict Company Separation)
@@ -398,12 +384,6 @@ export default function Dashboard() {
       .slice(0, 5)
   }, [companyOrders])
 
-  // 5. Recent Orders (Latest 5)
-  const recentOrders = useMemo(() => {
-    return [...companyOrders]
-      .sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''))
-      .slice(0, 5)
-  }, [companyOrders])
 
   // 6. Low Stock Products
   const lowStockAlerts = useMemo(() => {

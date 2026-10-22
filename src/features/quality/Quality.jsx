@@ -14,14 +14,12 @@ import { getCurrentWorkspaceObject } from '../../utils/workspace'
 import {
   selectFormulaApprovals,
   selectActiveCompanyId,
-  selectActiveCompanyKey,
 } from '../../utils/companySelectors'
 import { decideFormulaApproval } from '../../store/erpSlice'
 import BmrRequisitionDocument from '../../components/BmrRequisitionDocument'
 import {
   exportFormulaPrint,
   exportFormulaExcel,
-  exportFormulaCsv,
 } from '../../utils/formulaExport'
 import './Quality.css'
 import '../inventory/tabs/CommonInventory.css'
@@ -128,7 +126,6 @@ export default function Quality() {
   const dispatch = useDispatch()
   const formulaApprovals = useSelector(selectFormulaApprovals)
   const activeCompanyId = useSelector(selectActiveCompanyId)
-  const activeCompanyKey = useSelector(selectActiveCompanyKey)
 
   const [formulaSearch, setFormulaSearch] = useState('')
   const [formulaStatusFilter, setFormulaStatusFilter] = useState('ALL')

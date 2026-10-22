@@ -6,7 +6,7 @@ import useAuth from '../../hooks/useAuth'
 import { getErrorMessage } from '../../utils/errors'
 import { selectActiveCompanyId } from '../../utils/companySelectors'
 import PageHeader from '../../components/PageHeader'
-import { Sparkline, DonutChart, AreaTrendChart, BarChart } from '../dashboard/charts'
+import { DonutChart, AreaTrendChart, BarChart } from '../dashboard/charts'
 
 import { hrService } from './hrService'
 import { allowedCompanyIds, canViewHrReports } from './permissions'

@@ -313,7 +313,6 @@ export default function Products() {
   const isPendingApproval = approvalStatus === 'PENDING'
   const isApproved = approvalStatus === 'APPROVED'
   const isDeclined = approvalStatus === 'DECLINED'
-  const isNotSubmitted = approvalStatus === 'NOT_SUBMITTED'
 
   // Validation for "Get Approval from QC"
   const isCalculationValid = useMemo(() => {

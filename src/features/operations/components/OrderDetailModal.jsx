@@ -8,7 +8,6 @@ import {
   canCreateOrders,
 } from '../orderPermissions'
 import {
-  ORDER_PRODUCT_TYPES,
   ORDER_PRODUCT_SUBTYPES,
   ORDER_PRINTING_STATUSES,
   ORDER_PACKING_TYPES,
@@ -16,7 +15,6 @@ import {
   ORDER_COMPANIES,
   getSectionAStatus,
   getSectionBStatus,
-  getSectionCStatus,
 } from '../orderConstants'
 import {
   getApprovedFormula,
@@ -564,7 +562,6 @@ export default function OrderDetailModal({
   // Dynamic status badges for each section
   const sectionAStatus = useMemo(() => getSectionAStatus(formData), [formData])
   const sectionBStatus = useMemo(() => getSectionBStatus(formData), [formData])
-  const sectionCStatus = useMemo(() => getSectionCStatus(formData), [formData])
 
   // Validation rules for Section A (Task 2 strict product selection validation)
   const validateSectionA = () => {

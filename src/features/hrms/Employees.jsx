@@ -11,7 +11,7 @@ import { hrService } from './hrService'
 import { allowedCompanyIds, canManageEmployees } from './permissions'
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
 import { formatDateTimeIN, maskAadhaar, maskBankAcc, maskPAN } from '../../utils/formatters'
-import { logAudit, getEntityAuditLogs } from '../../utils/audit'
+import { logAudit } from '../../utils/audit'
 
 import PageHeader from '../../components/PageHeader'
 import '../companies/Companies.css'
@@ -129,7 +129,6 @@ export default function Employees() {
   // View Details Drawer
   const [viewingEmployee, setViewingEmployee] = useState(null)
   const [viewTab, setViewTab] = useState('overview') // 'overview', 'job', 'personal', 'documents', 'attendance', 'leave', 'payroll'
-  const [viewHistory, setViewHistory] = useState([])
 
 
   const loadData = async () => {
@@ -251,8 +250,6 @@ export default function Employees() {
   const openView = (employee) => {
     setViewingEmployee(employee)
     setViewTab('overview')
-    const history = getEntityAuditLogs('Employee', employee.employee_id || employee.id)
-    setViewHistory(history)
   }
 
 

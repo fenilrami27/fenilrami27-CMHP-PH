@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import html2pdf from 'html2pdf.js'
-import { formatINR, numberToWordsINR, formatDateIN } from '../../../utils/formatters'
+import { numberToWordsINR, formatDateIN } from '../../../utils/formatters'
 import { INWARD_RECEIPT_CONFIG } from '../config/inwardReceiptConfig'
 import './InwardReceiptPreviewModal.css'
 
@@ -27,7 +27,6 @@ export default function InwardReceiptPreviewModal({
     totalAmount = 0,
     amountInWords = '',
     receivedBy = 'Stores Receiving',
-    checkedBy = 'QC Quality Analyst',
     authorisedSignatory = 'Authorised Plant Head',
     remarks = '',
   } = receiptData

@@ -17,26 +17,23 @@ import {
 import { dispatchNotification } from '../../../utils/notifications'
 import { logAudit } from '../../../utils/audit'
 import { confirmAction } from '../../../utils/confirmAction'
-import { previewDocumentNumber, commitDocumentNumber } from '../../../utils/documentNumbers'
+import { commitDocumentNumber } from '../../../utils/documentNumbers'
 import {
   selectFormulas,
   selectActiveCompanyId,
   selectActiveCompanyKey,
 } from '../../../utils/companySelectors'
-import { checkFormulaStockAvailability, selectItemStock } from '../../../utils/stockSelectors'
+import { checkFormulaStockAvailability } from '../../../utils/stockSelectors'
 import { operationsService } from '../../operations/operationsService'
 import { store } from '../../../store/store'
 import { storage } from '../../../utils/storage'
-import { isSuperAdmin } from '../../../utils/companyScope'
 import OrderDetailModal from '../../operations/components/OrderDetailModal'
 import {
   getOrderRole,
-  canViewOrders,
   canCreateOrders,
   canEditOrders,
   canDeleteOrders,
   canApproveOrders,
-  canMoveOrderStage,
   filterOrderEditPayload,
   ORDER_ROLES,
 } from '../../operations/orderPermissions'
@@ -183,7 +180,6 @@ export default function CommonOrdersTab({
   }, [rawOrders, userRole])
 
   const customers = useSelector((state) => state.erp?.customers || [])
-  const commonProducts = useSelector((state) => state.erp?.commonProducts || [])
   const dosageForms = useSelector(selectDosageForms)
 
   // Filters

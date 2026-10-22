@@ -1,5 +1,3 @@
-import cmhpLogo from '../../assets/cmhp_bmr_logo.png'
-import masterCopyImg from '../../assets/cmhp_master_copy.png'
 
 export function getSyrupPageRenderers({
   data,

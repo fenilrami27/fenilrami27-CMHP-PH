@@ -10,7 +10,6 @@ import { hrService } from './hrService'
 import { companyService } from '../companies/companyService'
 import { allowedCompanyIds, canManageAttendance } from './permissions'
 import { logAudit } from '../../utils/audit'
-import { formatDateTimeIN } from '../../utils/formatters'
 
 import PageHeader from '../../components/PageHeader'
 import '../companies/Companies.css'
@@ -67,7 +66,6 @@ export default function Attendance() {
   const [activeTab, setActiveTab] = useState('roster')
 
   const [myToday, setMyToday] = useState(null)
-  const [myHistory, setMyHistory] = useState([])
   const [busy, setBusy] = useState(false)
   const [myError, setMyError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -152,7 +150,6 @@ export default function Attendance() {
         hrService.getMyAttendanceHistory(user.id, 14),
       ])
       setMyToday(todayResponse.data)
-      setMyHistory(historyResponse.data || [])
     } catch (err) {
       setMyError(getErrorMessage(err))
     }
