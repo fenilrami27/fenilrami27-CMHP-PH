@@ -1856,7 +1856,7 @@ export default function Employees() {
                     <div style={{ fontSize: 20, fontWeight: 800, color: '#b91c1c', marginTop: 4 }}>1</div>
                   </div>
                   <div style={{ padding: '12px 14px', background: '#fefce8', border: '1px solid #fef08a', borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: '#854d0e', fontWeight: 700 }}>LATE PUNCHES</div>
+                    <div style={{ fontSize: 11, color: '#854d0e', fontWeight: 700 }}>LATE CHECK-INS</div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: '#a16207', marginTop: 4 }}>2</div>
                   </div>
                 </div>

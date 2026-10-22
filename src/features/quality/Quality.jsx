@@ -1242,7 +1242,7 @@ export default function Quality() {
                       <td>
                         <div style={{ fontWeight: 600, color: '#123f61' }}>{req.productName}</div>
                         <div style={{ fontSize: '12px', color: '#64748b' }}>
-                          Code: <strong>{req.productCode}</strong> • Form: {req.dosageForm || 'Oral Liquid'}
+                          Code: <strong>{req.productCode}</strong> • Form: {req.dosageForm || 'Liquid'}
                         </div>
                       </td>
                       <td>
@@ -1730,7 +1730,7 @@ export default function Quality() {
               companyName={activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
               companyCode={activeCompanyId === 2 ? 'TEJ' : 'CMHP'}
               department={
-                reviewFormulaModal.dosageForm === 'Syrups' || reviewFormulaModal.dosageForm === 'Suspension'
+                ['Liquid', 'Syrup', 'Drops', 'Oil', 'Syrups', 'Suspension'].includes(reviewFormulaModal.dosageForm)
                   ? 'PRODUCTION ( ORAL LIQUID DEPARTMENT )'
                   : 'PRODUCTION ( ORAL SOLID DOSAGE DEPARTMENT )'
               }

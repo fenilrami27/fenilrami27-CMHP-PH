@@ -38,6 +38,12 @@ import Orders
 import Quality
   from '../features/quality/Quality'
 
+import Production
+  from '../features/production/Production'
+
+import BmrForm
+  from '../features/production/BmrForm'
+
 import Invoice
   from '../features/invoice/Invoice'
 
@@ -335,6 +341,65 @@ export default function AppRoutes() {
                 ]}
               >
                 <Quality />
+              </RoleRoute>
+            }
+          />
+
+
+          {/* =================================================
+              PRODUCTION & BMR
+              ================================================= */}
+
+          <Route
+            path="/production"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <Production />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/production/bmr"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <BmrForm />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/production/bmr/:orderId"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <BmrForm />
               </RoleRoute>
             }
           />

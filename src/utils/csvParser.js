@@ -83,7 +83,7 @@ export function validateProductRows(rows, existingCodes = []) {
     const errors = []
     const code = String(row.code || '').trim()
     const name = String(row.name || '').trim()
-    const category = String(row.category || 'Tablets').trim()
+    const category = String(row.category || 'Liquid').trim()
     const uom = String(row.uom || 'Pack').trim()
     const reorderLevel = Number(row.reorder_level || 0)
     const unitCost = Number(row.unit_cost || 0)
@@ -232,8 +232,8 @@ export function downloadSampleCsv(type = 'products') {
   if (type === 'products') {
     content = [
       'code,name,category,uom,reorder_level,unit_cost,description',
-      'PRD-1001,Paracetamol 500mg,Tablets,Pack,500,24.50,Standard 500mg blister pack',
-      'PRD-1002,Amoxicillin 250mg,Capsules,Bottle,200,65.00,Broad-spectrum antibiotic bottle of 60',
+      'PRD-1001,Paracetamol 500mg,Tablet,Pack,500,24.50,Standard 500mg blister pack',
+      'PRD-1002,Amoxicillin 250mg,Capsule,Bottle,200,65.00,Broad-spectrum antibiotic bottle of 60',
     ].join('\r\n')
     filename = 'common_products_template.csv'
   } else {

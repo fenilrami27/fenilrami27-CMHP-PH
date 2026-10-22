@@ -83,6 +83,8 @@ export const SECTION_A_FIELDS = [
   'product_name',
   'product_type',
   'type',
+  'dosage_form',
+  'dosageForm',
   'product_subtype',
   'subtype',
   'company',

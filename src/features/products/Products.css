@@ -53,11 +53,12 @@
   align-items: center;
   gap: 14px;
   background: #ffffff;
-  padding: 16px 20px;
+  padding: 14px 18px;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   box-shadow: 0 2px 6px rgba(18, 63, 97, 0.04);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .products-search-filters {
@@ -66,7 +67,7 @@
   gap: 12px;
   flex: 1;
   min-width: 280px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .products-search-box {
@@ -188,12 +189,14 @@
   letter-spacing: 0.2px;
 }
 
+.dosage-liquid { background: #e0f2fe; color: #0284c7; }
 .dosage-tablet { background: #e0f2fe; color: #0369a1; }
 .dosage-capsule { background: #f3e8ff; color: #7e22ce; }
 .dosage-syrup { background: #fef3c7; color: #b45309; }
-.dosage-suspension { background: #ccfbf1; color: #0f766e; }
-.dosage-injection { background: #ffe4e6; color: #be123c; }
-.dosage-ointment, .dosage-cream, .dosage-gel { background: #dcfce7; color: #15803d; }
+.dosage-drops { background: #ccfbf1; color: #0f766e; }
+.dosage-oil { background: #ffedd5; color: #c2410c; }
+.dosage-kits { background: #fce7f3; color: #be185d; }
+.dosage-pills { background: #f1f5f9; color: #334155; }
 .dosage-default { background: #f1f5f9; color: #475569; }
 
 .prd-actions-cell {

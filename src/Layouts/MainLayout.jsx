@@ -27,6 +27,7 @@ import {
   WalletIcon,
   ClipboardIcon,
   BuildingIcon,
+  FactoryIcon,
 } from '../components/icons'
 
 import {
@@ -92,6 +93,15 @@ const NAV_SECTIONS = [
         accent: '#34d399',
         companyOnly: true,
         roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER'],
+      },
+
+      {
+        label: 'Production',
+        path: '/production',
+        icon: FactoryIcon,
+        accent: '#f97316',
+        companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER', 'HR_MANAGER', 'EMPLOYEE'],
       },
 
       {

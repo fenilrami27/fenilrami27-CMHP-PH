@@ -34,33 +34,37 @@ import {
   exportFormulaExcel,
   exportFormulaCsv,
 } from '../../utils/formulaExport'
+import { calculateItemStockFromLedger } from '../../utils/stockSelectors'
+import { DOSAGE_FORMS, DEFAULT_DOSAGE_FORM } from '../../constants/dosageForms'
+import { selectDosageForms, addDosageForm } from '../../store/erpSlice'
 import './Products.css'
-
-const DOSAGE_FORMS = [
-  'Tablet',
-  'Capsule',
-  'Syrup',
-  'Suspension',
-  'Injection',
-  'Ointment',
-  'Cream',
-  'Gel',
-  'Drops',
-  'Inhaler',
-  'Solution',
-  'Powder',
-  'Emulsion',
-]
-
-const COMMON_RAW_MATERIALS = []
 
 export default function Products() {
   const dispatch = useDispatch()
+  const erpState = useSelector((state) => state.erp || {})
   const products = useSelector(selectProducts)
   const formulas = useSelector(selectFormulas)
   const formulaApprovals = useSelector(selectFormulaApprovals)
   const activeCompanyId = useSelector(selectActiveCompanyId)
   const activeCompanyKey = useSelector(selectActiveCompanyKey)
+
+  const commonRawMaterials = erpState.commonRawMaterials || []
+  const reduxDosageForms = useSelector(selectDosageForms)
+  const dosageForms = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : DOSAGE_FORMS
+  const [customDosageForm, setCustomDosageForm] = useState('')
+  const [isCustomType, setIsCustomType] = useState(false)
+  const stockLedgerEntries = erpState.stockLedgerEntries || []
+
+  // Catalog of raw materials with available stock from Stock Ledger
+  const availableRawMaterialsCatalog = useMemo(() => {
+    return commonRawMaterials.map((mat) => {
+      const avail = calculateItemStockFromLedger({ erp: erpState }, mat)
+      return {
+        ...mat,
+        availableStock: avail,
+      }
+    })
+  }, [commonRawMaterials, stockLedgerEntries, erpState])
 
   // QC Approval Flow State
   const [showApprovalModal, setShowApprovalModal] = useState(false)
@@ -87,7 +91,7 @@ export default function Products() {
   const [productForm, setProductForm] = useState({
     name: '',
     code: '',
-    dosage_form: 'Tablet',
+    dosage_form: DEFAULT_DOSAGE_FORM,
     strength: '',
     pack_size: '',
     description: '',
@@ -419,11 +423,13 @@ export default function Products() {
 
   const handleOpenAddProduct = () => {
     setModalError('')
+    setIsCustomType(false)
+    setCustomDosageForm('')
     const generatedCode = previewDocumentNumber('PRODUCT', activeCompanyId)
     setProductForm({
       name: '',
       code: generatedCode,
-      dosage_form: 'Tablet',
+      dosage_form: DEFAULT_DOSAGE_FORM,
       strength: '',
       pack_size: '',
       description: '',
@@ -433,10 +439,12 @@ export default function Products() {
 
   const handleOpenEditProduct = (product) => {
     setModalError('')
+    setIsCustomType(false)
+    setCustomDosageForm('')
     setProductForm({
       name: product.name || '',
       code: product.code || '',
-      dosage_form: product.dosage_form || 'Tablet',
+      dosage_form: product.dosage_form || DEFAULT_DOSAGE_FORM,
       strength: product.strength || '',
       pack_size: product.pack_size || '',
       description: product.description || '',
@@ -461,13 +469,23 @@ export default function Products() {
       return
     }
 
+    const finalDosageForm = isCustomType ? customDosageForm.trim() : productForm.dosage_form
+    if (!finalDosageForm) {
+      setModalError(isCustomType ? 'Please enter the new dosage form / type name.' : 'Dosage Form is required.')
+      return
+    }
+
+    if (isCustomType && customDosageForm.trim()) {
+      dispatch(addDosageForm(customDosageForm.trim()))
+    }
+
     if (productModalMode === 'add') {
       const finalCode = commitDocumentNumber('PRODUCT', activeCompanyId)
       dispatch(
         addProduct({
           name: productForm.name.trim(),
           code: finalCode,
-          dosage_form: productForm.dosage_form,
+          dosage_form: finalDosageForm,
           strength: productForm.strength.trim(),
           pack_size: productForm.pack_size.trim(),
           description: productForm.description.trim(),
@@ -485,7 +503,7 @@ export default function Products() {
           id: activeProduct?.id || selectedProductId,
           payload: {
             name: productForm.name.trim(),
-            dosage_form: productForm.dosage_form,
+            dosage_form: finalDosageForm,
             strength: productForm.strength.trim(),
             pack_size: productForm.pack_size.trim(),
             description: productForm.description.trim(),
@@ -821,7 +839,7 @@ export default function Products() {
                 onChange={(e) => setDosageFilter(e.target.value)}
               >
                 <option value="">All Dosage Forms</option>
-                {DOSAGE_FORMS.map((df) => (
+                {dosageForms.map((df) => (
                   <option key={df} value={df}>
                     {df}
                   </option>
@@ -1347,11 +1365,27 @@ export default function Products() {
                       list="common-materials-list"
                       placeholder="Enter raw material name (API, binder, excipient...)"
                       value={materialForm.name}
-                      onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        const matched = availableRawMaterialsCatalog.find(
+                          (m) => m.name.toLowerCase() === val.toLowerCase()
+                        )
+                        setMaterialForm((prev) => ({
+                          ...prev,
+                          name: val,
+                          unit: matched?.base_unit || prev.unit,
+                        }))
+                      }}
                     />
                     <datalist id="common-materials-list">
-                      {COMMON_RAW_MATERIALS.map((mat) => (
-                        <option key={mat} value={mat} />
+                      {availableRawMaterialsCatalog.map((mat) => (
+                        <option
+                          key={mat.id || mat.name}
+                          value={mat.name}
+                          label={`${mat.name} (Available: ${mat.availableStock} ${mat.base_unit || 'KG'})`}
+                        >
+                          {mat.name} [Avail: ${mat.availableStock} ${mat.base_unit || 'KG'}]
+                        </option>
                       ))}
                     </datalist>
                   </div>
@@ -1969,15 +2003,41 @@ export default function Products() {
               </label>
               <select
                 className="pharma-select"
-                value={productForm.dosage_form}
-                onChange={(e) => setProductForm({ ...productForm, dosage_form: e.target.value })}
+                value={isCustomType ? '__NEW_TYPE__' : productForm.dosage_form}
+                onChange={(e) => {
+                  if (e.target.value === '__NEW_TYPE__') {
+                    setIsCustomType(true)
+                  } else {
+                    setIsCustomType(false)
+                    setProductForm({ ...productForm, dosage_form: e.target.value })
+                  }
+                }}
               >
-                {DOSAGE_FORMS.map((df) => (
+                {!dosageForms.includes(productForm.dosage_form) && productForm.dosage_form && !isCustomType && (
+                  <option value={productForm.dosage_form}>
+                    {productForm.dosage_form}
+                  </option>
+                )}
+                {dosageForms.map((df) => (
                   <option key={df} value={df}>
                     {df}
                   </option>
                 ))}
+                <option value="__NEW_TYPE__">+ Add New Type...</option>
               </select>
+              {isCustomType && (
+                <div style={{ marginTop: 6 }}>
+                  <input
+                    type="text"
+                    className="pharma-input"
+                    placeholder="Enter new dosage form / type (e.g. Inhalation, Ointment, Gel)"
+                    value={customDosageForm}
+                    onChange={(e) => setCustomDosageForm(e.target.value)}
+                    autoFocus
+                    required
+                  />
+                </div>
+              )}
             </div>
 
             <div className="pharma-form-row">
@@ -2232,7 +2292,7 @@ export default function Products() {
               approval={activeApproval}
               companyName={activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
               companyCode={activeCompanyId === 2 ? 'TEJ' : 'CMHP'}
-              department={activeProduct?.dosage_form === 'Syrups' || activeProduct?.dosage_form === 'Suspension' ? 'PRODUCTION ( ORAL LIQUID DEPARTMENT )' : 'PRODUCTION ( ORAL SOLID DOSAGE DEPARTMENT )'}
+              department={['Liquid', 'Syrup', 'Drops', 'Oil', 'Syrups', 'Suspension'].includes(activeProduct?.dosage_form) ? 'PRODUCTION ( ORAL LIQUID DEPARTMENT )' : 'PRODUCTION ( ORAL SOLID DOSAGE DEPARTMENT )'}
             />
           </div>
         </Modal>

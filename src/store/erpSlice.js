@@ -23,6 +23,23 @@ import {
   filterOrderEditPayload,
 } from '../features/operations/orderPermissions'
 import { storage } from '../utils/storage'
+import { calculateItemStockFromLedger } from '../utils/stockSelectors'
+import { DOSAGE_FORMS } from '../constants/dosageForms'
+
+function ensureDosageForm(state, form) {
+  if (!form || typeof form !== 'string') return
+  const trimmed = form.trim()
+  if (!trimmed) return
+  if (!Array.isArray(state.dosageForms)) {
+    state.dosageForms = [...DOSAGE_FORMS]
+  }
+  const exists = state.dosageForms.some(
+    (df) => df.toLowerCase() === trimmed.toLowerCase()
+  )
+  if (!exists) {
+    state.dosageForms.push(trimmed)
+  }
+}
 
 
 let lastGeneratedId =
@@ -68,8 +85,8 @@ function patchById(
   const item =
     list.find(
       (x) =>
-        Number(x.id) ===
-        Number(id)
+        String(x.id) === String(id) ||
+        (id != null && Number(x.id) === Number(id))
     )
 
 
@@ -93,8 +110,8 @@ function deleteById(
   const index =
     list.findIndex(
       (x) =>
-        Number(x.id) ===
-        Number(id)
+        String(x.id) === String(id) ||
+        (id != null && Number(x.id) === Number(id))
     )
 
 
@@ -121,8 +138,8 @@ function setStatusById(
   const item =
     list.find(
       (x) =>
-        Number(x.id) ===
-        Number(id)
+        String(x.id) === String(id) ||
+        (id != null && Number(x.id) === Number(id))
     )
 
 
@@ -223,10 +240,10 @@ export const initialState = {
 
   byCompany: {
     cmhp: {
-      products: [],
+      products: SEED_PRODUCTS.filter((p) => p.company === 1 || p.companyId === 'cmhp'),
       formulas: SEED_FORMULAS.filter((f) => f.company === 1),
       formulaApprovals: SEED_FORMULA_APPROVALS.filter((a) => a.company === 1),
-      orders: [],
+      orders: SEED_ORDERS.filter((o) => o.company === 1 || o.companyId === 'cmhp'),
       batches: [],
       qcRecords: [],
       qaRecords: [],
@@ -255,10 +272,10 @@ export const initialState = {
       stockRequests: [],
     },
     tej: {
-      products: [],
+      products: SEED_PRODUCTS.filter((p) => p.company === 2 || p.companyId === 'tej'),
       formulas: SEED_FORMULAS.filter((f) => f.company === 2),
       formulaApprovals: SEED_FORMULA_APPROVALS.filter((a) => a.company === 2),
-      orders: [],
+      orders: SEED_ORDERS.filter((o) => o.company === 2 || o.companyId === 'tej'),
       batches: [],
       qcRecords: [],
       qaRecords: [],
@@ -518,6 +535,7 @@ export const initialState = {
   */
 
   products: [...SEED_PRODUCTS],
+  dosageForms: [...DOSAGE_FORMS],
 
   customers: [...SEED_CUSTOMERS],
 
@@ -549,9 +567,11 @@ export const initialState = {
 
   quotations: [],
 
-  orders: [],
+  orders: [...SEED_ORDERS],
 
   batches: [],
+
+  bmrs: {},
 
 
   /*
@@ -878,6 +898,7 @@ const erpSlice = createSlice({
 
     addCommonProduct: (state, action) => {
       if (!state.commonProducts) state.commonProducts = []
+      ensureDosageForm(state, action.payload?.dosage_form || action.payload?.category || action.payload?.type)
       state.commonProducts.push({
         id: nextId(),
         created_at: nowIso(),
@@ -890,6 +911,7 @@ const erpSlice = createSlice({
 
     editCommonProduct: (state, action) => {
       if (!state.commonProducts) state.commonProducts = []
+      ensureDosageForm(state, action.payload?.payload?.dosage_form || action.payload?.payload?.category || action.payload?.payload?.type)
       patchById(state.commonProducts, action.payload.id, action.payload.payload)
     },
 
@@ -915,18 +937,127 @@ const erpSlice = createSlice({
 
     addCommonRawMaterial: (state, action) => {
       if (!state.commonRawMaterials) state.commonRawMaterials = []
-      state.commonRawMaterials.push({
-        id: nextId(),
+      const newId = action.payload?.id || nextId()
+      const currentStock = Number(action.payload?.current_stock) || 0
+      const material = {
+        id: newId,
         created_at: nowIso(),
-        current_stock: 0,
+        current_stock: currentStock,
         reorder_level: 0,
         ...action.payload,
-      })
+      }
+      state.commonRawMaterials.push(material)
+
+      // Auto-create first Stock Ledger entry (Opening Stock) if stock is entered > 0
+      if (currentStock > 0) {
+        if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+        const code = material.code || `RM-${newId}`
+        const name = material.name || 'Raw Material'
+        const entryDate =
+          action.payload?.date ||
+          (material.created_at ? material.created_at.slice(0, 10) : nowIso().slice(0, 10))
+
+        const existingOpening = state.stockLedgerEntries.find(
+          (e) =>
+            (String(e.item_id) === String(newId) ||
+              (e.item_code && String(e.item_code).trim().toLowerCase() === String(code).trim().toLowerCase())) &&
+            e.type === 'OPENING' &&
+            !e.reversed
+        )
+
+        if (!existingOpening) {
+          const packSize = Number(material.pack_size) || 25
+          const uom = material.uom || 'KG'
+          const containers = `${Math.floor(currentStock / packSize)}*${packSize}${uom}`
+
+          state.stockLedgerEntries.push({
+            id: nextId(),
+            item_id: newId,
+            item_code: code,
+            item_name: name,
+            type: 'OPENING',
+            financial_year: action.payload?.financial_year || '2026-27',
+            date: entryDate,
+            invoice_no: `Opening stock ${code}`,
+            receipt_no: 'OPENING',
+            reference: `Opening stock ${code}`,
+            supplier: 'Opening Stock',
+            received_quantity: currentStock,
+            issued_quantity: 0,
+            running_balance: currentStock,
+            no_of_containers: containers,
+            price: '—',
+            remark: `Opening stock ${code}`,
+            remarks: `Opening stock ${code}`,
+            created_by: action.payload?.created_by || 'Admin',
+            created_at: nowIso(),
+            reversed: false,
+          })
+        }
+      }
     },
 
     editCommonRawMaterial: (state, action) => {
       if (!state.commonRawMaterials) state.commonRawMaterials = []
-      patchById(state.commonRawMaterials, action.payload.id, action.payload.payload)
+      const id = action.payload?.id
+      const payload = action.payload?.payload !== undefined ? action.payload.payload : action.payload || {}
+      const existing = state.commonRawMaterials.find((m) => String(m.id) === String(id))
+
+      if (existing) {
+        const oldStock = calculateItemStockFromLedger(state, existing, Number(existing.current_stock) || 0)
+        const hasStockChange =
+          payload.current_stock !== undefined &&
+          payload.current_stock !== null &&
+          Number(payload.current_stock) !== oldStock
+
+        // If the user later corrects the stock, record it as a clearly labelled "Stock Adjustment" ledger entry
+        if (hasStockChange) {
+          const newStock = Number(payload.current_stock) || 0
+          const variance = newStock - oldStock
+          const code = payload.code || existing.code
+          const name = payload.name || existing.name
+          const adjDate = payload.date || nowIso().slice(0, 10)
+
+          if (!state.stockLedgerEntries) state.stockLedgerEntries = []
+          state.stockLedgerEntries.push({
+            id: nextId(),
+            item_id: existing.id,
+            item_code: code,
+            item_name: name,
+            type: 'ADJUSTMENT',
+            financial_year: payload.financial_year || '2026-27',
+            date: adjDate,
+            invoice_no: 'ADJUSTMENT',
+            reference: `Stock Adjustment - ${code}`,
+            supplier: 'Stock Adjustment',
+            physical_stock: newStock,
+            system_stock: oldStock,
+            variance: variance,
+            received_quantity: variance > 0 ? variance : 0,
+            issued_quantity: variance < 0 ? Math.abs(variance) : 0,
+            remark: `Stock adjusted from ${oldStock} to ${newStock} via Material Master`,
+            remarks: `Stock adjusted from ${oldStock} to ${newStock} via Material Master`,
+            created_by: action.payload?.created_by || 'Admin',
+            created_at: nowIso(),
+            reversed: false,
+          })
+        }
+
+        // Keep code and name in sync across ledger entries if updated
+        if (payload.code || payload.name) {
+          ;(state.stockLedgerEntries || []).forEach((e) => {
+            if (
+              String(e.item_id) === String(existing.id) ||
+              (e.item_code && String(e.item_code).toUpperCase() === String(existing.code).toUpperCase())
+            ) {
+              if (payload.code) e.item_code = payload.code
+              if (payload.name) e.item_name = payload.name
+            }
+          })
+        }
+
+        Object.assign(existing, payload)
+      }
     },
 
     deleteCommonRawMaterial: (state, action) => {
@@ -1032,9 +1163,15 @@ const erpSlice = createSlice({
             financial_year: '2026-27',
             date: nowIso().slice(0, 10),
             batch_no: batchNumber,
+            order_no: orderNumber || orderId,
+            reference: `Batch #${batchNumber} (Order #${orderNumber || orderId})`,
+            product_name: productName,
             name_of_product: productName,
+            supplier: productName,
+            received_quantity: 0,
             issued_quantity: qty,
-            remark: mat.remark || `${qty} KG (${Math.ceil(qty / 25)} Bag)`,
+            remark: mat.remark || `Batch #${batchNumber} (Order #${orderNumber || orderId}) - ${productName}`,
+            remarks: mat.remark || `Batch #${batchNumber} (Order #${orderNumber || orderId}) - ${productName}`,
             created_at: nowIso(),
             reversed: false,
           }
@@ -1798,10 +1935,15 @@ const erpSlice = createSlice({
     */
 
 
+    addDosageForm: (state, action) => {
+      ensureDosageForm(state, action.payload)
+    },
+
     addProduct: (
       state,
       action
     ) => {
+      ensureDosageForm(state, action.payload?.dosage_form || action.payload?.category || action.payload?.type)
       addCompanyEntity(state, 'products', {
         id: nextId(),
         is_active: true,
@@ -1813,6 +1955,7 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
+      ensureDosageForm(state, action.payload?.payload?.dosage_form || action.payload?.payload?.category || action.payload?.payload?.type)
       patchCompanyEntity(
         state,
         'products',
@@ -2065,7 +2208,7 @@ const erpSlice = createSlice({
         productId: Number(p.productId) || p.productId,
         productName: p.productName || '',
         productCode: p.productCode || '',
-        dosageForm: p.dosageForm || 'Oral Liquid',
+        dosageForm: p.dosageForm || 'Liquid',
         formulaId: p.formulaId,
         formulaName: p.formulaName || '',
         revisionId: p.revisionId,
@@ -2459,6 +2602,82 @@ const erpSlice = createSlice({
       updateB((state.batches || []).find((x) => Number(x.id) === Number(batchId)))
       updateB((state.byCompany?.cmhp?.batches || []).find((x) => Number(x.id) === Number(batchId)))
       updateB((state.byCompany?.tej?.batches || []).find((x) => Number(x.id) === Number(batchId)))
+    },
+
+    /*
+    |--------------------------------------------------------------------------
+    | PRODUCTION & BMR
+    |--------------------------------------------------------------------------
+    */
+
+    saveBmrRecord: (
+      state,
+      action
+    ) => {
+      const { orderId, batchNo, bmrType, data, isDraft } = action.payload || {}
+      if (!state.bmrs) {
+        state.bmrs = {}
+      }
+      const orderKey = orderId ? String(orderId) : null
+      const batchKey = batchNo ? String(batchNo) : null
+      const type = (bmrType || data?.bmrType || 'drops').toLowerCase()
+      const typePrefix = type + '_'
+      const primaryKey = orderKey ? (typePrefix + orderKey) : (batchKey ? (typePrefix + batchKey) : (typePrefix + 'default'))
+
+      const existing = state.bmrs[primaryKey] || {}
+      const updated = {
+        ...existing,
+        ...(data || {}),
+        bmrType: type,
+        orderId: orderId ? String(orderId) : existing.orderId,
+        batchNo: batchNo || existing.batchNo,
+        isDraft: Boolean(isDraft),
+        savedAt: nowIso(),
+      }
+
+      state.bmrs[primaryKey] = updated
+      if (orderKey) state.bmrs[typePrefix + orderKey] = updated
+      if (batchKey) state.bmrs[typePrefix + batchKey] = updated
+
+      if (type === 'drops') {
+        if (orderKey) state.bmrs[orderKey] = updated
+        if (batchKey) state.bmrs[batchKey] = updated
+      }
+
+      if (orderId) {
+        patchCompanyEntity(state, 'orders', orderId, {
+          bmr_status: isDraft ? 'NO' : 'YES',
+        })
+      }
+    },
+
+    updateOrderProductionStatus: (
+      state,
+      action
+    ) => {
+      const { id, bmr_status, production_status, remark, packaging_status, dispatch } = action.payload || {}
+      const updates = {}
+      if (bmr_status !== undefined) updates.bmr_status = bmr_status
+      if (production_status !== undefined) updates.production_status = production_status
+      if (remark !== undefined) updates.production_remark = remark
+      if (packaging_status !== undefined) updates.packaging_status = packaging_status
+      if (dispatch !== undefined) updates.dispatch_status = dispatch
+
+      if (dispatch === 'YES' || dispatch === true) {
+        updates.status = 'DISPATCHED'
+      } else if (packaging_status === 'Completed') {
+        updates.status = 'PACKED'
+      } else if (packaging_status === 'In Process') {
+        updates.status = 'PACKAGING'
+      } else if (production_status === 'Completed') {
+        updates.status = 'PRODUCTION_COMPLETED'
+      } else if (production_status === 'In Process') {
+        updates.status = 'IN_PRODUCTION'
+      } else if (production_status === 'In Planning') {
+        updates.status = 'IN_PLANNING'
+      }
+
+      patchCompanyEntity(state, 'orders', id, updates)
     },
 
     /*
@@ -3475,6 +3694,12 @@ const erpSlice = createSlice({
       action
     ) => {
       const { user, company, shift } = action.payload
+      const targetUser = (state.users || []).find((u) => Number(u.id) === Number(user))
+      const targetRole = String(targetUser?.role || targetUser?.profile?.role || '').toUpperCase()
+      if (targetUser?.is_superuser || targetRole === 'SUPER_ADMIN' || targetRole === 'ADMIN') {
+        return
+      }
+
       const today = nowIso().slice(0, 10)
       const existing = (state.attendance || []).find(
         (record) => Number(record.user) === Number(user) && record.date === today
@@ -3509,6 +3734,12 @@ const erpSlice = createSlice({
       action
     ) => {
       const { user } = action.payload
+      const targetUser = (state.users || []).find((u) => Number(u.id) === Number(user))
+      const targetRole = String(targetUser?.role || targetUser?.profile?.role || '').toUpperCase()
+      if (targetUser?.is_superuser || targetRole === 'SUPER_ADMIN' || targetRole === 'ADMIN') {
+        return
+      }
+
       const today = nowIso().slice(0, 10)
       const record = (state.attendance || []).find(
         (r) => Number(r.user) === Number(user) && r.date === today
@@ -4217,6 +4448,9 @@ export const {
 
   setBatchQa,
 
+  saveBmrRecord,
+
+  updateOrderProductionStatus,
 
   // invoices
 
@@ -4414,10 +4648,39 @@ export const {
 
   // stock requests
   createStockRequest,
+  addDosageForm,
   updateStockRequestStatus,
 
 } =
   erpSlice.actions
 
+
+export const selectDosageForms = (state) => {
+  const base = Array.isArray(state.erp?.dosageForms) && state.erp.dosageForms.length
+    ? state.erp.dosageForms
+    : DOSAGE_FORMS
+  const result = [...base]
+  const seen = new Set(result.map((f) => String(f).trim().toLowerCase()))
+
+  const allProds = [
+    ...(state.erp?.products || []),
+    ...(state.erp?.commonProducts || []),
+    ...(state.erp?.byCompany?.cmhp?.products || []),
+    ...(state.erp?.byCompany?.tej?.products || []),
+  ]
+  allProds.forEach((p) => {
+    const val = p?.dosage_form || p?.category || p?.type
+    if (val && typeof val === 'string') {
+      const trimmed = val.trim()
+      const lower = trimmed.toLowerCase()
+      if (trimmed && !seen.has(lower)) {
+        seen.add(lower)
+        result.push(trimmed)
+      }
+    }
+  })
+
+  return result
+}
 
 export default erpSlice.reducer

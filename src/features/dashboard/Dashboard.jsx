@@ -17,6 +17,7 @@ import {
 } from '../../utils/companySelectors'
 import { inventoryService } from '../inventory/inventoryService'
 import { getErrorMessage } from '../../utils/errors'
+import CheckInOutSection from '../hrms/CheckInOutSection'
 
 import './Dashboard.css'
 import '../inventory/tabs/CommonInventory.css'
@@ -465,6 +466,9 @@ export default function Dashboard() {
             </div>
           </div>
         </section>
+
+        {/* Check In / Check Out Section */}
+        <CheckInOutSection />
 
         {/* Employee Cards */}
         <section className="dash-kpis-grid">

@@ -10,6 +10,7 @@ import { Sparkline, DonutChart, AreaTrendChart, BarChart } from '../dashboard/ch
 
 import { hrService } from './hrService'
 import { allowedCompanyIds, canViewHrReports } from './permissions'
+import CheckInOutSection from './CheckInOutSection'
 
 import '../dashboard/Dashboard.css'
 import './Hrms.css'
@@ -273,10 +274,13 @@ export default function HrDashboard() {
         </div>
       ) : (
         <>
+          {/* Check In / Check Out Section (for non-admin HR / Employee roles) */}
+          <CheckInOutSection />
+
           {/* =========================================================
-              1. KPI ROW (6 CORE HR METRICS)
+              1. KPI ROW (6 CORE HR METRICS) - 3 CARDS PER ROW
               ========================================================= */}
-          <section className="hr-kpis-grid">
+          <section className="hr-kpis-grid hr-dashboard-kpis-grid">
             <Link to="/hrms/employees" className="hr-kpi-link">
               <div className="hr-kpi-head">
                 <span className="hr-kpi-icon" style={{ background: '#eff6ff', color: '#0284c7' }}>
@@ -338,7 +342,7 @@ export default function HrDashboard() {
               </div>
               <div className="hr-kpi-title">Absent Today</div>
               <div className="hr-kpi-footer">
-                <span>Unaccounted / Unpunched</span>
+                <span>Unaccounted / Not Checked In</span>
                 <span style={{ color: '#dc2626', fontWeight: 600 }}>Review →</span>
               </div>
             </Link>

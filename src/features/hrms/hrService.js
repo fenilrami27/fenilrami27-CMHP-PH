@@ -1473,6 +1473,13 @@ export const hrService = {
         shift,
     }) {
 
+        const state = store.getState().erp
+        const targetUser = (state.users || []).find((u) => Number(u.id) === Number(user))
+        const role = String(targetUser?.role || targetUser?.profile?.role || '').toUpperCase()
+        if (targetUser?.is_superuser || role === 'SUPER_ADMIN' || role === 'ADMIN') {
+            return delay(null)
+        }
+
         const employee =
             assertEmployeeCompany(
                 user
@@ -1505,6 +1512,13 @@ export const hrService = {
     doCheckOut({
         user,
     }) {
+
+        const state = store.getState().erp
+        const targetUser = (state.users || []).find((u) => Number(u.id) === Number(user))
+        const role = String(targetUser?.role || targetUser?.profile?.role || '').toUpperCase()
+        if (targetUser?.is_superuser || role === 'SUPER_ADMIN' || role === 'ADMIN') {
+            return delay(null)
+        }
 
         const employee =
             assertEmployeeCompany(

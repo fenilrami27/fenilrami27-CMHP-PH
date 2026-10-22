@@ -1166,6 +1166,11 @@
   margin-bottom: 22px;
 }
 
+/* Dedicated 3-cards-per-row layout for HR Command Center Dashboard */
+.hr-dashboard-kpis-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .hr-kpi-link {
   display: block;
   text-decoration: none;

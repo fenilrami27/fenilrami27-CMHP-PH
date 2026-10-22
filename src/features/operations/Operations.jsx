@@ -59,6 +59,8 @@ const PRODUCT_TYPE_OPTIONS = [
 
 
 
+import { useSelector } from 'react-redux'
+import { selectDosageForms } from '../../store/erpSlice'
 import {
   getOrderEditFields,
   canEditOrders,
@@ -855,6 +857,9 @@ export default function Operations({
   standaloneOrders = false,
   standaloneCustomers = false,
 }) {
+
+  const reduxDosageForms = useSelector(selectDosageForms)
+  const productTypeOptions = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : PRODUCT_TYPE_OPTIONS
 
   const [
     tab,
@@ -3014,6 +3019,8 @@ export default function Operations({
                         <td>
                           {
                             order.product_type ||
+                            order.type ||
+                            order.dosage_form ||
                             '—'
                           }
                         </td>
@@ -4128,7 +4135,7 @@ export default function Operations({
                     Select type
                   </option>
 
-                  {PRODUCT_TYPE_OPTIONS.map(
+                  {productTypeOptions.map(
                     (type) => (
 
                       <option
@@ -4525,7 +4532,7 @@ export default function Operations({
                           Select type
                         </option>
 
-                        {PRODUCT_TYPE_OPTIONS.map(
+                        {productTypeOptions.map(
                           (type) => (
 
                             <option

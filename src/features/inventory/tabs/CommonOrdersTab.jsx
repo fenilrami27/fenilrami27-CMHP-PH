@@ -12,6 +12,7 @@ import {
   setOrderStatus,
   confirmSampleQuantity,
   updateSampleQuantity,
+  selectDosageForms,
 } from '../../../store/erpSlice'
 import { dispatchNotification } from '../../../utils/notifications'
 import { logAudit } from '../../../utils/audit'
@@ -183,10 +184,12 @@ export default function CommonOrdersTab({
 
   const customers = useSelector((state) => state.erp?.customers || [])
   const commonProducts = useSelector((state) => state.erp?.commonProducts || [])
+  const dosageForms = useSelector(selectDosageForms)
 
   // Filters
   const [search, setSearch] = useState('')
   const [companyFilter, setCompanyFilter] = useState('ALL') // 'ALL' | '1' | '2'
+  const [typeFilter, setTypeFilter] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [deadlineToFilter, setDeadlineToFilter] = useState('ALL') // 'ALL' | 'OVERDUE' | 'WEEK' | 'MONTH'
   const [startDate, setStartDate] = useState('')
@@ -313,6 +316,11 @@ export default function CommonOrdersTab({
         return Number(o.company) === Number(companyFilter)
       })
       .filter((o) => {
+        if (typeFilter === 'ALL') return true
+        const ordType = String(o.product_type || o.type || o.dosage_form || o.dosageForm || '').toLowerCase()
+        return ordType === typeFilter.toLowerCase()
+      })
+      .filter((o) => {
         if (statusFilter === 'ALL') return true
         return String(o.status || 'DRAFT').toUpperCase() === statusFilter
       })
@@ -339,7 +347,7 @@ export default function CommonOrdersTab({
         const deadB = b.delivery_deadline || b.delivery_date || '9999-12-31'
         return String(deadA).localeCompare(String(deadB))
       })
-  }, [rawOrders, search, companyFilter, statusFilter, deadlineToFilter, startDate, endDate, customers])
+  }, [rawOrders, search, companyFilter, typeFilter, statusFilter, deadlineToFilter, startDate, endDate, customers])
 
   const totalPages = Math.ceil(filteredOrders.length / pageSize) || 1
   const paginatedOrders = filteredOrders.slice((page - 1) * pageSize, page * pageSize)
@@ -642,6 +650,10 @@ export default function CommonOrdersTab({
         number: num,
         company: targetComp,
         order_number: num,
+        product_type: modalFormData.product_type,
+        type: modalFormData.product_type,
+        dosage_form: modalFormData.product_type,
+        dosageForm: modalFormData.product_type,
         order_date: modalFormData.date_of_order || new Date().toISOString().slice(0, 10),
         delivery_deadline: modalFormData.planned_mfg_date,
         delivery_date: modalFormData.planned_mfg_date,
@@ -691,6 +703,10 @@ export default function CommonOrdersTab({
       const updated = {
         ...selectedOrder,
         ...filteredPayload,
+        product_type: modalFormData.product_type || selectedOrder.product_type || selectedOrder.type,
+        type: modalFormData.product_type || selectedOrder.type || selectedOrder.product_type,
+        dosage_form: modalFormData.product_type || selectedOrder.dosage_form || selectedOrder.product_type,
+        dosageForm: modalFormData.product_type || selectedOrder.dosageForm || selectedOrder.product_type,
         status: shouldAdvanceToConfirmed ? 'CONFIRMED' : (filteredPayload.status || selectedOrder.status),
         total_amount: calculatedTotal || selectedOrder.total_amount || 0,
         delivery_deadline: modalFormData.planned_mfg_date || selectedOrder.delivery_deadline,
@@ -852,6 +868,22 @@ export default function CommonOrdersTab({
         )}
 
         <select
+          value={typeFilter}
+          onChange={(e) => {
+            setTypeFilter(e.target.value)
+            setPage(1)
+          }}
+          className="company-input"
+          style={{ width: 140 }}
+          title="Filter by Type"
+        >
+          <option value="ALL">All Types</option>
+          {dosageForms.map((df) => (
+            <option key={df} value={df}>{df}</option>
+          ))}
+        </select>
+
+        <select
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value)
@@ -985,6 +1017,11 @@ export default function CommonOrdersTab({
                         {ord.product_code && (
                           <div style={{ fontSize: 11, color: '#64748b' }}>
                             Code: {ord.product_code}
+                          </div>
+                        )}
+                        {(ord.product_type || ord.type || ord.dosage_form) && (
+                          <div style={{ fontSize: 11, color: '#0369a1', marginTop: 2, fontWeight: 500 }}>
+                            Type: {ord.product_type || ord.type || ord.dosage_form}
                           </div>
                         )}
                       </td>
