@@ -13,6 +13,7 @@ import {
 import { logAudit } from '../../../utils/audit'
 import { confirmAction } from '../../../utils/confirmAction'
 import { previewDocumentNumber, commitDocumentNumber } from '../../../utils/documentNumbers'
+import { selectItemStock } from '../../../utils/stockSelectors'
 import './CommonInventory.css'
 
 const DEFAULT_CATEGORIES = [
@@ -39,11 +40,13 @@ const EMPTY_FORM = {
   batch_no: '',
   expiry_date: '',
   description: '',
+  date: new Date().toISOString().slice(0, 10),
 }
 
 export default function CommonMaterialsTab({ role }) {
   const dispatch = useDispatch()
   const commonMaterials = useSelector((state) => state.erp?.commonRawMaterials || [])
+  const stockLedgerEntries = useSelector((state) => state.erp?.stockLedgerEntries || [])
 
   // Filter Bar State (Exact layout and behaviour as Orders page)
   const [search, setSearch] = useState('')
@@ -122,18 +125,23 @@ export default function CommonMaterialsTab({ role }) {
   // Open Edit Form modal on row Edit click
   const openEdit = (material) => {
     setEditing(material)
+    const currentStockVal = selectItemStock(
+      { erp: { stockLedgerEntries, commonRawMaterials } },
+      material
+    )
     setForm({
       code: material.code || '',
       name: material.name || '',
       category: material.category || 'Active API',
       uom: material.uom || 'KG',
-      current_stock: material.current_stock ?? 0,
+      current_stock: currentStockVal !== undefined ? currentStockVal : (material.current_stock ?? 0),
       reorder_level: material.reorder_level ?? 0,
       unit_cost: material.unit_cost ?? 0,
       supplier: material.supplier || '',
       batch_no: material.batch_no || '',
       expiry_date: material.expiry_date || '',
       description: material.description || '',
+      date: new Date().toISOString().slice(0, 10),
     })
     setError('')
     setModalOpen(true)
@@ -203,9 +211,15 @@ export default function CommonMaterialsTab({ role }) {
       batch_no: form.batch_no.trim(),
       expiry_date: form.expiry_date || null,
       description: form.description.trim(),
+      date: form.date || new Date().toISOString().slice(0, 10),
     }
 
     if (editing) {
+      const oldStock = Number(
+        selectItemStock({ erp: { stockLedgerEntries, commonRawMaterials } }, editing)
+      )
+      const stockChanged = currentStock !== oldStock
+
       dispatch(editCommonRawMaterial({ id: editing.id, payload }))
       logAudit({
         module: 'INVENTORY',
@@ -216,11 +230,24 @@ export default function CommonMaterialsTab({ role }) {
         changes: [
           { field: 'name', old_value: editing.name, new_value: name },
           { field: 'category', old_value: editing.category, new_value: form.category },
-          { field: 'current_stock', old_value: editing.current_stock, new_value: currentStock },
+          { field: 'current_stock', old_value: oldStock, new_value: currentStock },
           { field: 'unit_cost', old_value: editing.unit_cost, new_value: unitCost },
           { field: 'supplier', old_value: editing.supplier, new_value: form.supplier },
         ],
       })
+
+      if (stockChanged) {
+        const variance = currentStock - oldStock
+        logAudit({
+          module: 'STOCK_LEDGER',
+          entity_type: 'Stock Ledger',
+          entity_id: code,
+          action: 'STOCK_ADJUSTMENT',
+          details: `Stock adjusted for ${name} (${code}): was ${oldStock}, now ${currentStock} ${form.uom} (Variance: ${variance > 0 ? '+' : ''}${variance} ${form.uom})`,
+          description: `Stock adjusted for ${name} (${code}): was ${oldStock}, now ${currentStock}`,
+        })
+      }
+
       setSuccess(`Raw material "${name}" updated successfully.`)
     } else {
       commitDocumentNumber('ITEM')
@@ -232,6 +259,16 @@ export default function CommonMaterialsTab({ role }) {
         action: 'RAW_MATERIAL_ADDED',
         description: `Added raw material ${name} (${code})`,
       })
+      if (currentStock > 0) {
+        logAudit({
+          module: 'STOCK_LEDGER',
+          entity_type: 'Stock Ledger',
+          entity_id: code,
+          action: 'OPENING_STOCK_POSTED',
+          details: `Opening stock of ${currentStock} ${form.uom} posted to Stock Ledger for material ${code} [Ref: Opening stock ${code}]`,
+          description: `Opening stock of ${currentStock} ${form.uom} posted for ${name} (${code})`,
+        })
+      }
       setSuccess(`Raw material "${name}" created successfully.`)
     }
 
@@ -263,6 +300,26 @@ export default function CommonMaterialsTab({ role }) {
     setPage(1)
   }
 
+  // Helper to get live stock strictly from Stock Ledger
+  const getMaterialStock = (m) => {
+    return selectItemStock(
+      { erp: { stockLedgerEntries, commonRawMaterials: commonMaterials } },
+      m
+    )
+  }
+
+  const getStockStatus = (material) => {
+    const stock = getMaterialStock(material)
+    const reorder = Number(material.reorder_level || 0)
+    if (stock <= 0) {
+      return { label: 'Out of Stock', className: 'ci-badge ci-badge-out-of-stock', stock }
+    }
+    if (stock <= reorder) {
+      return { label: 'Low Stock', className: 'ci-badge ci-badge-low-stock', stock }
+    }
+    return { label: 'In Stock', className: 'ci-badge ci-badge-in-stock', stock }
+  }
+
   // Filter and Sort Raw Materials
   const filteredMaterials = useMemo(() => {
     return commonMaterials
@@ -285,7 +342,7 @@ export default function CommonMaterialsTab({ role }) {
       })
       .filter((m) => {
         if (stockFilter === 'ALL') return true
-        const stock = Number(m.current_stock || 0)
+        const stock = getMaterialStock(m)
         const reorder = Number(m.reorder_level || 0)
         if (stockFilter === 'OUT') return stock <= 0
         if (stockFilter === 'LOW') return stock > 0 && stock <= reorder
@@ -321,8 +378,8 @@ export default function CommonMaterialsTab({ role }) {
             valB = b.supplier || ''
             return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
           case 'current_stock':
-            valA = Number(a.current_stock || 0)
-            valB = Number(b.current_stock || 0)
+            valA = getMaterialStock(a)
+            valB = getMaterialStock(b)
             return sortDirection === 'asc' ? valA - valB : valB - valA
           case 'reorder_level':
             valA = Number(a.reorder_level || 0)
@@ -333,8 +390,8 @@ export default function CommonMaterialsTab({ role }) {
             valB = Number(b.unit_cost || 0)
             return sortDirection === 'asc' ? valA - valB : valB - valA
           case 'stock_value':
-            valA = Number(a.current_stock || 0) * Number(a.unit_cost || 0)
-            valB = Number(b.current_stock || 0) * Number(b.unit_cost || 0)
+            valA = getMaterialStock(a) * Number(a.unit_cost || 0)
+            valB = getMaterialStock(b) * Number(b.unit_cost || 0)
             return sortDirection === 'asc' ? valA - valB : valB - valA
           case 'expiry_date':
             valA = a.expiry_date || '9999-12-31'
@@ -349,6 +406,7 @@ export default function CommonMaterialsTab({ role }) {
       })
   }, [
     commonMaterials,
+    stockLedgerEntries,
     search,
     categoryFilter,
     supplierFilter,
@@ -359,7 +417,7 @@ export default function CommonMaterialsTab({ role }) {
     sortDirection,
   ])
 
-  // Summary Metrics (Updates live with filters)
+  // Summary Metrics (Updates live with filters & single source of truth)
   const summaryMetrics = useMemo(() => {
     let total = filteredMaterials.length
     let inStock = 0
@@ -368,7 +426,7 @@ export default function CommonMaterialsTab({ role }) {
     let totalStockValue = 0
 
     filteredMaterials.forEach((m) => {
-      const stock = Number(m.current_stock || 0)
+      const stock = getMaterialStock(m)
       const reorder = Number(m.reorder_level || 0)
       const cost = Number(m.unit_cost || 0)
       totalStockValue += stock * cost
@@ -383,7 +441,7 @@ export default function CommonMaterialsTab({ role }) {
     })
 
     return { total, inStock, lowStock, outOfStock, totalStockValue }
-  }, [filteredMaterials])
+  }, [filteredMaterials, stockLedgerEntries, commonMaterials])
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
@@ -391,18 +449,6 @@ export default function CommonMaterialsTab({ role }) {
     (page - 1) * pageSize,
     page * pageSize
   )
-
-  const getStockStatus = (material) => {
-    const stock = Number(material.current_stock || 0)
-    const reorder = Number(material.reorder_level || 0)
-    if (stock <= 0) {
-      return { label: 'Out of Stock', className: 'ci-badge ci-badge-out-of-stock' }
-    }
-    if (stock <= reorder) {
-      return { label: 'Low Stock', className: 'ci-badge ci-badge-low-stock' }
-    }
-    return { label: 'In Stock', className: 'ci-badge ci-badge-in-stock' }
-  }
 
   // Sort indicator helper
   const renderSortIndicator = (field) => {
@@ -683,7 +729,7 @@ export default function CommonMaterialsTab({ role }) {
                     style={{ textAlign: 'right' }}
                     onClick={() => handleSort('current_stock')}
                   >
-                    Current Stock {renderSortIndicator('current_stock')}
+                    Available Qty {renderSortIndicator('current_stock')}
                   </th>
                   <th
                     className="ci-th-sortable"
@@ -716,7 +762,7 @@ export default function CommonMaterialsTab({ role }) {
               <tbody>
                 {paginatedMaterials.map((m) => {
                   const status = getStockStatus(m)
-                  const stockValue = Number(m.current_stock || 0) * Number(m.unit_cost || 0)
+                  const stockValue = Number(status.stock || 0) * Number(m.unit_cost || 0)
 
                   return (
                     <tr key={m.id}>
@@ -733,8 +779,8 @@ export default function CommonMaterialsTab({ role }) {
                       </td>
                       <td>{m.category}</td>
                       <td>{m.uom}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                        {Number(m.current_stock || 0).toLocaleString('en-IN')}
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: status.stock <= 0 ? '#dc2626' : '#0f172a' }}>
+                        {Number(status.stock || 0).toLocaleString('en-IN')} {m.uom || 'KG'}
                       </td>
                       <td style={{ textAlign: 'right', color: '#64748b' }}>
                         {Number(m.reorder_level || 0).toLocaleString('en-IN')}
@@ -894,9 +940,20 @@ export default function CommonMaterialsTab({ role }) {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="company-field">
-                <label>Current Stock</label>
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  className="company-input"
+                  title="Date of saving"
+                />
+              </div>
+
+              <div className="company-field">
+                <label>Current Stock ({form.uom || 'KG'})</label>
                 <input
                   type="number"
                   min="0"
@@ -904,11 +961,17 @@ export default function CommonMaterialsTab({ role }) {
                   value={form.current_stock}
                   onChange={(e) => setForm({ ...form, current_stock: e.target.value })}
                   className="company-input"
+                  placeholder="0"
                 />
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                  This will be recorded as the opening stock in the Stock Ledger.
+                </div>
               </div>
+            </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="company-field">
-                <label>Reorder Level</label>
+                <label>Reorder Level ({form.uom || 'KG'})</label>
                 <input
                   type="number"
                   min="0"

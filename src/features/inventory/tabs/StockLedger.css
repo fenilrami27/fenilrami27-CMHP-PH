@@ -707,12 +707,98 @@
   gap: 8px;
 }
 
+/* UNIFIED STOCK CARD LEDGER STYLES */
+.row-ledger-opening {
+  background: #f8fafc;
+  border-left: 3px solid #0284c7;
+}
+
+.row-ledger-opening td {
+  color: #0369a1;
+}
+
+.row-ledger-inward {
+  background: #f0fdf4 !important;
+  border-left: 3px solid #16a34a;
+}
+
+.row-ledger-outward {
+  background: #fff7ed !important;
+  border-left: 3px solid #ea580c;
+}
+
+.row-ledger-adjustment {
+  background: #fefce8 !important;
+  border-left: 3px solid #eab308;
+}
+
+.stock-tag-inward {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background: #dcfce7;
+  color: #15803d;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.stock-tag-outward {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background: #ffedd5;
+  color: #c2410c;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.stock-tag-adjustment {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background: #fef3c7;
+  color: #b45309;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.stock-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.stock-view-toggle-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  transition: all 0.15s ease;
+}
+
+.stock-view-toggle-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
 /* PRINT MEDIA */
 @media print {
   .stock-toolbar,
   .stock-alpha-tabs,
   .stock-row-btn,
-  .stock-btn-action {
+  .stock-btn-action,
+  .stock-view-toggle {
     display: none !important;
   }
   .stock-dual-grid {
@@ -723,3 +809,4 @@
     border: 1px solid #000000 !important;
   }
 }
+

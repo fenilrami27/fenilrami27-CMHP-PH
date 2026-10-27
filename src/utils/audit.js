@@ -11,7 +11,7 @@
  */
 
 import { getActor } from './actor'
-import { getActiveCompanyId, getSelectedWorkspace } from './workspace'
+import { getActiveCompanyId } from './workspace'
 import { formatDateTimeIN, maskAadhaar, maskBankAcc, maskPAN } from './formatters'
 
 const AUDIT_STORAGE_KEY = 'cmhp_central_audit_logs_v2'

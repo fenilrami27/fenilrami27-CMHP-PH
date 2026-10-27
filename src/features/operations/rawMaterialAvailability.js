@@ -186,6 +186,8 @@ export function calculateRequiredMaterials({
   })
 }
 
+import { calculateItemStockFromLedger } from '../../utils/stockSelectors'
+
 /**
  * Checks inventory availability for each raw material against commonRawMaterials.
  * Single source of truth is Inventory.
@@ -214,10 +216,22 @@ export function checkInventoryAvailability({
     let rawAvailableStock = 0
     let inventoryUnit = mat.unit
 
+    const targetItem = matchedInInventory || {
+      id: mat.id || mat.itemId,
+      code: mat.code,
+      name: mat.name,
+    }
+
     if (matchedInInventory) {
-      rawAvailableStock = Number(matchedInInventory.current_stock ?? 0)
       inventoryUnit = matchedInInventory.uom || matchedInInventory.unit || mat.unit
     }
+
+    // Single source of truth: stock ledger
+    rawAvailableStock = calculateItemStockFromLedger(
+      { stockLedgerEntries, commonRawMaterials },
+      targetItem,
+      matchedInInventory ? Number(matchedInInventory.current_stock) || 0 : 0
+    )
 
     // Convert available stock to the material's formula unit if needed
     const availableInMatUnit = convertQuantity(rawAvailableStock, inventoryUnit, mat.unit)

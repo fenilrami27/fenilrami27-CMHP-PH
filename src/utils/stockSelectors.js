@@ -22,41 +22,99 @@ export function getItemLedgerEntries(state, itemIdentifier) {
   })
 }
 
-export function calculateItemStockFromLedger(state, itemIdentifier, defaultStock = 0) {
+export function getMaterialLedgerSummary(state, itemIdentifier, defaultStock = 0) {
   const entries = getItemLedgerEntries(state, itemIdentifier)
 
+  let totalInward = 0
+  let totalOutward = 0
+  let runningBalance = 0
+
   if (entries.length === 0) {
-    return Number(defaultStock) || 0
+    const fallback = Number(defaultStock) || 0
+    return {
+      totalInward: fallback,
+      totalOutward: 0,
+      availableQuantity: fallback,
+      runningBalance: fallback,
+      entries: [],
+    }
   }
 
-  let balance = 0
-  let hasOpening = false
+  // Chronological sort: date asc, then id asc
+  const sorted = [...entries].sort((a, b) => {
+    const da = a.date || ''
+    const db = b.date || ''
+    if (da !== db) return da.localeCompare(db)
+    return (Number(a.id) || 0) - (Number(b.id) || 0)
+  })
 
-  entries.forEach((entry) => {
-    if (entry.reversed) return
+  const enrichedEntries = sorted.map((entry) => {
+    if (entry.reversed) {
+      return {
+        ...entry,
+        inwardQty: 0,
+        outwardQty: 0,
+        runningBalance,
+      }
+    }
 
-    if (entry.type === 'OPENING') {
-      balance += Number(entry.received_quantity) || 0
-      hasOpening = true
-    } else if (entry.type === 'INWARD') {
-      balance += Number(entry.received_quantity) || 0
+    let inwardQty = 0
+    let outwardQty = 0
+
+    if (entry.type === 'OPENING' || entry.type === 'INWARD') {
+      inwardQty = Number(entry.received_quantity) || 0
+      totalInward += inwardQty
+      runningBalance += inwardQty
     } else if (entry.type === 'OUTWARD') {
-      balance -= Number(entry.issued_quantity) || 0
+      outwardQty = Number(entry.issued_quantity) || 0
+      totalOutward += outwardQty
+      runningBalance -= outwardQty
     } else if (entry.type === 'ADJUSTMENT') {
       if (entry.physical_stock !== undefined && entry.physical_stock !== null) {
-        balance = Number(entry.physical_stock) || 0
+        const diff = Number(entry.physical_stock) - runningBalance
+        runningBalance = Number(entry.physical_stock)
+        if (diff >= 0) {
+          inwardQty = diff
+          totalInward += diff
+        } else {
+          outwardQty = Math.abs(diff)
+          totalOutward += Math.abs(diff)
+        }
       } else {
-        balance += Number(entry.variance) || 0
+        const variance = Number(entry.variance) || 0
+        runningBalance += variance
+        if (variance >= 0) {
+          inwardQty = variance
+          totalInward += variance
+        } else {
+          outwardQty = Math.abs(variance)
+          totalOutward += Math.abs(variance)
+        }
       }
+    }
+
+    return {
+      ...entry,
+      inwardQty,
+      outwardQty,
+      runningBalance,
     }
   })
 
-  // If there are transactions but no explicit opening stock row, include defaultStock
-  if (!hasOpening && defaultStock > 0 && balance >= 0) {
-    balance += Number(defaultStock)
-  }
+  const availableQuantity = Math.max(0, runningBalance)
 
-  return Math.max(0, balance)
+  return {
+    totalInward,
+    totalOutward,
+    availableQuantity,
+    runningBalance,
+    entries: enrichedEntries,
+  }
+}
+
+export function calculateItemStockFromLedger(state, itemIdentifier, defaultStock = 0) {
+  const summary = getMaterialLedgerSummary(state, itemIdentifier, defaultStock)
+  return summary.availableQuantity
 }
 
 /**

@@ -10,7 +10,6 @@ import { hrService } from './hrService'
 import { companyService } from '../companies/companyService'
 import { allowedCompanyIds, canManageAttendance } from './permissions'
 import { logAudit } from '../../utils/audit'
-import { formatDateTimeIN } from '../../utils/formatters'
 
 import PageHeader from '../../components/PageHeader'
 import '../companies/Companies.css'
@@ -60,11 +59,13 @@ export default function Attendance() {
   const scopedCompanies = allowedCompanyIds(user)
   const canManageTeam = canManageAttendance(user)
 
-  // Sub-tabs: 'roster' (Daily Roster & Self Punch), 'calendar' (Monthly Calendar & Summary), 'regularization' (Requests)
+  const role = String(user?.profile?.role || user?.role || '').toUpperCase()
+  const isAdmin = Boolean(user?.is_superuser) || role === 'SUPER_ADMIN' || role === 'ADMIN'
+
+  // Sub-tabs: 'roster' (Daily Roster & Self Check-In), 'calendar' (Monthly Calendar & Summary), 'regularization' (Requests)
   const [activeTab, setActiveTab] = useState('roster')
 
   const [myToday, setMyToday] = useState(null)
-  const [myHistory, setMyHistory] = useState([])
   const [busy, setBusy] = useState(false)
   const [myError, setMyError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -149,7 +150,6 @@ export default function Attendance() {
         hrService.getMyAttendanceHistory(user.id, 14),
       ])
       setMyToday(todayResponse.data)
-      setMyHistory(historyResponse.data || [])
     } catch (err) {
       setMyError(getErrorMessage(err))
     }
@@ -208,8 +208,9 @@ export default function Attendance() {
 
   // Check In with Shift Grace Time Auto-calculation
   const doCheckIn = async () => {
+    if (isAdmin) return
     if (isMonthLocked) {
-      setMyError('Cannot punch attendance: This month is locked by finalized payroll.')
+      setMyError('Cannot check in attendance: This month is locked by finalized payroll.')
       return
     }
 
@@ -230,7 +231,7 @@ export default function Attendance() {
         entity_type: 'Attendance',
         entity_id: `${user.username} (${todayStr()})`,
         action: 'CHECK_IN',
-        description: `Punch In recorded at ${new Date().toLocaleTimeString()} by ${user.username}`,
+        description: `Check In recorded at ${new Date().toLocaleTimeString()} by ${user.username}`,
         user,
       })
 
@@ -247,8 +248,9 @@ export default function Attendance() {
 
   // Check Out with Working Hours & Half-Day / Overtime Calculation
   const doCheckOut = async () => {
+    if (isAdmin) return
     if (isMonthLocked) {
-      setMyError('Cannot punch attendance: This month is locked by finalized payroll.')
+      setMyError('Cannot check out attendance: This month is locked by finalized payroll.')
       return
     }
 
@@ -263,7 +265,7 @@ export default function Attendance() {
         entity_type: 'Attendance',
         entity_id: `${user.username} (${todayStr()})`,
         action: 'CHECK_OUT',
-        description: `Punch Out recorded at ${new Date().toLocaleTimeString()} by ${user.username}`,
+        description: `Check Out recorded at ${new Date().toLocaleTimeString()} by ${user.username}`,
         user,
       })
 
@@ -664,7 +666,7 @@ export default function Attendance() {
           { label: 'Attendance' }
         ]}
         title="Attendance &amp; Roster"
-        subtitle="Real-time check-in logs, biometric punches, daily team roster, working hours, and monthly calendars."
+        subtitle="Real-time check-in logs, check-in records, daily team roster, working hours, and monthly calendars."
         primaryAction={
           canManageTeam
             ? {
@@ -759,7 +761,7 @@ export default function Attendance() {
           className={activeTab === 'roster' ? 'hr-tab active' : 'hr-tab'}
           onClick={() => setActiveTab('roster')}
         >
-          Daily Roster &amp; Punch
+          {isAdmin ? 'Daily Roster' : 'Daily Roster &amp; Check-In'}
         </button>
         <button
           type="button"
@@ -780,55 +782,57 @@ export default function Attendance() {
       {/* TAB 1: DAILY ROSTER & SELF CHECK-IN */}
       {activeTab === 'roster' && (
         <>
-          <div className="hr-checkin-card">
-            <div className="hr-checkin-status">
-              <strong>
-                {myToday
-                  ? `Today's Status: ${STATUS_LABEL[myToday.status] || myToday.status}`
-                  : 'You have not checked in today'}
-              </strong>
+          {!isAdmin && (
+            <div className="hr-checkin-card">
+              <div className="hr-checkin-status">
+                <strong>
+                  {myToday
+                    ? `Today's Status: ${STATUS_LABEL[myToday.status] || myToday.status}`
+                    : 'You have not checked in today'}
+                </strong>
 
-              <span>{todayStr()}</span>
+                <span>{todayStr()}</span>
 
-              <div className="hr-checkin-times">
-                <div>
-                  <span>Check-in</span>
-                  <strong>{timeOf(myToday?.check_in)}</strong>
-                </div>
-                <div>
-                  <span>Check-out</span>
-                  <strong>{timeOf(myToday?.check_out)}</strong>
-                </div>
-                {myToday?.working_hours != null && (
+                <div className="hr-checkin-times">
                   <div>
-                    <span>Working hours</span>
-                    <strong>{myToday.working_hours} hrs</strong>
+                    <span>Check-in</span>
+                    <strong>{timeOf(myToday?.check_in)}</strong>
                   </div>
-                )}
+                  <div>
+                    <span>Check-out</span>
+                    <strong>{timeOf(myToday?.check_out)}</strong>
+                  </div>
+                  {myToday?.working_hours != null && (
+                    <div>
+                      <span>Working hours</span>
+                      <strong>{myToday.working_hours} hrs</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="hr-checkin-actions">
+                <Button
+                  onClick={doCheckIn}
+                  disabled={!canCheckIn || busy || isMonthLocked}
+                  loading={busy && canCheckIn}
+                  loadingText="Checking in..."
+                >
+                  Check In
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  onClick={doCheckOut}
+                  disabled={!canCheckOut || busy || isMonthLocked}
+                  loading={busy && canCheckOut}
+                  loadingText="Checking out..."
+                >
+                  Check Out
+                </Button>
               </div>
             </div>
-
-            <div className="hr-checkin-actions">
-              <Button
-                onClick={doCheckIn}
-                disabled={!canCheckIn || busy || isMonthLocked}
-                loading={busy && canCheckIn}
-                loadingText="Checking in..."
-              >
-                Punch In
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={doCheckOut}
-                disabled={!canCheckOut || busy || isMonthLocked}
-                loading={busy && canCheckOut}
-                loadingText="Checking out..."
-              >
-                Punch Out
-              </Button>
-            </div>
-          </div>
+          )}
 
           {canManageTeam && (
             <div className="hr-table-card" style={{ marginTop: 20 }}>
@@ -1339,7 +1343,7 @@ export default function Attendance() {
           <div className="company-toolbar">
             <div>
               <h2>Attendance Regularization</h2>
-              <p>Submit and process requests for missed punches or duty on tour</p>
+              <p>Submit and process requests for missed check-ins or duty on tour</p>
             </div>
 
             <Button onClick={() => setRegModalOpen(true)}>
@@ -1550,11 +1554,11 @@ export default function Attendance() {
               </div>
 
               <div className="field" style={{ gridColumn: 'span 2' }}>
-                <label className="field-label">Reason for Missing Punch</label>
+                <label className="field-label">Reason for Missing Check-In / Check-Out</label>
                 <textarea
                   className="field-input"
                   rows={3}
-                  placeholder="Explain why biometric/app punch was missed (e.g. client visit, power issue)..."
+                  placeholder="Explain why check-in/check-out was missed (e.g. client visit, power issue)..."
                   value={regForm.reason}
                   onChange={(e) => setRegForm({ ...regForm, reason: e.target.value })}
                   required

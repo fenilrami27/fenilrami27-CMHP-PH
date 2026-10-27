@@ -8,7 +8,6 @@ import {
   canCreateOrders,
 } from '../orderPermissions'
 import {
-  ORDER_PRODUCT_TYPES,
   ORDER_PRODUCT_SUBTYPES,
   ORDER_PRINTING_STATUSES,
   ORDER_PACKING_TYPES,
@@ -16,7 +15,6 @@ import {
   ORDER_COMPANIES,
   getSectionAStatus,
   getSectionBStatus,
-  getSectionCStatus,
 } from '../orderConstants'
 import {
   getApprovedFormula,
@@ -60,12 +58,15 @@ export default function OrderDetailModal({
       const key = `${p.id || ''}-${p.name || ''}`.toLowerCase()
       if (p && p.name && !seen.has(key)) {
         seen.add(key)
+        const pType = p.dosage_form || p.dosageForm || p.type || p.category || ''
         list.push({
           id: p.id,
           name: p.name,
           code: p.code || (p.id ? `PRD-${p.id}` : ''),
-          category: p.category || p.type || '',
-          type: p.type || p.category || '',
+          category: p.category || pType,
+          type: pType,
+          dosage_form: pType,
+          dosageForm: pType,
           unit_cost: p.unit_cost || p.price || 0,
         })
       }
@@ -127,8 +128,10 @@ export default function OrderDetailModal({
     product_id: null,
     product_name: '',
     product_code: '',
-    product_type: 'Liquid',
+    product_type: '',
     product_subtype: '',
+    dosage_form: '',
+    type: '',
     type_auto_filled: false,
     company: defaultCompanyObj.name,
     company_code: defaultCompanyObj.code,
@@ -228,7 +231,7 @@ export default function OrderDetailModal({
         ORDER_COMPANIES.find((c) => Number(c.id) === compId) ||
         ORDER_COMPANIES[0]
 
-      const pType = order.product_type || order.type || 'Liquid'
+      const pType = order.product_type || order.type || order.dosage_form || order.dosageForm || ''
 
       setFormData({
         // Section A
@@ -237,7 +240,9 @@ export default function OrderDetailModal({
         product_code: order.product_code || order.productCode || '',
         product_type: pType,
         product_subtype: order.product_subtype || order.subtype || '',
-        type_auto_filled: Boolean(order.product_type || order.type),
+        dosage_form: order.dosage_form || order.dosageForm || pType,
+        type: order.type || pType,
+        type_auto_filled: Boolean(pType),
         company: order.company_name || coObj.name,
         company_code: order.company_code || order.companyCode || coObj.code,
         company_id: compId,
@@ -296,8 +301,10 @@ export default function OrderDetailModal({
         product_id: null,
         product_name: '',
         product_code: '',
-        product_type: 'Liquid',
+        product_type: '',
         product_subtype: '',
+        dosage_form: '',
+        type: '',
         type_auto_filled: false,
         company: defaultCompanyObj.name,
         company_code: defaultCompanyObj.code,
@@ -350,6 +357,10 @@ export default function OrderDetailModal({
         product_id: null,
         product_name: '',
         product_code: '',
+        product_type: '',
+        product_subtype: '',
+        dosage_form: '',
+        type: '',
         type_auto_filled: false,
       }))
       return
@@ -358,44 +369,9 @@ export default function OrderDetailModal({
     const pId = prod.id || null
     const pName = prod.name || ''
     const pCode = prod.code || ''
-
-    // Detect type from product category/type
-    let pType = formData.product_type || 'Liquid'
-    let pSubtype = ''
-    let typeAutoFilled = false
-
-    const cat = String(prod.category || prod.type || '').toLowerCase()
-    if (cat.includes('tablet')) {
-      pType = 'Solid'
-      pSubtype = 'Tablet'
-      typeAutoFilled = true
-    } else if (cat.includes('capsule')) {
-      pType = 'Solid'
-      pSubtype = 'Capsule'
-      typeAutoFilled = true
-    } else if (cat.includes('syrup')) {
-      pType = 'Syrup'
-      typeAutoFilled = true
-    } else if (cat.includes('drop')) {
-      pType = 'Drops'
-      typeAutoFilled = true
-    } else if (cat.includes('oil')) {
-      pType = 'Oil'
-      typeAutoFilled = true
-    } else if (cat.includes('kit')) {
-      pType = 'Kit'
-      typeAutoFilled = true
-    } else if (cat.includes('pill')) {
-      pType = 'Pills'
-      typeAutoFilled = true
-    } else if (cat.includes('solid')) {
-      pType = 'Solid'
-      pSubtype = 'Tablet'
-      typeAutoFilled = true
-    } else if (cat.includes('liquid')) {
-      pType = 'Liquid'
-      typeAutoFilled = true
-    }
+    const pType = prod.dosage_form || prod.dosageForm || prod.type || prod.category || ''
+    const isSolid = String(pType).toLowerCase() === 'solid'
+    const pSubtype = isSolid ? (prod.subtype || 'Tablet') : ''
 
     // Auto-generate batch no if not present
     const generatedBatchNo =
@@ -419,9 +395,11 @@ export default function OrderDetailModal({
         product_name: pName,
         product_code: pCode,
         batch_no: prev.batch_no || generatedBatchNo,
-        product_type: typeAutoFilled ? pType : prev.product_type || 'Liquid',
-        product_subtype: typeAutoFilled ? pSubtype : prev.product_subtype,
-        type_auto_filled: typeAutoFilled,
+        product_type: pType,
+        product_subtype: pSubtype,
+        dosage_form: pType,
+        type: pType,
+        type_auto_filled: Boolean(pType),
         lines: updatedLines,
       }
     })
@@ -584,7 +562,6 @@ export default function OrderDetailModal({
   // Dynamic status badges for each section
   const sectionAStatus = useMemo(() => getSectionAStatus(formData), [formData])
   const sectionBStatus = useMemo(() => getSectionBStatus(formData), [formData])
-  const sectionCStatus = useMemo(() => getSectionCStatus(formData), [formData])
 
   // Validation rules for Section A (Task 2 strict product selection validation)
   const validateSectionA = () => {
@@ -603,7 +580,7 @@ export default function OrderDetailModal({
       return 'Section A: A typed or unverified value is not allowed. You must select a registered product from the Products module.'
     }
 
-    if (!formData.product_type) return 'Section A: Type is required.'
+    if (!formData.product_type || !String(formData.product_type).trim()) return 'Section A: Type is required (auto-fetched from selected product).'
     if (formData.product_type === 'Solid' && !formData.product_subtype) {
       return 'Section A: Sub-type (Tablet or Capsule) is required when Type is Solid.'
     }
@@ -858,30 +835,21 @@ export default function OrderDetailModal({
                 />
               </div>
 
-              {/* Type dropdown */}
+              {/* Type (Auto-filled from selected product, Read-Only like Product Code) */}
               <div className="order-field-group">
                 <label className="order-label">
                   Type <span style={{ color: '#ef4444' }}>*</span>
                 </label>
-                <select
-                  className="order-select"
-                  value={formData.product_type}
-                  onChange={(e) => {
-                    const newType = e.target.value
-                    setFormData({
-                      ...formData,
-                      product_type: newType,
-                      product_subtype: newType === 'Solid' ? (formData.product_subtype || 'Tablet') : '',
-                    })
-                  }}
-                  disabled={!canEditSectionA}
-                >
-                  {ORDER_PRODUCT_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  className="order-input"
+                  value={formData.product_type || ''}
+                  placeholder="Auto-filled from selected product"
+                  readOnly
+                  disabled
+                  title="Type is auto-fetched from the selected product and cannot be manually modified."
+                  style={{ backgroundColor: '#f8fafc', color: '#475569', cursor: 'not-allowed' }}
+                />
               </div>
 
               {/* Sub-type dropdown (Shown when Solid is selected) */}

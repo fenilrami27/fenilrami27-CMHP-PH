@@ -14,9 +14,11 @@ import { logAudit } from '../../../utils/audit'
 import useWorkspace from '../../../hooks/useWorkspace'
 import { SEED_COMPANIES, SEED_SUPPLIERS } from '../../../store/seedData'
 import { numberToWordsINR } from '../../../utils/formatters'
+import { getMaterialLedgerSummary, calculateItemStockFromLedger } from '../../../utils/stockSelectors'
 import InwardReceiptPreviewModal from '../components/InwardReceiptPreviewModal'
 import { INWARD_RECEIPT_CONFIG } from '../config/inwardReceiptConfig'
 import './StockLedger.css'
+import { DOSAGE_FORMS } from '../../../constants/dosageForms'
 
 const FINANCIAL_YEARS = ['2026-27', '2025-26', '2024-25', '2027-28']
 
@@ -69,6 +71,11 @@ export default function StockLedgerTab() {
       const key = String(m.code || m.id).toUpperCase()
       if (!seen.has(key)) {
         seen.add(key)
+        const availableStock = calculateItemStockFromLedger(
+          { stockLedgerEntries, commonRawMaterials },
+          m,
+          m.current_stock || 0
+        )
         list.push({
           id: m.id,
           code: m.code || `RM-${m.id}`,
@@ -77,7 +84,7 @@ export default function StockLedgerTab() {
           base_unit: m.uom || 'KG',
           pack_size: Number(m.pack_size) || 25,
           display_unit: m.display_unit || 'BAG',
-          current_stock: Number(m.current_stock) || 0,
+          current_stock: availableStock,
           reorder_level: Number(m.reorder_level) || 0,
           type: 'RAW_MATERIAL',
         })
@@ -92,6 +99,7 @@ export default function StockLedgerTab() {
         i.item_type === 'MEDICINE' ||
         i.item_type === 'FINISHED_GOODS' ||
         i.category === 'Finished Product' ||
+        DOSAGE_FORMS.includes(i.category) ||
         i.category === 'Tablets' ||
         i.category === 'Capsules' ||
         i.category === 'Syrups' ||
@@ -100,6 +108,11 @@ export default function StockLedgerTab() {
 
       if (!isFinishedGood && !seen.has(key)) {
         seen.add(key)
+        const availableStock = calculateItemStockFromLedger(
+          { stockLedgerEntries, commonRawMaterials },
+          i,
+          i.available_quantity || i.current_stock || 0
+        )
         list.push({
           id: i.id,
           code: i.code || `ITM-${i.id}`,
@@ -108,7 +121,7 @@ export default function StockLedgerTab() {
           base_unit: i.uom || 'KG',
           pack_size: Number(i.pack_size) || 25,
           display_unit: i.display_unit || 'BAG',
-          current_stock: Number(i.available_quantity || i.current_stock) || 0,
+          current_stock: availableStock,
           reorder_level: Number(i.reorder_level) || 0,
           type: 'RAW_MATERIAL',
         })
@@ -116,7 +129,10 @@ export default function StockLedgerTab() {
     })
 
     return list.sort((a, b) => (a.code || '').localeCompare(b.code || ''))
-  }, [commonRawMaterials, registeredItems])
+  }, [commonRawMaterials, registeredItems, stockLedgerEntries])
+
+  // View Mode: 'stock-card' (default real-world stock card) | 'dual' (Excel split)
+  const [viewMode, setViewMode] = useState('stock-card')
 
   // Searchable Item Dropdown State
   const [itemDropdownOpen, setItemDropdownOpen] = useState(false)
@@ -244,21 +260,37 @@ export default function StockLedgerTab() {
     })
   }, [outwardEntries, startDate, endDate, searchFilter])
 
-  // Calculate Running Balance & Summary Metrics
+  // Single Source of Truth Ledger Summary for Active Item
+  const ledgerSummary = useMemo(() => {
+    if (!activeItem) {
+      return { totalInward: 0, totalOutward: 0, availableQuantity: 0, runningBalance: 0, entries: [] }
+    }
+    return getMaterialLedgerSummary({ erp: erpState }, activeItem)
+  }, [erpState, activeItem])
+
+  // Chronological Stock Card Entries for Active Material
+  const displayedStockCardEntries = useMemo(() => {
+    return ledgerSummary.entries.filter((e) => {
+      if (startDate && e.date < startDate) return false
+      if (endDate && e.date > endDate) return false
+      if (searchFilter) {
+        const q = searchFilter.toLowerCase()
+        const ref = String(e.invoice_no || e.batch_no || e.reference || '').toLowerCase()
+        const party = String(e.supplier || e.product_name || '').toLowerCase()
+        const rem = String(e.remarks || e.remark || e.reason || '').toLowerCase()
+        if (!ref.includes(q) && !party.includes(q) && !rem.includes(q)) return false
+      }
+      return true
+    })
+  }, [ledgerSummary.entries, startDate, endDate, searchFilter])
+
+  // Calculate Running Balance & Summary Metrics (derived strictly from ledger)
   const summaryMetrics = useMemo(() => {
     const openingQty = Number(openingStockEntry.received_quantity) || 0
 
-    const totalInwardQty =
-      openingQty +
-      inwardEntries
-        .filter((e) => !e.reversed)
-        .reduce((sum, e) => sum + (Number(e.received_quantity) || 0), 0)
-
-    const totalOutwardQty = outwardEntries
-      .filter((e) => !e.reversed)
-      .reduce((sum, e) => sum + (Number(e.issued_quantity) || 0), 0)
-
-    const physicalBalance = totalInwardQty - totalOutwardQty
+    const totalInwardQty = ledgerSummary.totalInward
+    const totalOutwardQty = ledgerSummary.totalOutward
+    const physicalBalance = ledgerSummary.availableQuantity
 
     const packSize = activeItem?.pack_size || 25
     const totalInwardBags = Math.round((totalInwardQty / packSize) * 10) / 10
@@ -274,7 +306,7 @@ export default function StockLedgerTab() {
       physicalBalance,
       balanceBags,
     }
-  }, [openingStockEntry, inwardEntries, outwardEntries, activeItem])
+  }, [openingStockEntry, ledgerSummary, activeItem])
 
   // Auto-fetched Suppliers from Store
   const autoFetchedSuppliers = useMemo(() => {
@@ -817,6 +849,32 @@ export default function StockLedgerTab() {
   const handleExportExcel = () => {
     if (!activeItem) return
 
+    if (viewMode === 'stock-card') {
+      let csv = `STOCK CARD LEDGER — ${activeItem.name} (${activeItem.code})\n`
+      csv += `Item Code,${activeItem.code},Item Name,${activeItem.name},Base Unit,${activeItem.base_unit || 'KG'},Category,${activeItem.category || ''}\n`
+      csv += `Summary,Total Inward: ${summaryMetrics.totalInwardQty} ${activeItem.base_unit},Total Outward (Used): ${summaryMetrics.totalOutwardQty} ${activeItem.base_unit},Available Quantity: ${summaryMetrics.physicalBalance} ${activeItem.base_unit}\n\n`
+      csv += `Date,Transaction Type,Reference,Supplier or Product Name,Inward Qty (${activeItem.base_unit}),Outward Qty (${activeItem.base_unit}),Running Balance (${activeItem.base_unit}),Remarks\n`
+
+      displayedStockCardEntries.forEach((e) => {
+        const ref = e.invoice_no || e.batch_no || e.reference || (e.type === 'OPENING' ? `Opening stock ${activeItem.code}` : '—')
+        const party = e.supplier || e.product_name || (e.type === 'OPENING' ? 'Opening Balance' : '—')
+        const inQ = e.inwardQty || 0
+        const outQ = e.outwardQty || 0
+        const bal = e.runningBalance ?? ''
+        const rem = e.remarks || e.remark || e.reason || ''
+        csv += `"${e.date || ''}","${e.type || ''}","${ref}","${party}","${inQ}","${outQ}","${bal}","${rem}"\n`
+      })
+
+      csv += `\nTOTALS,,,"",${summaryMetrics.totalInwardQty},${summaryMetrics.totalOutwardQty},${summaryMetrics.physicalBalance},\n`
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = `${activeItem.code}_Stock_Card_${financialYear}.csv`
+      link.click()
+      return
+    }
+
     let csv = `J TO R CHEMICAL STOCK ${financialYear}\n`
     csv += `ITEM NO,${activeItem.code},ITEM NAME,${activeItem.name},UNIT,${activeItem.display_unit} (1 ${activeItem.display_unit} = ${activeItem.pack_size} ${activeItem.base_unit})\n\n`
     csv += `INWARD,,,,,,OUTWARD,,,,,PHYSICAL GM\n`
@@ -887,7 +945,7 @@ export default function StockLedgerTab() {
                     <span className="stock-trigger-code">{activeItem.code}</span>
                     <span className="stock-trigger-name">{activeItem.name}</span>
                     <span className="stock-trigger-sub">
-                      (1 {activeItem.display_unit} = {activeItem.pack_size} {activeItem.base_unit})
+                      (Avail: {activeItem.current_stock ?? summaryMetrics.physicalBalance} {activeItem.base_unit || 'KG'})
                     </span>
                   </>
                 ) : (
@@ -953,7 +1011,21 @@ export default function StockLedgerTab() {
                       >
                         <span className="stock-option-code">{item.code}</span>
                         <div className="stock-option-info">
-                          <span className="stock-option-name">{item.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span className="stock-option-name">{item.name}</span>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: (item.current_stock || 0) > 0 ? '#dcfce7' : '#fee2e2',
+                                color: (item.current_stock || 0) > 0 ? '#15803d' : '#b91c1c',
+                              }}
+                            >
+                              {item.current_stock ?? 0} {item.base_unit || 'KG'}
+                            </span>
+                          </div>
                           <span className="stock-option-meta">
                             1 {item.display_unit} = {item.pack_size} {item.base_unit} &middot; {item.category}
                           </span>
@@ -1110,7 +1182,7 @@ export default function StockLedgerTab() {
             <div className="stock-summary-divider" />
 
             <div className="stock-summary-stat">
-              <span className="lbl">Total Outward</span>
+              <span className="lbl">Total Outward (Used)</span>
               <span className="val" style={{ color: '#c2410c' }}>
                 {summaryMetrics.totalOutwardQty.toLocaleString()} {activeItem.base_unit}
               </span>
@@ -1120,7 +1192,7 @@ export default function StockLedgerTab() {
             <div className="stock-summary-divider" />
 
             <div className="stock-summary-stat">
-              <span className="lbl">Physical Stock</span>
+              <span className="lbl">Available Quantity</span>
               <span className="val" style={{ color: summaryMetrics.physicalBalance < 0 ? '#dc2626' : '#713f12' }}>
                 {summaryMetrics.physicalBalance.toLocaleString()} {activeItem.base_unit}
               </span>
@@ -1139,8 +1211,177 @@ export default function StockLedgerTab() {
         </div>
       )}
 
-      {/* 6. Side-by-Side Dual Ledger (50% Inward | 50% Outward) */}
+      {/* View Mode Toggle: Real-World Stock Card vs Dual Register */}
       {activeItem && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '12px 0 16px' }}>
+          <div className="stock-view-toggle">
+            <button
+              type="button"
+              className={`stock-view-toggle-btn ${viewMode === 'stock-card' ? 'active' : ''}`}
+              onClick={() => setViewMode('stock-card')}
+            >
+              📄 Stock Card (Real-World)
+            </button>
+            <button
+              type="button"
+              className={`stock-view-toggle-btn ${viewMode === 'dual' ? 'active' : ''}`}
+              onClick={() => setViewMode('dual')}
+            >
+              ◫ Dual Register (Excel Format)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Unified Stock Card Ledger (Columns: Date | Transaction Type | Reference | Supplier or Product Name | Inward Qty | Outward Qty | Running Balance | Remarks | Actions) */}
+      {activeItem && viewMode === 'stock-card' && (
+        <div className="stock-section-card" style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>📋</span> Stock Card Ledger — {activeItem.name} ({activeItem.code})
+            </h3>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>
+              {displayedStockCardEntries.length} Transactions Recorded
+            </span>
+          </div>
+
+          <div className="stock-table-wrapper" style={{ overflowX: 'auto' }}>
+            <table className="stock-ledger-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 110 }}>Date</th>
+                  <th style={{ width: 140 }}>Transaction Type</th>
+                  <th style={{ width: 160 }}>Reference</th>
+                  <th>Supplier or Product Name</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>Inward Qty ({activeItem.base_unit})</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>Outward Qty ({activeItem.base_unit})</th>
+                  <th style={{ textAlign: 'right', width: 130 }}>Running Balance ({activeItem.base_unit})</th>
+                  <th>Remarks</th>
+                  <th style={{ textAlign: 'center', width: 90 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedStockCardEntries.map((entry) => {
+                  const isOpening = entry.type === 'OPENING'
+                  const isInward = entry.type === 'INWARD'
+                  const isOutward = entry.type === 'OUTWARD'
+                  const isAdjustment = entry.type === 'ADJUSTMENT'
+
+                  let rowClass = ''
+                  if (isOpening) rowClass = 'row-ledger-opening'
+                  else if (isInward) rowClass = 'row-ledger-inward'
+                  else if (isOutward) rowClass = 'row-ledger-outward'
+                  else if (isAdjustment) rowClass = 'row-ledger-adjustment'
+                  if (entry.reversed) rowClass += ' row-reversed'
+
+                  const refText = entry.invoice_no || entry.batch_no || entry.reference || (isOpening ? `Opening stock ${activeItem.code}` : '—')
+                  const partyText = entry.supplier || entry.product_name || (isOpening ? 'Opening Balance' : '—')
+
+                  return (
+                    <tr key={entry.id} className={rowClass}>
+                      <td>{entry.date}</td>
+                      <td>
+                        {isOpening && <span className="stock-tag-opening">OPENING</span>}
+                        {isInward && <span className="stock-tag-inward">INWARD</span>}
+                        {isOutward && <span className="stock-tag-outward">OUTWARD</span>}
+                        {isAdjustment && <span className="stock-tag-adjustment">ADJUSTMENT</span>}
+                      </td>
+                      <td style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 13 }}>
+                        {refText}
+                        {entry.receipt_no && (
+                          <div style={{ marginTop: 2 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleViewSavedReceipt(entry)}
+                              title="View / Print Receipt"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                background: '#f0fdf4',
+                                border: '1px solid #bbf7d0',
+                                color: '#15803d',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <span>📄</span>
+                              <span>{entry.receipt_no}</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 600 }}>{partyText}</span>
+                        {entry.order_no && (
+                          <div style={{ fontSize: 11, color: '#64748b' }}>Order: #{entry.order_no}</div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#047857' }}>
+                        {entry.inwardQty > 0 ? `${Number(entry.inwardQty).toLocaleString()} ${activeItem.base_unit}` : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#ea580c' }}>
+                        {entry.outwardQty > 0 ? `${Number(entry.outwardQty).toLocaleString()} ${activeItem.base_unit}` : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: entry.runningBalance < 0 ? '#dc2626' : '#0f172a' }}>
+                        {Number(entry.runningBalance).toLocaleString()} {activeItem.base_unit}
+                      </td>
+                      <td style={{ fontSize: 12, color: '#475569' }}>
+                        {entry.remarks || entry.remark || entry.reason || '—'}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {isOpening && (
+                          <button
+                            type="button"
+                            className="stock-row-btn"
+                            onClick={handleOpenOpeningModal}
+                            title="Edit Opening Stock"
+                          >
+                            ✏️
+                          </button>
+                        )}
+                        {!isOpening && !entry.reversed && (
+                          <button
+                            type="button"
+                            className="stock-row-btn"
+                            onClick={() => handleReverseEntry(entry)}
+                            title="Reverse Entry"
+                          >
+                            ✕
+                          </button>
+                        )}
+                        {entry.reversed && (
+                          <span style={{ fontSize: 10, color: '#dc2626' }}>Reversed</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {displayedStockCardEntries.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="stock-empty-pane" style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                      No stock transactions recorded for this material.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="stock-ledger-footer" style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontWeight: 700 }}>
+            <span style={{ color: '#047857' }}>Total Inward: {summaryMetrics.totalInwardQty.toLocaleString()} {activeItem.base_unit} ({summaryMetrics.totalInwardBags} Bags)</span>
+            <span style={{ color: '#c2410c' }}>Total Outward (Used): {summaryMetrics.totalOutwardQty.toLocaleString()} {activeItem.base_unit} ({summaryMetrics.totalOutwardBags} Bags)</span>
+            <span style={{ color: summaryMetrics.physicalBalance < 0 ? '#dc2626' : '#0f172a' }}>Available Quantity: {summaryMetrics.physicalBalance.toLocaleString()} {activeItem.base_unit} ({summaryMetrics.balanceBags} Bags)</span>
+          </div>
+        </div>
+      )}
+
+      {/* Side-by-Side Dual Ledger (50% Inward | 50% Outward) */}
+      {activeItem && viewMode === 'dual' && (
         <div className="stock-dual-grid">
           {/* =========================================================
               LEFT HALF: INWARD REGISTER (GREEN THEME)

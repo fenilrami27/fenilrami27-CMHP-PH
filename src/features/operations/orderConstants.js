@@ -9,16 +9,10 @@
  * - Requisition Statuses & Packing Types (Section C: Packing & Requisition Details)
  */
 
-// Section A: Product Types (Liquid, Solid, Syrup, Drops, Oil, Kit, Pills)
-export const ORDER_PRODUCT_TYPES = [
-  'Liquid',
-  'Solid',
-  'Syrup',
-  'Drops',
-  'Oil',
-  'Kit',
-  'Pills',
-]
+import { DOSAGE_FORMS } from '../../constants/dosageForms'
+
+// Section A: Product Types (Liquid, Tablet, Capsule, Syrup, Drops, Oil, Kits, Pills)
+export const ORDER_PRODUCT_TYPES = DOSAGE_FORMS
 
 // Section A: Solid Sub-types (Tablet, Capsule)
 export const ORDER_PRODUCT_SUBTYPES = [
@@ -65,7 +59,8 @@ export const ORDER_COMPANIES = [
 
 export function getSectionAStatus(order) {
   if (!order) return 'Pending'
-  const isSolid = String(order.product_type || order.type || '').toLowerCase() === 'solid'
+  const pType = order.product_type || order.type || order.dosage_form || order.dosageForm || ''
+  const isSolid = String(pType).toLowerCase() === 'solid'
   const hasSubtype = isSolid ? Boolean(order.product_subtype || order.subtype) : true
   const hasPlannedDate = Boolean(order.planned_mfg_date)
   const hasOrderDate = Boolean(order.date_of_order || order.order_date)
@@ -78,7 +73,7 @@ export function getSectionAStatus(order) {
 
   const isComplete = Boolean(
     (order.product_name || order.product) &&
-    (order.product_type || order.type) &&
+    pType &&
     hasSubtype &&
     order.company &&
     (order.company_code || order.companyCode) &&

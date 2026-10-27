@@ -9,29 +9,20 @@ import {
   editCommonProduct,
   deleteCommonProduct,
   bulkImportCommonProducts,
+  selectDosageForms,
 } from '../../../store/erpSlice'
 import { logAudit } from '../../../utils/audit'
 import { confirmAction } from '../../../utils/confirmAction'
 import { previewDocumentNumber, commitDocumentNumber } from '../../../utils/documentNumbers'
+import { DOSAGE_FORMS, DEFAULT_DOSAGE_FORM } from '../../../constants/dosageForms'
 import './CommonInventory.css'
-
-const DEFAULT_CATEGORIES = [
-  'Tablets',
-  'Capsules',
-  'Syrups',
-  'Injections',
-  'Ointments',
-  'Suspensions',
-  'Drops',
-  'General',
-]
 
 const DEFAULT_UOMS = ['Pack', 'Box', 'Bottle', 'Vial', 'Tube', 'Strip', 'Piece']
 
 const EMPTY_FORM = {
   code: '',
   name: '',
-  category: 'Tablets',
+  category: DEFAULT_DOSAGE_FORM,
   uom: 'Pack',
   current_stock: 0,
   reorder_level: 0,
@@ -67,14 +58,18 @@ export default function CommonProductsTab({ role }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  const reduxDosageForms = useSelector(selectDosageForms)
+  const dosageForms = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : DOSAGE_FORMS
+
   // Dynamic filter options built from data in Redux (empty/All if no data yet)
   const categoryOptions = useMemo(() => {
-    const set = new Set()
+    const set = new Set(dosageForms)
     commonProducts.forEach((p) => {
-      if (p.category && String(p.category).trim()) set.add(String(p.category).trim())
+      const cat = p.category || p.dosage_form || p.type
+      if (cat && String(cat).trim()) set.add(String(cat).trim())
     })
-    return Array.from(set).sort()
-  }, [commonProducts])
+    return Array.from(set)
+  }, [commonProducts, dosageForms])
 
   const uomOptions = useMemo(() => {
     const set = new Set()
@@ -853,7 +848,10 @@ export default function CommonProductsTab({ role }) {
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
                   className="company-input"
                 >
-                  {DEFAULT_CATEGORIES.map((cat) => (
+                  {!dosageForms.includes(form.category) && form.category && (
+                    <option value={form.category}>{form.category}</option>
+                  )}
+                  {dosageForms.map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>

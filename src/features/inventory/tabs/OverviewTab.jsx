@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useSelector } from 'react-redux'
 import { Link } from 'react-router-dom'
+import { selectItemStock } from '../../../utils/stockSelectors'
 import './CommonInventory.css'
 
 export default function OverviewTab() {
@@ -36,7 +37,7 @@ export default function OverviewTab() {
     let materialsOutOfStock = 0
 
     commonMaterials.forEach((m) => {
-      const stock = Number(m.current_stock || 0)
+      const stock = selectItemStock(erpState, m)
       const reorder = Number(m.reorder_level || 0)
       const cost = Number(m.unit_cost || 0)
       materialsValuation += stock * cost
@@ -106,7 +107,7 @@ export default function OverviewTab() {
       }
     })
     commonMaterials.forEach((m) => {
-      const stock = Number(m.current_stock || 0)
+      const stock = selectItemStock(erpState, m)
       const reorder = Number(m.reorder_level || 0)
       if (stock <= 0) {
         list.push({ type: 'Raw Material', code: m.code, name: m.name, stock, reorder, status: 'Out of Stock', level: 'danger' })

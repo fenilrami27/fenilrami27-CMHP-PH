@@ -58,7 +58,7 @@ function hydrateQaRecord(qa, state) {
 }
 
 export const qualityService = {
-  // Existing Batch Methods (Preserved)
+  // Existing Batch Methods
   getBatches: () => {
     const state = store.getState().erp
     const companyId = getScopedCompanyId()
@@ -67,7 +67,7 @@ export const qualityService = {
   },
 
   qcDecision: (batchId, payload) => {
-    store.dispatch(setBatchQc({ batchId, decision: payload.decision, remarks: payload.remarks }))
+    store.dispatch(setBatchQc({ batchId, decision: payload.decision, remarks: payload.remarks, by: payload.by }))
     recordAudit({
       action: 'qc/batchDecision',
       entityType: 'Batch',
@@ -78,7 +78,7 @@ export const qualityService = {
   },
 
   qaDecision: (batchId, payload) => {
-    store.dispatch(setBatchQa({ batchId, decision: payload.decision, remarks: payload.remarks }))
+    store.dispatch(setBatchQa({ batchId, decision: payload.decision, remarks: payload.remarks, by: payload.by }))
     recordAudit({
       action: 'qa/batchDecision',
       entityType: 'Batch',
@@ -93,7 +93,7 @@ export const qualityService = {
     const batch = state.batches.find((b) => b.id === Number(batchId))
 
     if (!batch) {
-      return delay({ material_consumption: [], qc_history: [], qa_history: [], order: null, invoice: null })
+      return delay({ material_consumption: [], qc_history: [], qa_history: [], order: null, invoice: null, formula: null, formulaApproval: null, orderQc: null, orderQa: null })
     }
 
     const material_consumption = (batch.material_consumption || []).map((mc) => {
@@ -111,6 +111,12 @@ export const qualityService = {
 
     const order = state.orders.find((o) => o.id === Number(batch.order)) || null
     const invoice = state.invoices.find((i) => Number(i.batch) === batch.id) || null
+    const formula = state.formulas.find((f) => Number(f.id) === Number(batch.formula)) || null
+    const formulaApproval = (state.formulaApprovals || []).find(
+      (fa) => Number(fa.productId) === Number(batch.product) || Number(fa.formulaId) === Number(batch.formula)
+    ) || null
+    const orderQc = order ? (state.qcRecords || []).find((q) => Number(q.order_id) === Number(order.id)) : null
+    const orderQa = order ? (state.qaRecords || []).find((q) => Number(q.order_id) === Number(order.id)) : null
 
     return delay({
       material_consumption,
@@ -118,6 +124,10 @@ export const qualityService = {
       qa_history: batch.qa_history || [],
       order,
       invoice,
+      formula,
+      formulaApproval,
+      orderQc,
+      orderQa,
     })
   },
 
@@ -140,6 +150,7 @@ export const qualityService = {
     const companyKey = Number(companyId) === 2 ? 'tej' : 'cmhp'
     const number = commitDocumentNumber('QC', companyId)
     const totalQty = (order.lines || []).reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
+    const inspectorName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.username || 'QC Inspector')
 
     const newRecord = {
       number,
@@ -152,7 +163,7 @@ export const qualityService = {
       accepted_qty: totalQty,
       rejected_qty: 0,
       status: 'PENDING',
-      inspector: user?.first_name || user?.username || 'QC Inspector',
+      inspector: inspectorName,
       inspection_date: new Date().toISOString().slice(0, 10),
       remarks: '',
       parameters: {
@@ -168,7 +179,7 @@ export const qualityService = {
       action: 'qc/createdForOrder',
       entityType: 'QC',
       entityId: number,
-      payload: { orderId: order.id, orderNumber: order.number, totalQty },
+      payload: { orderId: order.id, orderNumber: order.number, totalQty, inspector: inspectorName },
     })
 
     const updatedState = store.getState().erp
@@ -182,6 +193,7 @@ export const qualityService = {
     if (!qc) throw new Error('QC record not found')
 
     const statusVal = outcome === 'PASS' ? 'PASSED' : outcome === 'FAIL' ? 'FAILED' : 'PARTIAL'
+    const inspectorName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.username || 'QC Officer')
 
     store.dispatch(
       editQcRecord({
@@ -194,7 +206,7 @@ export const qualityService = {
           remarks: remarks || '',
           parameters: parameters || {},
           inspected_at: new Date().toISOString(),
-          inspector: user?.first_name || user?.username || 'QC Officer',
+          inspector: inspectorName,
         },
       })
     )
@@ -249,7 +261,7 @@ export const qualityService = {
       action: 'qc/inspectionCompleted',
       entityType: 'QC',
       entityId: qc.number,
-      payload: { outcome: statusVal, acceptedQty, rejectedQty, orderId: qc.order_id, remarks },
+      payload: { outcome: statusVal, acceptedQty, rejectedQty, orderId: qc.order_id, remarks, inspector: inspectorName },
     })
 
     return delay(null)
@@ -269,6 +281,7 @@ export const qualityService = {
     if (!qa) throw new Error('QA record not found')
 
     const statusVal = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
+    const officerName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.username || 'QA Officer')
 
     store.dispatch(
       editQaRecord({
@@ -279,7 +292,7 @@ export const qualityService = {
           remarks: remarks || '',
           parameters: parameters || {},
           released_at: new Date().toISOString(),
-          release_officer: user?.first_name || user?.username || 'QA Officer',
+          release_officer: officerName,
         },
       })
     )
@@ -300,7 +313,7 @@ export const qualityService = {
           productId: order?.product_id || batch?.product || '',
           approvedQty: Number(approvedQty) || Number(qa.ordered_qty) || 0,
           remarks: remarks || '',
-          officer: user?.first_name || user?.username || 'QA Officer',
+          officer: officerName,
         })
       )
     } else {
@@ -317,7 +330,7 @@ export const qualityService = {
       action: 'qa/releaseDecision',
       entityType: 'QA',
       entityId: qa.number,
-      payload: { decision: statusVal, approvedQty, orderId: qa.order_id, remarks },
+      payload: { decision: statusVal, approvedQty, orderId: qa.order_id, remarks, officer: officerName },
     })
 
     return delay(null)

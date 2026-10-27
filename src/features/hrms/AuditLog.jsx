@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { getAuditRows } from '../../utils/audit'
 import { selectActiveCompanyId } from '../../utils/companySelectors'
-import useAuth from '../../hooks/useAuth'
 import Button from '../../components/Button'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../inventory/components/Modal'
@@ -38,7 +37,6 @@ const ACTION_OPTIONS = [
 ]
 
 export default function AuditLog() {
-  const { user } = useAuth()
   const activeCompanyId = useSelector(selectActiveCompanyId)
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
