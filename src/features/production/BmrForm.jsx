@@ -332,7 +332,7 @@ function BmrDateField({
           <img src={masterCopyImg} alt="MASTER COPY" className="bmr-master-copy-img" />
         </div>
       </div>
-      <div className="bmr-dept-title">PRODUCTION ( ORAL LIQUID DEPARTMENT)</div>
+      <div className="bmr-dept-title">{template?.department || 'PRODUCTION ( ORAL LIQUID DEPARTMENT)'}</div>
       <div className="bmr-doc-title">BATCH MANUFACTURING RECORD (BMR)</div>
       <div className="bmr-header-grid">
         <div className="bmr-grid-cell">

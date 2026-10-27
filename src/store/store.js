@@ -58,9 +58,10 @@ function buildInitialERPState() {
 
   // Hydrate empty arrays with seed data if saved state has no records for them
   const seedIfEmptyKeys = [
-    'lots', 'commonProducts', 'commonRawMaterials', 'orders',
+    'lots', 'commonProducts', 'commonRawMaterials', 'products', 'orders', 'batches',
     'customers', 'suppliers', 'issueHistory', 'stockReturns',
-    'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches', 'dosageForms', 'invoices'
+    'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches', 'dosageForms', 'invoices',
+    'designations', 'salaryStructures', 'attendance', 'payments'
   ]
   seedIfEmptyKeys.forEach((key) => {
     if (!Array.isArray(result[key]) || result[key].length === 0) {
@@ -70,18 +71,37 @@ function buildInitialERPState() {
     }
   })
 
-  // Ensure notifications and stockRequests array exists
+  // Ensure all seed users exist
+  if (!Array.isArray(result.users) || result.users.length < (initialState.users?.length || 0)) {
+    result.users = [...(initialState.users || [])]
+  }
+
+  // Ensure BMRs and orderInvoices include all seed master copies
+  if (!result.bmrs || typeof result.bmrs !== 'object' || Object.keys(result.bmrs).length === 0) {
+    result.bmrs = { ...(initialState.bmrs || {}) }
+  } else {
+    result.bmrs = { ...(initialState.bmrs || {}), ...result.bmrs }
+  }
+
+  if (!result.orderInvoices || typeof result.orderInvoices !== 'object' || Object.keys(result.orderInvoices).length === 0) {
+    result.orderInvoices = { ...(initialState.orderInvoices || {}) }
+  } else {
+    result.orderInvoices = { ...(initialState.orderInvoices || {}), ...result.orderInvoices }
+  }
+
+  if (!result.byCompany || !result.byCompany.cmhp || !result.byCompany.cmhp.orders || result.byCompany.cmhp.orders.length === 0) {
+    result.byCompany = JSON.parse(JSON.stringify(initialState.byCompany || {}))
+  }
+
+  // Ensure notifications, stockRequests, and ledger arrays exist
   if (!Array.isArray(result.notifications)) {
     result.notifications = []
   }
   if (!Array.isArray(result.stockRequests)) {
-    result.stockRequests = []
+    result.stockRequests = [...(initialState.stockRequests || [])]
   }
   if (!Array.isArray(result.stockLedgerEntries)) {
-    result.stockLedgerEntries = []
-  }
-  if (!result.orderInvoices || typeof result.orderInvoices !== 'object') {
-    result.orderInvoices = {}
+    result.stockLedgerEntries = [...(initialState.stockLedgerEntries || [])]
   }
 
   // Ensure every invoice has a valid invoice number and linked order/customer data

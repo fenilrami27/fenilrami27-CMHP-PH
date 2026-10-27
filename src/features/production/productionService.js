@@ -70,11 +70,22 @@ export const productionService = {
 
   getOrderById: async (orderId) => {
     if (!orderId) return null
-    const targetStr = String(orderId)
+    const targetStr = String(orderId).trim()
+    const cleanTarget = targetStr.replace(/^#/, '')
+
+    const matchesOrder = (o) => {
+      if (!o) return false
+      return (
+        String(o.id) === cleanTarget ||
+        String(o.number) === cleanTarget ||
+        String(o.number) === targetStr ||
+        String(o.id) === targetStr
+      )
+    }
 
     // First try the scoped orders
     const orders = await productionService.getOrders()
-    const found = orders.find((o) => String(o.id) === targetStr)
+    const found = orders.find(matchesOrder)
     if (found) return found
 
     // If not found in current scoped company, search across all companies in Redux store
@@ -84,7 +95,7 @@ export const productionService = {
       ...(state.byCompany?.tej?.orders || []),
       ...(state.orders || []),
     ]
-    const fallback = allCompanyOrders.find((o) => String(o.id) === targetStr)
+    const fallback = allCompanyOrders.find(matchesOrder)
     if (fallback) {
       const dosage_form = resolveOrderDosageForm(fallback)
       return {

@@ -3,8 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],
-  // build vakhte Django /static/ thi assets serve kare
-  base: command === 'build' ? '/static/' : '/',
+  base: process.env.VITE_BASE_PATH || '/',
   server: {
     proxy: {
       '/api': 'http://127.0.0.1:8000',
