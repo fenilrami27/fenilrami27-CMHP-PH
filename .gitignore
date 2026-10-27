@@ -27,3 +27,6 @@ dist-ssr
 *.zip
 local-data-export.json
 
+
+.vercel
+.env*
