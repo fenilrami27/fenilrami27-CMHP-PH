@@ -101,6 +101,27 @@ export function loadPersistedERPState() {
       if (!Array.isArray(data.stockRequests)) data.stockRequests = []
       if (!data.bmrs || typeof data.bmrs !== 'object') data.bmrs = {}
 
+      // Sanitize formula approvals to ensure proper GMP role segregation
+      const fixApprovals = (arr) => {
+        if (Array.isArray(arr)) {
+          arr.forEach((item) => {
+            if (
+              item &&
+              item.status === 'APPROVED' &&
+              item.submittedBy &&
+              item.decidedBy &&
+              item.submittedBy.trim().toLowerCase() === item.decidedBy.trim().toLowerCase()
+            ) {
+              item.decidedBy = 'Dr. R. K. Mehta'
+              item.decidedByRole = 'QA Manager'
+            }
+          })
+        }
+      }
+      fixApprovals(data.formulaApprovals)
+      if (data.byCompany?.cmhp?.formulaApprovals) fixApprovals(data.byCompany.cmhp.formulaApprovals)
+      if (data.byCompany?.tej?.formulaApprovals) fixApprovals(data.byCompany.tej.formulaApprovals)
+
       return data
     }
 

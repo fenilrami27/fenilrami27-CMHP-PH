@@ -5,32 +5,30 @@ import Button from '../../components/Button'
 import StatusPill from '../../components/StatusPill'
 import Modal from '../inventory/components/Modal'
 import { getErrorMessage } from '../../utils/errors'
-import { operationsService } from '../operations/operationsService'
-import { qualityService } from './qualityService'
 import useAuth from '../../hooks/useAuth'
 import PageHeader from '../../components/PageHeader'
 import HeroBanner from '../../components/HeroBanner'
-import { getCurrentWorkspaceObject } from '../../utils/workspace'
 import {
   selectFormulaApprovals,
   selectActiveCompanyId,
+  selectActiveCompanyKey,
 } from '../../utils/companySelectors'
-import { decideFormulaApproval } from '../../store/erpSlice'
+import { decideFormulaApproval, updateOrderQaStatus } from '../../store/erpSlice'
+import { resolveOrderDosageForm } from '../production/productionService'
 import BmrRequisitionDocument from '../../components/BmrRequisitionDocument'
 import {
   exportFormulaPrint,
   exportFormulaExcel,
 } from '../../utils/formulaExport'
+import { printElement } from '../../utils/printDocument'
+import { formatDateIN, formatDateTimeIN } from '../../utils/formatters'
+import { recordAudit } from '../../utils/audit'
 import './Quality.css'
 import '../inventory/tabs/CommonInventory.css'
 
 const TABS = [
-  { key: 'order_qc', label: 'Order QC Inspections' },
-  { key: 'order_qa', label: 'Order QA Releases' },
-  { key: 'qc', label: 'Batch QC Review' },
-  { key: 'qa', label: 'Batch QA Release' },
-  { key: 'trace', label: 'Batch Traceability' },
   { key: 'formula_approvals', label: 'Formula Approvals' },
+  { key: 'production_qa', label: 'Production QA' },
 ]
 
 const FORMULA_STATUS_FILTERS = ['ALL', 'PENDING', 'APPROVED', 'DECLINED']
@@ -45,85 +43,187 @@ const DECLINE_CATEGORIES = [
   'Other Analytical Variance',
 ]
 
-const QC_FILTERS = ['ALL', 'PENDING', 'APPROVED', 'REJECTED']
-const QA_FILTERS = ['ALL', 'PENDING', 'RELEASED', 'REJECTED']
-
-const ORDER_QC_FILTERS = ['ALL', 'PENDING', 'PASSED', 'PARTIAL', 'FAILED']
-const ORDER_QA_FILTERS = ['ALL', 'PENDING', 'APPROVED', 'REJECTED']
-
-const listData = (response) =>
-  Array.isArray(response.data) ? response.data : response.data?.results || []
-
-function qcTone(status) {
-  if (status === 'APPROVED' || status === 'PASSED') return 'success'
-  if (status === 'REJECTED' || status === 'FAILED') return 'danger'
-  if (status === 'PARTIAL') return 'warning'
-  if (status === 'PENDING') return 'warning'
-  return 'neutral'
-}
-
-function qaTone(status) {
-  if (status === 'RELEASED' || status === 'APPROVED') return 'success'
-  if (status === 'REJECTED' || status === 'HOLD') return 'danger'
-  if (status === 'PENDING') return 'warning'
-  return 'neutral'
-}
-
 export default function Quality() {
   const { user } = useAuth()
-  const [tab, setTab] = useState('order_qc')
-  const [batches, setBatches] = useState([])
-  const [orderQcRecords, setOrderQcRecords] = useState([])
-  const [orderQaRecords, setOrderQaRecords] = useState([])
+  const dispatch = useDispatch()
+  const [tab, setTab] = useState('production_qa')
 
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // Search states for tabs
-  const [orderQcSearch, setOrderQcSearch] = useState('')
-  const [orderQaSearch, setOrderQaSearch] = useState('')
-  const [qcSearch, setQcSearch] = useState('')
+  // ========================================================
+  // PRODUCTION QA REDUX STATE & FILTERING
+  // ========================================================
+  const compKey = useSelector(selectActiveCompanyKey)
+  const reduxOrders = useSelector((state) => state.erp.byCompany?.[compKey]?.orders || state.erp.orders || [])
+  const reduxCustomers = useSelector((state) => state.erp.customers || [])
+
+  // Production Orders live-synced from Redux
+  const productionOrders = useMemo(() => {
+    return (reduxOrders || []).map((order) => {
+      const dosage_form = resolveOrderDosageForm(order)
+      const cust = reduxCustomers.find((c) => String(c.id) === String(order.customer))
+      return {
+        ...order,
+        customer_name: order.customer_name || cust?.name || 'Direct Customer',
+        dosage_form,
+        dosageForm: dosage_form,
+        bmr_status: order.bmr_status || 'NO',
+        production_status: order.production_status || 'In Planning',
+        packaging_status: order.packaging_status || 'Pending',
+        qa_status: order.qa_status || 'Pending',
+        qa_remark: order.qa_remark || '',
+        qa_confirmed_by: order.qa_confirmed_by || '',
+        qa_confirmed_at: order.qa_confirmed_at || '',
+        supply_by_date: order.supply_by_date || order.planned_mfg_date || order.delivery_deadline || '—',
+      }
+    })
+  }, [reduxOrders, reduxCustomers])
+
+  // Filters for Production QA
   const [qaSearch, setQaSearch] = useState('')
+  const [qaProdStatusFilter, setQaProdStatusFilter] = useState('ALL')
+  const [qaDecisionFilter, setQaDecisionFilter] = useState('ALL')
 
-  // Batch filters
-  const [qcFilter, setQcFilter] = useState('PENDING')
-  const [qaFilter, setQaFilter] = useState('PENDING')
+  // Pagination for Production QA
+  const [qaPage, setQaPage] = useState(1)
+  const qaPageSize = 10
 
-  // Order filters
-  const [orderQcFilter, setOrderQcFilter] = useState('ALL')
-  const [orderQaFilter, setOrderQaFilter] = useState('ALL')
+  const filteredQaOrders = useMemo(() => {
+    const term = qaSearch.trim().toLowerCase()
+    return productionOrders.filter((order) => {
+      const matchesSearch =
+        !term ||
+        String(order.number || order.id || '').toLowerCase().includes(term) ||
+        String(order.product_name || '').toLowerCase().includes(term) ||
+        String(order.batch_no || '').toLowerCase().includes(term) ||
+        String(order.customer_name || '').toLowerCase().includes(term)
 
-  // Batch QC / QA decision modal
-  const [decisionModal, setDecisionModal] = useState(null)
-  const [remarks, setRemarks] = useState('')
-  const [saving, setSaving] = useState(false)
+      const matchesProd =
+        qaProdStatusFilter === 'ALL' ||
+        (order.production_status || 'In Planning') === qaProdStatusFilter
 
-  // Order QC inspection modal
-  const [orderQcModal, setOrderQcModal] = useState(null)
-  const [qcParams, setQcParams] = useState({
-    appearance: 'PASS',
-    packaging: 'PASS',
-    labeling: 'PASS',
-    specs: 'PASS',
-  })
-  const [qcInspectedQty, setQcInspectedQty] = useState(0)
-  const [qcAcceptedQty, setQcAcceptedQty] = useState(0)
-  const [qcRejectedQty, setQcRejectedQty] = useState(0)
-  const [qcRemarks, setQcRemarks] = useState('')
+      const matchesQa =
+        qaDecisionFilter === 'ALL' ||
+        (order.qa_status || 'Pending') === qaDecisionFilter
 
-  // Order QA release modal
-  const [orderQaModal, setOrderQaModal] = useState(null)
-  const [qaParams, setQaParams] = useState({
-    bmr_review: 'PASS',
-    coa_verification: 'PASS',
-    compliance_signoff: 'PASS',
-  })
-  const [qaApprovedQty, setQaApprovedQty] = useState(0)
-  const [qaRemarks, setQaRemarks] = useState('')
+      return matchesSearch && matchesProd && matchesQa
+    })
+  }, [productionOrders, qaSearch, qaProdStatusFilter, qaDecisionFilter])
 
-  // Formula Approval States (QC Lifecycle)
-  const dispatch = useDispatch()
+  const paginatedQaOrders = useMemo(() => {
+    const start = (qaPage - 1) * qaPageSize
+    return filteredQaOrders.slice(start, start + qaPageSize)
+  }, [filteredQaOrders, qaPage, qaPageSize])
+
+  const totalQaPages = Math.ceil(filteredQaOrders.length / qaPageSize) || 1
+
+  // Order Review Row States (orderId -> { decision: 'Approved' | 'Issue', remark: '' })
+  const [rowReviews, setRowReviews] = useState({})
+  const [editingOrderIds, setEditingOrderIds] = useState({})
+  const [confirmQaDialog, setConfirmQaDialog] = useState(null) // { order, decision, remark }
+  const [rowError, setRowError] = useState({})
+
+  const handleDecisionSelect = (orderId, decision) => {
+    setRowReviews((prev) => ({
+      ...prev,
+      [orderId]: {
+        ...(prev[orderId] || {}),
+        decision,
+      },
+    }))
+    setRowError((prev) => ({ ...prev, [orderId]: '' }))
+  }
+
+  const handleRemarkChange = (orderId, remark) => {
+    setRowReviews((prev) => ({
+      ...prev,
+      [orderId]: {
+        ...(prev[orderId] || {}),
+        remark,
+      },
+    }))
+    if (remark.trim()) {
+      setRowError((prev) => ({ ...prev, [orderId]: '' }))
+    }
+  }
+
+  const handleStartEdit = (order) => {
+    setEditingOrderIds((prev) => ({ ...prev, [order.id]: true }))
+    setRowReviews((prev) => ({
+      ...prev,
+      [order.id]: {
+        decision: order.qa_status === 'Issue' ? 'Issue' : 'Approved',
+        remark: order.qa_remark || '',
+      },
+    }))
+  }
+
+  const handleCancelEdit = (orderId) => {
+    setEditingOrderIds((prev) => ({ ...prev, [orderId]: false }))
+    setRowError((prev) => ({ ...prev, [orderId]: '' }))
+  }
+
+  const handleOpenConfirmDialog = (order) => {
+    const rev = rowReviews[order.id] || {
+      decision: order.qa_status === 'Issue' ? 'Issue' : 'Approved',
+      remark: order.qa_remark || '',
+    }
+    const decision = rev.decision || 'Approved'
+    const remark = (rev.remark || '').trim()
+
+    if (decision === 'Issue' && !remark) {
+      setRowError((prev) => ({ ...prev, [order.id]: 'Remark is mandatory when reporting an Issue.' }))
+      return
+    }
+
+    setRowError((prev) => ({ ...prev, [order.id]: '' }))
+    setConfirmQaDialog({
+      order,
+      decision,
+      remark,
+    })
+  }
+
+  const handleFinalConfirmQa = () => {
+    if (!confirmQaDialog) return
+    const { order, decision, remark } = confirmQaDialog
+    const loggedInName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.username || 'QA Officer')
+    const now = new Date().toISOString()
+
+    dispatch(
+      updateOrderQaStatus({
+        id: order.id,
+        qa_status: decision,
+        qa_remark: remark,
+        confirmed_by: loggedInName,
+        confirmed_at: now,
+      })
+    )
+
+    recordAudit({
+      action: 'qa/productionOrderDecision',
+      entityType: 'Order',
+      entityId: order.id,
+      payload: {
+        orderNumber: order.number || order.id,
+        decision,
+        remark,
+        confirmed_by: loggedInName,
+        confirmed_at: now,
+      },
+    })
+
+    setEditingOrderIds((prev) => ({ ...prev, [order.id]: false }))
+    setConfirmQaDialog(null)
+    setSuccess(`Order #${order.number || order.id} marked as ${decision} successfully!`)
+    setTimeout(() => setSuccess(''), 3000)
+  }
+
+  // ========================================================
+  // FORMULA APPROVALS (QC & QA CERTIFICATION)
+  // ========================================================
   const formulaApprovals = useSelector(selectFormulaApprovals)
   const activeCompanyId = useSelector(selectActiveCompanyId)
 
@@ -132,112 +232,13 @@ export default function Quality() {
   const [reviewFormulaModal, setReviewFormulaModal] = useState(null)
   const [approveDialogModal, setApproveDialogModal] = useState(null)
   const [qcApprovalRemarks, setQcApprovalRemarks] = useState('')
+  const [approverInputName, setApproverInputName] = useState('')
   const [declineDialogModal, setDeclineDialogModal] = useState(null)
   const [declineReason, setDeclineReason] = useState('')
+  const [declinerInputName, setDeclinerInputName] = useState('')
   const [declineCategory, setDeclineCategory] = useState('Stoichiometric Discrepancy')
   const [declineValidationError, setDeclineValidationError] = useState('')
 
-  // Traceability
-  const [traceBatchId, setTraceBatchId] = useState('')
-  const [trace, setTrace] = useState(null)
-  const [traceLoading, setTraceLoading] = useState(false)
-  const [traceError, setTraceError] = useState('')
-
-  const load = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [batchRes, qcRes, qaRes] = await Promise.all([
-        operationsService.getBatches(),
-        qualityService.getQcRecords(),
-        qualityService.getQaRecords(),
-      ])
-      setBatches(listData(batchRes))
-      setOrderQcRecords(listData(qcRes))
-      setOrderQaRecords(listData(qaRes))
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  // Filtered rows with search
-  const qcRows = useMemo(
-    () =>
-      batches.filter((batch) => {
-        if (qcFilter !== 'ALL' && batch.qc_status !== qcFilter) return false
-        if (qcSearch.trim()) {
-          const q = qcSearch.toLowerCase().trim()
-          return (
-            String(batch.number || '').toLowerCase().includes(q) ||
-            String(batch.product_name || '').toLowerCase().includes(q) ||
-            String(batch.company_name || '').toLowerCase().includes(q)
-          )
-        }
-        return true
-      }),
-    [batches, qcFilter, qcSearch]
-  )
-
-  const qaRows = useMemo(
-    () =>
-      batches.filter((batch) => {
-        if (qaFilter !== 'ALL' && batch.qa_status !== qaFilter) return false
-        if (qaSearch.trim()) {
-          const q = qaSearch.toLowerCase().trim()
-          return (
-            String(batch.number || '').toLowerCase().includes(q) ||
-            String(batch.product_name || '').toLowerCase().includes(q) ||
-            String(batch.company_name || '').toLowerCase().includes(q)
-          )
-        }
-        return true
-      }),
-    [batches, qaFilter, qaSearch]
-  )
-
-  const orderQcRows = useMemo(
-    () =>
-      orderQcRecords.filter((rec) => {
-        if (orderQcFilter !== 'ALL' && rec.status !== orderQcFilter) return false
-        if (orderQcSearch.trim()) {
-          const q = orderQcSearch.toLowerCase().trim()
-          return (
-            String(rec.number || '').toLowerCase().includes(q) ||
-            String(rec.order_number || '').toLowerCase().includes(q) ||
-            String(rec.customer_name || '').toLowerCase().includes(q) ||
-            String(rec.product_name || '').toLowerCase().includes(q)
-          )
-        }
-        return true
-      }),
-    [orderQcRecords, orderQcFilter, orderQcSearch]
-  )
-
-  const orderQaRows = useMemo(
-    () =>
-      orderQaRecords.filter((rec) => {
-        if (orderQaFilter !== 'ALL' && rec.status !== orderQaFilter) return false
-        if (orderQaSearch.trim()) {
-          const q = orderQaSearch.toLowerCase().trim()
-          return (
-            String(rec.number || '').toLowerCase().includes(q) ||
-            String(rec.order_number || '').toLowerCase().includes(q) ||
-            String(rec.customer_name || '').toLowerCase().includes(q) ||
-            String(rec.product_name || '').toLowerCase().includes(q)
-          )
-        }
-        return true
-      }),
-    [orderQaRecords, orderQaFilter, orderQaSearch]
-  )
-
-  // Formula Approval Metrics & Filtered Data
   const totalFormulaRequests = formulaApprovals.length
   const pendingFormulaApprovals = useMemo(
     () => formulaApprovals.filter((a) => a.status === 'PENDING').length,
@@ -278,13 +279,24 @@ export default function Quality() {
   }, [formulaApprovals, formulaStatusFilter, formulaSearch])
 
   const handleOpenApproveModal = (req) => {
+    const loggedInFullName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.username || '')
+    const defaultApprover = (loggedInFullName && loggedInFullName.toLowerCase() !== String(req.submittedBy || '').toLowerCase())
+      ? loggedInFullName
+      : 'Dr. R. K. Mehta'
+    setApproverInputName(defaultApprover)
     setQcApprovalRemarks('')
     setApproveDialogModal(req)
   }
 
   const handleConfirmApprove = () => {
     if (!approveDialogModal) return
-    const approverName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : 'Dr. R. K. Mehta'
+    if (approveDialogModal.status !== 'PENDING') {
+      setError('This formula calculation has already been decided.')
+      return
+    }
+    const approverName = approverInputName.trim() || 'Dr. R. K. Mehta'
+    const approverRole = 'QA Manager'
+    const now = new Date().toISOString()
 
     dispatch(
       decideFormulaApproval({
@@ -292,9 +304,25 @@ export default function Quality() {
         decision: 'APPROVED',
         remarks: qcApprovalRemarks.trim() || 'Calculations verified against pharmacopeia stoichiometric specifications. Formulation approved for BMR issuance.',
         decidedBy: approverName,
-        decidedByRole: 'QA Manager',
+        decidedByRole: approverRole,
+        decidedAt: now,
       })
     )
+
+    recordAudit({
+      action: 'qc/formulaApproved',
+      entityType: 'FormulaApproval',
+      entityId: approveDialogModal.id,
+      payload: {
+        productName: approveDialogModal.productName,
+        batchQuantity: approveDialogModal.batchQuantity,
+        batchUnit: approveDialogModal.batchUnit,
+        scaleFactor: approveDialogModal.scaleFactor,
+        decidedBy: approverName,
+        decidedByRole: approverRole,
+        at: now,
+      },
+    })
 
     setSuccess(`Formula calculation for ${approveDialogModal.productName} (${approveDialogModal.id}) successfully approved!`)
     setApproveDialogModal(null)
@@ -303,13 +331,19 @@ export default function Quality() {
         ...prev,
         status: 'APPROVED',
         decidedBy: approverName,
-        decidedAt: new Date().toISOString(),
+        decidedByRole: approverRole,
+        decidedAt: now,
         decisionRemarks: qcApprovalRemarks.trim() || 'Calculations verified against pharmacopeia stoichiometric specifications.',
       }))
     }
   }
 
   const handleOpenDeclineModal = (req) => {
+    const loggedInFullName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user?.username || '')
+    const defaultDecliner = (loggedInFullName && loggedInFullName.toLowerCase() !== String(req.submittedBy || '').toLowerCase())
+      ? loggedInFullName
+      : 'Pooja Varma'
+    setDeclinerInputName(defaultDecliner)
     setDeclineReason('')
     setDeclineCategory('Stoichiometric Discrepancy')
     setDeclineValidationError('')
@@ -318,12 +352,18 @@ export default function Quality() {
 
   const handleConfirmDecline = () => {
     if (!declineDialogModal) return
+    if (declineDialogModal.status !== 'PENDING') {
+      setError('This formula calculation has already been decided.')
+      return
+    }
     if (!declineReason.trim() || declineReason.trim().length < 5) {
       setDeclineValidationError('A specific analytical decline reason is mandatory (minimum 5 characters).')
       return
     }
 
-    const declinerName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : 'Pooja Varma'
+    const declinerName = declinerInputName.trim() || 'Pooja Varma'
+    const declinerRole = 'QC In-Charge'
+    const now = new Date().toISOString()
 
     dispatch(
       decideFormulaApproval({
@@ -332,9 +372,24 @@ export default function Quality() {
         reason: declineReason.trim(),
         declineCategory: declineCategory,
         decidedBy: declinerName,
-        decidedByRole: 'QC In-Charge',
+        decidedByRole: declinerRole,
+        decidedAt: now,
       })
     )
+
+    recordAudit({
+      action: 'qc/formulaDeclined',
+      entityType: 'FormulaApproval',
+      entityId: declineDialogModal.id,
+      payload: {
+        productName: declineDialogModal.productName,
+        category: declineCategory,
+        reason: declineReason.trim(),
+        decidedBy: declinerName,
+        decidedByRole: declinerRole,
+        at: now,
+      },
+    })
 
     setSuccess(`Formula calculation for ${declineDialogModal.productName} declined. Reason logged and returned to production for revision.`)
     setDeclineDialogModal(null)
@@ -343,245 +398,66 @@ export default function Quality() {
         ...prev,
         status: 'DECLINED',
         decidedBy: declinerName,
-        decidedAt: new Date().toISOString(),
+        decidedByRole: declinerRole,
+        decidedAt: now,
         declineReason: declineReason.trim(),
         declineCategory: declineCategory,
       }))
     }
   }
 
-  // Batch QC/QA decision handlers
-  const openDecision = (type, batch) => {
-    setError('')
-    setSuccess('')
-    setRemarks('')
-    setDecisionModal({ type, batch })
-  }
-
-  const closeDecision = () => {
-    if (!saving) setDecisionModal(null)
-  }
-
-  const submitDecision = async (decision) => {
-    if (!decisionModal) return
-    setSaving(true)
-    setError('')
-
-    try {
-      const { type, batch } = decisionModal
-
-      if (type === 'qc') {
-        await qualityService.qcDecision(batch.id, { decision, remarks })
-        setSuccess(
-          `Batch ${batch.number} QC ${decision === 'APPROVE' ? 'approved' : 'rejected'}.`
-        )
-      } else {
-        await qualityService.qaDecision(batch.id, { decision, remarks })
-        setSuccess(
-          `Batch ${batch.number} QA ${decision === 'RELEASE' ? 'released' : 'put on hold'}.`
-        )
-      }
-
-      setDecisionModal(null)
-      await load()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Order QC Inspection Modal Handlers
-  const openOrderQc = (qc) => {
-    setError('')
-    setSuccess('')
-    setOrderQcModal(qc)
-    setQcInspectedQty(qc.ordered_qty || 0)
-    setQcAcceptedQty(qc.ordered_qty || 0)
-    setQcRejectedQty(0)
-    setQcRemarks(qc.remarks || '')
-    setQcParams(
-      qc.parameters || {
-        appearance: 'PASS',
-        packaging: 'PASS',
-        labeling: 'PASS',
-        specs: 'PASS',
-      }
-    )
-  }
-
-  const submitOrderQc = async (outcome) => {
-    if (!orderQcModal) return
-    setSaving(true)
-    setError('')
-
-    try {
-      await qualityService.submitQcInspection(orderQcModal.id, {
-        outcome,
-        inspectedQty: qcInspectedQty,
-        acceptedQty: qcAcceptedQty,
-        rejectedQty: qcRejectedQty,
-        remarks: qcRemarks,
-        parameters: qcParams,
-        user,
-      })
-
-      setSuccess(
-        `Order QC #${orderQcModal.number} marked as ${outcome}. ${
-          outcome === 'PASS' || outcome === 'PARTIAL'
-            ? 'Order has progressed to QA Release queue.'
-            : 'Order returned as QC Failed.'
-        }`
-      )
-      setOrderQcModal(null)
-      await load()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Order QA Release Modal Handlers
-  const openOrderQa = (qa) => {
-    setError('')
-    setSuccess('')
-    setOrderQaModal(qa)
-    setQaApprovedQty(qa.qc_accepted_qty || qa.ordered_qty || 0)
-    setQaRemarks(qa.remarks || '')
-    setQaParams(
-      qa.parameters || {
-        bmr_review: 'PASS',
-        coa_verification: 'PASS',
-        compliance_signoff: 'PASS',
-      }
-    )
-  }
-
-  const submitOrderQa = async (decision) => {
-    if (!orderQaModal) return
-    setSaving(true)
-    setError('')
-
-    try {
-      await qualityService.submitQaRelease(orderQaModal.id, {
-        decision,
-        approvedQty: qaApprovedQty,
-        remarks: qaRemarks,
-        parameters: qaParams,
-        user,
-      })
-
-      setSuccess(
-        `Order QA #${orderQaModal.number} ${decision === 'APPROVE' ? 'approved' : 'rejected'}. ${
-          decision === 'APPROVE'
-            ? `Billable quantity ${qaApprovedQty} is now ready to invoice in the Invoicing module.`
-            : 'Order marked as QA Rejected.'
-        }`
-      )
-      setOrderQaModal(null)
-      await load()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Traceability
-  const loadTrace = async (batchId) => {
-    setTraceBatchId(batchId)
-    setTrace(null)
-    setTraceError('')
-
-    if (!batchId) return
-
-    setTraceLoading(true)
-    try {
-      const response = await qualityService.getBatchTraceability(batchId)
-      setTrace(response.data)
-    } catch (err) {
-      setTraceError(getErrorMessage(err))
-    } finally {
-      setTraceLoading(false)
-    }
-  }
-
-  const selectedTraceBatch = batches.find(
-    (batch) => String(batch.id) === String(traceBatchId)
-  )
-
-  const currentWorkspace = getCurrentWorkspaceObject(user)
-  const companyName = currentWorkspace?.shortName || currentWorkspace?.name || 'Company Workspace'
-
-  const totalInspections = orderQcRecords.length + batches.length
-  const pendingCount = orderQcRecords.filter((r) => r.status === 'PENDING').length + batches.filter((b) => b.qc_status === 'PENDING').length
-  const passedCount = orderQcRecords.filter((r) => r.status === 'PASSED' || r.status === 'APPROVED').length + batches.filter((b) => b.qc_status === 'APPROVED').length
-  const rejectedCount = orderQcRecords.filter((r) => r.status === 'FAILED' || r.status === 'REJECTED' || (Number(r.rejected_quantity) > 0)).length + batches.filter((b) => b.qc_status === 'REJECTED').length
-  const qaReleasedCount = orderQaRecords.filter((r) => r.status === 'RELEASED' || r.status === 'APPROVED').length
+  // Summary Metrics
+  const pendingQaCount = productionOrders.filter((o) => (o.qa_status || 'Pending') === 'Pending').length
+  const approvedQaCount = productionOrders.filter((o) => o.qa_status === 'Approved').length
+  const issueQaCount = productionOrders.filter((o) => o.qa_status === 'Issue').length
 
   return (
-    <div className="inv">
-      <HeroBanner
-        eyebrow="GMP Compliance &amp; Laboratory"
-        title="Quality Control &amp; QA Release"
-        subtitle="Verify Order inspection parameters (QC), grant QA release sign-off for billable invoicing, review production batches, and trace manufacturing history end-to-end."
-      />
-
+    <div>
       <PageHeader
-        breadcrumbs={['Workspace', companyName, 'Quality Control']}
         title="Quality Control & QA Release"
-        subtitle="Verify Order inspection parameters (QC), grant QA release sign-off for billable invoicing, review production batches, and trace manufacturing history end-to-end."
-        pill="GMP Compliance Lab"
-        primaryAction={{
-          label: '+ Record Inspection',
-          onClick: () => {
-            if (orderQcRows.length > 0) openOrderQc(orderQcRows[0])
-            else if (qcRows.length > 0) openDecision('qc', qcRows[0])
-          },
-        }}
+        subtitle="Master formulation approvals and production order QA clearance."
       />
 
       {/* Summary KPI Cards */}
       <div className="ci-summary-grid" style={{ marginBottom: 18 }}>
         <div className="ci-card">
-          <div className="ci-card-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>🔬</div>
+          <div className="ci-card-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>📦</div>
           <div className="ci-card-info">
-            <span className="ci-card-label">Total Inspections</span>
-            <span className="ci-card-value">{totalInspections}</span>
-            <span className="ci-card-subtext">Order &amp; Batch QA/QC runs</span>
+            <span className="ci-card-label">Total Orders</span>
+            <span className="ci-card-value">{productionOrders.length}</span>
+            <span className="ci-card-subtext">In Production</span>
           </div>
         </div>
         <div className="ci-card">
           <div className="ci-card-icon" style={{ background: '#fefce8', color: '#ca8a04' }}>⏳</div>
           <div className="ci-card-info">
-            <span className="ci-card-label">Pending Review</span>
-            <span className="ci-card-value" style={{ color: '#ca8a04' }}>{pendingCount}</span>
-            <span className="ci-card-subtext">Awaiting clearance</span>
+            <span className="ci-card-label">QA Pending</span>
+            <span className="ci-card-value" style={{ color: '#ca8a04' }}>{pendingQaCount}</span>
+            <span className="ci-card-subtext">Awaiting sign-off</span>
           </div>
         </div>
         <div className="ci-card">
           <div className="ci-card-icon" style={{ background: '#f0fdf4', color: '#16a34a' }}>✓</div>
           <div className="ci-card-info">
-            <span className="ci-card-label">Passed &amp; Approved</span>
-            <span className="ci-card-value" style={{ color: '#16a34a' }}>{passedCount}</span>
-            <span className="ci-card-subtext">Specs fully compliant</span>
+            <span className="ci-card-label">QA Approved</span>
+            <span className="ci-card-value" style={{ color: '#16a34a' }}>{approvedQaCount}</span>
+            <span className="ci-card-subtext">Cleared by QA</span>
           </div>
         </div>
         <div className="ci-card">
-          <div className="ci-card-icon" style={{ background: '#fef2f2', color: '#dc2626' }}>✕</div>
+          <div className="ci-card-icon" style={{ background: '#fef2f2', color: '#dc2626' }}>⚠️</div>
           <div className="ci-card-info">
-            <span className="ci-card-label">Rejections / Discrepancies</span>
-            <span className="ci-card-value" style={{ color: '#dc2626' }}>{rejectedCount}</span>
-            <span className="ci-card-subtext">Defect or out-of-spec</span>
+            <span className="ci-card-label">QA Issues</span>
+            <span className="ci-card-value" style={{ color: '#dc2626' }}>{issueQaCount}</span>
+            <span className="ci-card-subtext">Flagged for rework</span>
           </div>
         </div>
         <div className="ci-card">
           <div className="ci-card-icon" style={{ background: '#f5f3ff', color: '#7c3aed' }}>📋</div>
           <div className="ci-card-info">
-            <span className="ci-card-label">QA Released</span>
-            <span className="ci-card-value" style={{ color: '#7c3aed' }}>{qaReleasedCount}</span>
-            <span className="ci-card-subtext">Sign-off for billing</span>
+            <span className="ci-card-label">Formula Approvals</span>
+            <span className="ci-card-value" style={{ color: '#7c3aed' }}>{pendingFormulaApprovals}</span>
+            <span className="ci-card-subtext">Pending stoichiometric</span>
           </div>
         </div>
       </div>
@@ -589,7 +465,7 @@ export default function Quality() {
       <div className="inv-tabs">
         {TABS.map((item) => {
           const isApprovals = item.key === 'formula_approvals'
-          const count = isApprovals ? pendingFormulaApprovals : 0
+          const count = isApprovals ? pendingFormulaApprovals : pendingQaCount
           return (
             <button
               key={item.key}
@@ -604,499 +480,312 @@ export default function Quality() {
         })}
       </div>
 
-      {error && !decisionModal && !orderQcModal && !orderQaModal && <Alert type="error">{error}</Alert>}
+      {error && <Alert type="error">{error}</Alert>}
       {success && <Alert type="success">{success}</Alert>}
 
       {/* ========================================================
-          ORDER QC INSPECTIONS
+          NEW PRODUCTION QA TAB
           ======================================================== */}
-      {tab === 'order_qc' && (
+      {tab === 'production_qa' && (
         <div className="inv-panel">
-          <div className="inv-toolbar" style={{ flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h3 style={{ margin: '0 0 4px 0' }}>Order Quality Inspections (QC)</h3>
-              <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-                Inspection parameters, accepted/rejected quantities, and outcome clearance before QA release.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Filter Bar */}
+          <div className="qc-filter-toolbar">
+            <div className="qc-search-wrapper">
+              <svg className="qc-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
               <input
-                type="search"
-                placeholder="Search inspections…"
-                value={orderQcSearch}
-                onChange={(e) => setOrderQcSearch(e.target.value)}
-                className="company-input"
-                style={{ width: 190 }}
-              />
-              <div className="qc-filter-group">
-                {ORDER_QC_FILTERS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={orderQcFilter === f ? 'qc-filter active' : 'qc-filter'}
-                    onClick={() => setOrderQcFilter(f)}
-                  >
-                    {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="inv-table-scroll">
-            <table className="inv-table">
-              <thead>
-                <tr>
-                  <th>QC Number</th>
-                  <th>Order Number</th>
-                  <th>Customer</th>
-                  <th>Company</th>
-                  <th>Ordered Qty</th>
-                  <th>Inspected</th>
-                  <th>Accepted</th>
-                  <th>Rejected</th>
-                  <th>Status</th>
-                  <th>Inspector</th>
-                  <th>Date</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orderQcRows.map((qc) => (
-                  <tr key={qc.id}>
-                    <td className="cell-strong">{qc.number}</td>
-                    <td><strong>{qc.order_number}</strong></td>
-                    <td>{qc.customer_name}</td>
-                    <td>{qc.company_name}</td>
-                    <td>{qc.ordered_qty}</td>
-                    <td>{qc.inspected_qty}</td>
-                    <td style={{ color: '#16a34a', fontWeight: 600 }}>{qc.accepted_qty}</td>
-                    <td style={{ color: qc.rejected_qty > 0 ? '#dc2626' : undefined }}>{qc.rejected_qty}</td>
-                    <td>
-                      <StatusPill tone={qcTone(qc.status)}>
-                        {qc.status}
-                      </StatusPill>
-                    </td>
-                    <td>{qc.inspector || '—'}</td>
-                    <td>{qc.inspection_date || '—'}</td>
-                    <td>
-                      {qc.status === 'PENDING' ? (
-                        <Button
-                          variant="secondary"
-                          onClick={() => openOrderQc(qc)}
-                        >
-                          Inspect
-                        </Button>
-                      ) : qc.status === 'PASSED' ? (
-                        <Button
-                          variant="primary"
-                          onClick={() => {
-                            setTab('order_qa')
-                            setOrderQaSearch(qc.order_number)
-                          }}
-                          title="Take Approval from QA"
-                        >
-                          Take Approval →
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          onClick={() => openOrderQc(qc)}
-                        >
-                          Review
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!loading && orderQcRows.length === 0 && (
-              <p className="inv-empty">No Order QC inspection records found. Confirm an order in the Orders module to generate a QC inspection.</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================
-          ORDER QA RELEASES
-          ======================================================== */}
-      {tab === 'order_qa' && (
-        <div className="inv-panel">
-          <div className="inv-toolbar" style={{ flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h3 style={{ margin: '0 0 4px 0' }}>Order QA Release (Final Sign-off)</h3>
-              <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-                QA release sign-off is required before invoicing. QA-approved quantity becomes the billable quantity.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                type="search"
-                placeholder="Search QA releases…"
-                value={orderQaSearch}
-                onChange={(e) => setOrderQaSearch(e.target.value)}
-                className="company-input"
-                style={{ width: 190 }}
-              />
-              <div className="qc-filter-group">
-                {ORDER_QA_FILTERS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={orderQaFilter === f ? 'qc-filter active' : 'qc-filter'}
-                    onClick={() => setOrderQaFilter(f)}
-                  >
-                    {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="inv-table-scroll">
-            <table className="inv-table">
-              <thead>
-                <tr>
-                  <th>QA Number</th>
-                  <th>Order Number</th>
-                  <th>QC Ref</th>
-                  <th>Customer</th>
-                  <th>Company</th>
-                  <th>QC Accepted Qty</th>
-                  <th>QA Billable Qty</th>
-                  <th>Status</th>
-                  <th>QA Officer</th>
-                  <th>Released At</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orderQaRows.map((qa) => (
-                  <tr key={qa.id}>
-                    <td className="cell-strong">{qa.number}</td>
-                    <td><strong>{qa.order_number}</strong></td>
-                    <td>{qa.qc_number}</td>
-                    <td>{qa.customer_name}</td>
-                    <td>{qa.company_name}</td>
-                    <td>{qa.qc_accepted_qty}</td>
-                    <td style={{ color: '#0284c7', fontWeight: 700 }}>{qa.qa_approved_qty}</td>
-                    <td>
-                      <StatusPill tone={qaTone(qa.status)}>
-                        {qa.status}
-                      </StatusPill>
-                    </td>
-                    <td>{qa.release_officer || '—'}</td>
-                    <td>{qa.released_at ? new Date(qa.released_at).toLocaleDateString('en-IN') : '—'}</td>
-                    <td>
-                      <Button
-                        variant={qa.status === 'PENDING' ? 'primary' : 'secondary'}
-                        onClick={() => openOrderQa(qa)}
-                      >
-                        {qa.status === 'PENDING' ? 'Take Approval' : 'Details'}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!loading && orderQaRows.length === 0 && (
-              <p className="inv-empty">No Order QA release records found. Orders will appear here once their QC inspection passes.</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================
-          BATCH QC REVIEW
-          ======================================================== */}
-      {tab === 'qc' && (
-        <div className="inv-panel">
-          <div className="inv-toolbar" style={{ flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h3 style={{ margin: '0 0 4px 0' }}>Batches Awaiting Quality Control</h3>
-              <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-                Batch analytical assay results and compliance sign-off.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                type="search"
-                placeholder="Search batches…"
-                value={qcSearch}
-                onChange={(e) => setQcSearch(e.target.value)}
-                className="company-input"
-                style={{ width: 190 }}
-              />
-              <div className="qc-filter-group">
-                {QC_FILTERS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={qcFilter === f ? 'qc-filter active' : 'qc-filter'}
-                    onClick={() => setQcFilter(f)}
-                  >
-                    {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="inv-table-scroll">
-            <table className="inv-table">
-              <thead>
-                <tr>
-                  <th>Batch</th>
-                  <th>Company</th>
-                  <th>Product</th>
-                  <th>Formula</th>
-                  <th>Planned</th>
-                  <th>Produced</th>
-                  <th>QC Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {qcRows.map((batch) => (
-                  <tr key={batch.id}>
-                    <td className="cell-strong">{batch.number}</td>
-                    <td>{batch.company_name}</td>
-                    <td>{batch.product_name}</td>
-                    <td>{batch.formula_name}</td>
-                    <td>{batch.planned_quantity}</td>
-                    <td>{batch.produced_quantity}</td>
-                    <td>
-                      <StatusPill tone={qcTone(batch.qc_status)}>
-                        {batch.qc_status || 'PENDING'}
-                      </StatusPill>
-                    </td>
-                    <td>
-                      <Button
-                        variant="secondary"
-                        onClick={() => openDecision('qc', batch)}
-                      >
-                        Review
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!loading && qcRows.length === 0 && (
-              <p className="inv-empty">No batches in this filter.</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================
-          BATCH QA RELEASE
-          ======================================================== */}
-      {tab === 'qa' && (
-        <div className="inv-panel">
-          <div className="inv-toolbar" style={{ flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h3 style={{ margin: '0 0 4px 0' }}>Batches Awaiting QA Release</h3>
-              <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-                Final quality assurance verification and batch release clearance.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                type="search"
-                placeholder="Search batches…"
+                type="text"
+                className="qc-filter-input"
+                placeholder="Search by Order #, Product, Batch, Customer..."
                 value={qaSearch}
-                onChange={(e) => setQaSearch(e.target.value)}
-                className="company-input"
-                style={{ width: 190 }}
+                onChange={(e) => {
+                  setQaSearch(e.target.value)
+                  setQaPage(1)
+                }}
               />
-              <div className="qc-filter-group">
-                {QA_FILTERS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={qaFilter === f ? 'qc-filter active' : 'qc-filter'}
-                    onClick={() => setQaFilter(f)}
-                  >
-                    {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
-                  </button>
-                ))}
-              </div>
+              {qaSearch && (
+                <button
+                  type="button"
+                  className="qc-search-clear-btn"
+                  onClick={() => {
+                    setQaSearch('')
+                    setQaPage(1)
+                  }}
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <select
+              className="qc-filter-select"
+              value={qaProdStatusFilter}
+              onChange={(e) => {
+                setQaProdStatusFilter(e.target.value)
+                setQaPage(1)
+              }}
+            >
+              <option value="ALL">Production: All</option>
+              <option value="In Planning">In Planning</option>
+              <option value="In Process">In Process</option>
+              <option value="Completed">Completed</option>
+            </select>
+
+            <select
+              className="qc-filter-select"
+              value={qaDecisionFilter}
+              onChange={(e) => {
+                setQaDecisionFilter(e.target.value)
+                setQaPage(1)
+              }}
+            >
+              <option value="ALL">QA Status: All</option>
+              <option value="Pending">Pending</option>
+              <option value="Approved">Approved</option>
+              <option value="Issue">Issue</option>
+            </select>
+
+            {(qaSearch || qaProdStatusFilter !== 'ALL' || qaDecisionFilter !== 'ALL') ? (
+              <button
+                type="button"
+                className="qc-filter-reset-btn"
+                onClick={() => {
+                  setQaSearch('')
+                  setQaProdStatusFilter('ALL')
+                  setQaDecisionFilter('ALL')
+                  setQaPage(1)
+                }}
+              >
+                Reset
+              </button>
+            ) : <div />}
+
+            <div className="qc-filter-count">
+              Showing {filteredQaOrders.length} of {productionOrders.length} orders
             </div>
           </div>
 
-          <div className="inv-table-scroll">
-            <table className="inv-table">
-              <thead>
-                <tr>
-                  <th>Batch</th>
-                  <th>Company</th>
-                  <th>Product</th>
-                  <th>QC Status</th>
-                  <th>QA Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {qaRows.map((batch) => {
-                  const qcCleared = batch.qc_status === 'APPROVED'
-                  return (
-                    <tr key={batch.id}>
-                      <td className="cell-strong">{batch.number}</td>
-                      <td>{batch.company_name}</td>
-                      <td>{batch.product_name}</td>
-                      <td>
-                        <StatusPill tone={qcTone(batch.qc_status)}>
-                          {batch.qc_status || 'PENDING'}
-                        </StatusPill>
-                      </td>
-                      <td>
-                        <StatusPill tone={qaTone(batch.qa_status)}>
-                          {batch.qa_status || 'PENDING'}
-                        </StatusPill>
-                      </td>
-                      <td>
-                        <Button
-                          variant={batch.qa_status === 'PENDING' ? 'primary' : 'secondary'}
-                          disabled={!qcCleared}
-                          title={qcCleared ? undefined : 'Awaiting QC approval'}
-                          onClick={() => openDecision('qa', batch)}
-                        >
-                          {batch.qa_status === 'PENDING' ? 'Take Approval' : 'Review'}
-                        </Button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            {!loading && qaRows.length === 0 && (
-              <p className="inv-empty">No batches in this filter.</p>
+          {/* Orders Table */}
+          <div className="prod-qa-table-container">
+            {filteredQaOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                <h3>No production orders found</h3>
+                <p>
+                  {productionOrders.length === 0
+                    ? 'No orders exist in the Production module yet.'
+                    : 'No orders match your filter criteria.'}
+                </p>
+              </div>
+            ) : (
+              <table className="prod-qa-table">
+                <thead>
+                  <tr>
+                    <th className="qc-col-order">Order #</th>
+                    <th>Product</th>
+                    <th>Type</th>
+                    <th className="qc-col-batch">Batch</th>
+                    <th>Customer</th>
+                    <th>Qty</th>
+                    <th>Order Date</th>
+                    <th>Supply-by Date</th>
+                    <th>Production Status</th>
+                    <th>QA Status</th>
+                    <th>Remark</th>
+                    <th className="qc-col-action">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedQaOrders.map((order) => {
+                    const isEditing = editingOrderIds[order.id] || (order.qa_status === 'Pending' && !order.qa_confirmed_by)
+                    const revState = rowReviews[order.id] || {
+                      decision: order.qa_status === 'Issue' ? 'Issue' : 'Approved',
+                      remark: order.qa_remark || '',
+                    }
+                    const activeDecision = revState.decision || (order.qa_status === 'Issue' ? 'Issue' : 'Approved')
+                    const err = rowError[order.id] || ''
+
+                    return (
+                      <tr key={order.id} className="qc-table-row">
+                        {/* 1. Order # */}
+                        <td className="qc-cell-nowrap">
+                          <strong style={{ color: '#0284c7' }}>
+                            #{order.number || order.id}
+                          </strong>
+                        </td>
+
+                        {/* 2. Product */}
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                            {order.product_name || 'Oral Liquid Formulation'}
+                          </div>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>
+                            {order.product_code || 'OL-001'}
+                          </span>
+                        </td>
+
+                        {/* 3. Type */}
+                        <td>
+                          <span className={`dosage-badge dosage-${(order.dosage_form || 'Liquid').toLowerCase()}`}>
+                            {order.dosage_form || 'Liquid'}
+                          </span>
+                        </td>
+
+                        {/* 4. Batch */}
+                        <td className="qc-cell-nowrap">
+                          <span style={{ fontWeight: 700, background: '#f1f5f9', padding: '3px 7px', borderRadius: 4 }}>
+                            {order.batch_no || 'AH2602'}
+                          </span>
+                        </td>
+
+                        {/* 5. Customer */}
+                        <td>{order.customer_name}</td>
+
+                        {/* 6. Qty */}
+                        <td><strong>{order.batch_size || '1000 LTR'}</strong></td>
+
+                        {/* 7. Order Date */}
+                        <td>{order.order_date || '—'}</td>
+
+                        {/* 8. Supply-by Date */}
+                        <td>{order.supply_by_date}</td>
+
+                        {/* 9. Production Status (read-only, live) */}
+                        <td>
+                          <StatusPill tone={order.production_status === 'Completed' ? 'success' : order.production_status === 'In Process' ? 'info' : 'warning'}>
+                            {order.production_status || 'In Planning'}
+                          </StatusPill>
+                        </td>
+
+                        {/* 10. QA Status Badge */}
+                        <td>
+                          <span className={`prod-qa-badge prod-qa-${(order.qa_status || 'Pending').toLowerCase()}`}>
+                            {order.qa_status || 'Pending'}
+                          </span>
+                        </td>
+
+                        {/* 11. Remark */}
+                        <td>
+                          {order.qa_remark ? (
+                            <span title={order.qa_remark} style={{ fontSize: 12, color: order.qa_status === 'Issue' ? '#dc2626' : '#334155' }}>
+                              {order.qa_remark.length > 30 ? `${order.qa_remark.slice(0, 30)}…` : order.qa_remark}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }}>—</span>
+                          )}
+                        </td>
+
+                        {/* 12. Action Area */}
+                        <td>
+                          {isEditing ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                {/* Decision Selector */}
+                                <div className="prod-qa-decision-toggle">
+                                  <button
+                                    type="button"
+                                    className={`prod-qa-decision-btn ${activeDecision === 'Approved' ? 'active-approved' : ''}`}
+                                    onClick={() => handleDecisionSelect(order.id, 'Approved')}
+                                  >
+                                    ✓ Approved
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`prod-qa-decision-btn ${activeDecision === 'Issue' ? 'active-issue' : ''}`}
+                                    onClick={() => handleDecisionSelect(order.id, 'Issue')}
+                                  >
+                                    ⚠️ Issue
+                                  </button>
+                                </div>
+
+                                {/* Remark input */}
+                                <input
+                                  type="text"
+                                  className="prod-qa-remark-input"
+                                  placeholder={activeDecision === 'Issue' ? 'Issue remark (required)...' : 'Remark (optional)...'}
+                                  value={revState.remark !== undefined ? revState.remark : order.qa_remark}
+                                  onChange={(e) => handleRemarkChange(order.id, e.target.value)}
+                                />
+
+                                {/* Confirm Button */}
+                                <button
+                                  type="button"
+                                  className="prod-qa-btn-confirm"
+                                  onClick={() => handleOpenConfirmDialog(order)}
+                                >
+                                  Confirm
+                                </button>
+
+                                {order.qa_confirmed_by && (
+                                  <button
+                                    type="button"
+                                    className="prod-qa-btn-edit"
+                                    onClick={() => handleCancelEdit(order.id)}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
+
+                              {err && (
+                                <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>
+                                  {err}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                                <div>Confirmed by: <strong>{order.qa_confirmed_by || 'QA Officer'}</strong></div>
+                                <div>on {order.qa_confirmed_at ? formatDateTimeIN(order.qa_confirmed_at) : '—'}</div>
+                              </div>
+                              <button
+                                type="button"
+                                className="prod-qa-btn-edit"
+                                onClick={() => handleStartEdit(order)}
+                              >
+                                Edit / Re-review
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
-        </div>
-      )}
 
-      {/* ========================================================
-          BATCH TRACEABILITY
-          ======================================================== */}
-      {tab === 'trace' && (
-        <div className="inv-panel">
-          <div className="inv-toolbar">
-            <h3>Batch traceability</h3>
-          </div>
-
-          <div className="field qc-trace-picker">
-            <label className="field-label">Select a batch</label>
-            <select
-              className="field-input"
-              value={traceBatchId}
-              onChange={(e) => loadTrace(e.target.value)}
-            >
-              <option value="">Select batch to trace</option>
-              {batches.map((batch) => (
-                <option key={batch.id} value={batch.id}>
-                  {batch.number} — {batch.company_name} — {batch.product_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {traceLoading && <p className="inv-empty">Loading traceability…</p>}
-          {traceError && <Alert type="error">{traceError}</Alert>}
-
-          {!traceLoading && !traceError && selectedTraceBatch && (
-            <div className="qc-trace-grid">
-              <div className="qc-trace-block">
-                <h4>Batch summary</h4>
-                <dl>
-                  <div>
-                    <dt>Batch</dt>
-                    <dd>{selectedTraceBatch.number}</dd>
-                  </div>
-                  <div>
-                    <dt>Company</dt>
-                    <dd>{selectedTraceBatch.company_name}</dd>
-                  </div>
-                  <div>
-                    <dt>Product</dt>
-                    <dd>{selectedTraceBatch.product_name}</dd>
-                  </div>
-                  <div>
-                    <dt>Formula</dt>
-                    <dd>{selectedTraceBatch.formula_name}</dd>
-                  </div>
-                  <div>
-                    <dt>Order</dt>
-                    <dd>{selectedTraceBatch.order_number || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Planned / Produced</dt>
-                    <dd>
-                      {selectedTraceBatch.planned_quantity} / {selectedTraceBatch.produced_quantity}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>QC / QA</dt>
-                    <dd>
-                      <StatusPill tone={qcTone(selectedTraceBatch.qc_status)}>
-                        {selectedTraceBatch.qc_status || 'PENDING'}
-                      </StatusPill>{' '}
-                      <StatusPill tone={qaTone(selectedTraceBatch.qa_status)}>
-                        {selectedTraceBatch.qa_status || 'PENDING'}
-                      </StatusPill>
-                    </dd>
-                  </div>
-                </dl>
+          {/* Pagination */}
+          {filteredQaOrders.length > qaPageSize && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
+              <div style={{ fontSize: 13, color: '#64748b' }}>
+                Showing {(qaPage - 1) * qaPageSize + 1} to{' '}
+                {Math.min(qaPage * qaPageSize, filteredQaOrders.length)} of {filteredQaOrders.length} orders
               </div>
-
-              <div className="qc-trace-block">
-                <h4>Material consumption</h4>
-                {trace?.material_consumption?.length ? (
-                  <table className="inv-table">
-                    <thead>
-                      <tr>
-                        <th>Material</th>
-                        <th>Lot</th>
-                        <th>Qty</th>
-                        <th>Issued</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trace.material_consumption.map((row, idx) => (
-                        <tr key={idx}>
-                          <td>{row.item_code} — {row.item_name}</td>
-                          <td>{row.lot_number}</td>
-                          <td>{row.quantity} {row.uom}</td>
-                          <td>{row.issued_at ? new Date(row.issued_at).toLocaleString() : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <p className="inv-empty">
-                    No consumption data returned by the backend yet.
-                  </p>
-                )}
-              </div>
-
-              <div className="qc-trace-block">
-                <h4>QC / QA history</h4>
-                <ul className="qc-timeline">
-                  {[...(trace?.qc_history || []), ...(trace?.qa_history || [])].length ? (
-                    [...(trace?.qc_history || []), ...(trace?.qa_history || [])].map(
-                      (event, idx) => (
-                        <li key={idx}>
-                          <strong>{event.decision}</strong> — {event.remarks || 'No remarks'}
-                          <span>{event.by} · {event.at ? new Date(event.at).toLocaleString() : ''}</span>
-                        </li>
-                      )
-                    )
-                  ) : (
-                    <p className="inv-empty">No QC/QA decisions recorded yet.</p>
-                  )}
-                </ul>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  className="prod-qa-btn-edit"
+                  disabled={qaPage === 1}
+                  onClick={() => setQaPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <span style={{ fontWeight: 700, padding: '5px 8px' }}>
+                  {qaPage} / {totalQaPages}
+                </span>
+                <button
+                  type="button"
+                  className="prod-qa-btn-edit"
+                  disabled={qaPage >= totalQaPages}
+                  onClick={() => setQaPage((p) => Math.min(totalQaPages, p + 1))}
+                >
+                  Next
+                </button>
               </div>
             </div>
           )}
@@ -1160,44 +849,61 @@ export default function Quality() {
           </div>
 
           {/* Search & Status Filters */}
-          <div className="qc-formula-toolbar">
-            <div className="qc-toolbar-left">
-              <div className="field-group" style={{ margin: 0 }}>
-                <input
-                  type="text"
-                  className="field-input"
-                  placeholder="Search by Request ID, Product, Formula, or Submitter..."
-                  value={formulaSearch}
-                  onChange={(e) => setFormulaSearch(e.target.value)}
-                  style={{ width: '320px', maxWidth: '100%' }}
-                />
-              </div>
-
-              <div className="filter-pill-group">
-                {FORMULA_STATUS_FILTERS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`filter-pill ${formulaStatusFilter === s ? 'active' : ''}`}
-                    onClick={() => setFormulaStatusFilter(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
+          <div className="qc-filter-toolbar qc-formula-toolbar">
+            <div className="qc-search-wrapper">
+              <svg className="qc-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                type="text"
+                className="qc-filter-input"
+                placeholder="Search by Request ID, Product, Formula, or Submitter..."
+                value={formulaSearch}
+                onChange={(e) => setFormulaSearch(e.target.value)}
+              />
+              {formulaSearch && (
+                <button
+                  type="button"
+                  className="qc-search-clear-btn"
+                  onClick={() => setFormulaSearch('')}
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
             </div>
 
-            {(formulaSearch || formulaStatusFilter !== 'ALL') && (
-              <Button
-                variant="secondary"
+            <select
+              className="qc-filter-select"
+              value={formulaStatusFilter}
+              onChange={(e) => setFormulaStatusFilter(e.target.value)}
+            >
+              {FORMULA_STATUS_FILTERS.map((s) => (
+                <option key={s} value={s}>
+                  {s === 'ALL' ? 'Status: All' : s}
+                </option>
+              ))}
+            </select>
+
+            <div />
+
+            {(formulaSearch || formulaStatusFilter !== 'ALL') ? (
+              <button
+                type="button"
+                className="qc-filter-reset-btn"
                 onClick={() => {
                   setFormulaSearch('')
                   setFormulaStatusFilter('ALL')
                 }}
               >
-                Clear Filters
-              </Button>
-            )}
+                Reset
+              </button>
+            ) : <div />}
+
+            <div className="qc-filter-count">
+              Showing {filteredFormulaRequests.length} of {formulaApprovals.length} formulas
+            </div>
           </div>
 
           {/* Table */}
@@ -1264,18 +970,32 @@ export default function Quality() {
                       <td>
                         <div style={{ fontWeight: 500, color: '#334155' }}>{req.submittedBy}</div>
                         <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                          {req.submittedAt ? new Date(req.submittedAt).toLocaleDateString('en-GB') : '—'}
+                          {formatDateIN(req.submittedAt)}
                         </div>
                       </td>
                       <td>
                         {req.status === 'APPROVED' ? (
-                          <span className="qc-status-pill pill-approved">✓ Approved</span>
-                        ) : req.status === 'PENDING' ? (
-                          <span className="qc-status-pill pill-pending">⏳ Pending QC</span>
+                          <div>
+                            <span className="qc-status-pill pill-approved">✓ Approved</span>
+                            <div style={{ fontSize: '11px', color: '#15803d', marginTop: '3px', fontWeight: 600 }}>
+                              {req.decidedBy || 'QA Manager'}
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b' }}>
+                              {formatDateIN(req.decidedAt)}
+                            </div>
+                          </div>
                         ) : req.status === 'DECLINED' ? (
-                          <span className="qc-status-pill pill-declined">✕ Declined</span>
+                          <div>
+                            <span className="qc-status-pill pill-declined">✕ Declined</span>
+                            <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '3px', fontWeight: 600 }}>
+                              {req.decidedBy || 'QC In-Charge'}
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b' }}>
+                              {formatDateIN(req.decidedAt)}
+                            </div>
+                          </div>
                         ) : (
-                          <span className="qc-status-pill pill-neutral">{req.status}</span>
+                          <span className="qc-status-pill pill-pending">⏳ Pending QC</span>
                         )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
@@ -1299,354 +1019,13 @@ export default function Quality() {
       {/* ========================================================
           MODAL: ORDER QC INSPECTION
           ======================================================== */}
-      {orderQcModal && (
-        <Modal
-          title={`Order QC Inspection — ${orderQcModal.number}`}
-          onClose={() => !saving && setOrderQcModal(null)}
-          footer={
-            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 10 }}>
-              <Button
-                variant="secondary"
-                onClick={() => setOrderQcModal(null)}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <Button
-                  variant="secondary"
-                  loading={saving}
-                  onClick={() => submitOrderQc('FAIL')}
-                  style={{ color: '#dc2626', borderColor: '#fca5a5' }}
-                >
-                  ✗ Fail Inspection
-                </Button>
-                <Button
-                  variant="secondary"
-                  loading={saving}
-                  onClick={() => submitOrderQc('PARTIAL')}
-                >
-                  ⚠️ Partial Pass
-                </Button>
-                <Button
-                  loading={saving}
-                  onClick={() => submitOrderQc('PASS')}
-                >
-                  ✓ Pass & Take Approval
-                </Button>
-              </div>
-            </div>
-          }
-        >
-          {error && <Alert type="error">{error}</Alert>}
-
-          <div className="qc-trace-block" style={{ marginBottom: 16 }}>
-            <dl>
-              <div>
-                <dt>Order Number</dt>
-                <dd><strong>{orderQcModal.order_number}</strong></dd>
-              </div>
-              <div>
-                <dt>Customer</dt>
-                <dd>{orderQcModal.customer_name}</dd>
-              </div>
-              <div>
-                <dt>Company</dt>
-                <dd>{orderQcModal.company_name}</dd>
-              </div>
-              <div>
-                <dt>Ordered Quantity</dt>
-                <dd><strong>{orderQcModal.ordered_qty} units</strong></dd>
-              </div>
-            </dl>
-          </div>
-
-          <h4 style={{ margin: '0 0 10px 0', fontSize: 14 }}>Inspection Parameters Checklist</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qcParams.appearance === 'PASS'}
-                onChange={(e) => setQcParams(p => ({ ...p, appearance: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Appearance &amp; Packaging Integrity
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qcParams.packaging === 'PASS'}
-                onChange={(e) => setQcParams(p => ({ ...p, packaging: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Physical &amp; Chemical Specifications
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qcParams.labeling === 'PASS'}
-                onChange={(e) => setQcParams(p => ({ ...p, labeling: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Labeling, Batch &amp; Expiry Legibility
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qcParams.specs === 'PASS'}
-                onChange={(e) => setQcParams(p => ({ ...p, specs: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Weight / Volume Variation Check
-            </label>
-          </div>
-
-          <h4 style={{ margin: '0 0 10px 0', fontSize: 14 }}>Inspection Quantities</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-            <div className="field">
-              <label className="field-label">Inspected Quantity</label>
-              <input
-                className="field-input"
-                type="number"
-                value={qcInspectedQty}
-                onChange={(e) => setQcInspectedQty(Number(e.target.value) || 0)}
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">Accepted Quantity</label>
-              <input
-                className="field-input"
-                type="number"
-                value={qcAcceptedQty}
-                onChange={(e) => {
-                  const val = Number(e.target.value) || 0
-                  setQcAcceptedQty(val)
-                  setQcRejectedQty(Math.max((qcInspectedQty || 0) - val, 0))
-                }}
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">Rejected Quantity</label>
-              <input
-                className="field-input"
-                type="number"
-                value={qcRejectedQty}
-                onChange={(e) => setQcRejectedQty(Number(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-
-          <div className="field field-full">
-            <label className="field-label">Inspection Remarks / Failure Reason</label>
-            <textarea
-              className="field-input"
-              rows={3}
-              value={qcRemarks}
-              onChange={(e) => setQcRemarks(e.target.value)}
-              placeholder="State observations, reasons for rejection or conditional acceptance..."
-            />
-          </div>
-        </Modal>
-      )}
-
-      {/* ========================================================
-          MODAL: ORDER QA RELEASE
-          ======================================================== */}
-      {orderQaModal && (
-        <Modal
-          title={`Order QA Release Sign-off — ${orderQaModal.number}`}
-          onClose={() => !saving && setOrderQaModal(null)}
-          footer={
-            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', gap: 10 }}>
-              <Button
-                variant="secondary"
-                onClick={() => setOrderQaModal(null)}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <Button
-                  variant="secondary"
-                  loading={saving}
-                  onClick={() => submitOrderQa('REJECT')}
-                  style={{ color: '#dc2626', borderColor: '#fca5a5' }}
-                >
-                  ✗ Reject Release
-                </Button>
-                <Button
-                  loading={saving}
-                  onClick={() => submitOrderQa('APPROVE')}
-                >
-                  ✓ Authorize QA Release (Make Billable)
-                </Button>
-              </div>
-            </div>
-          }
-        >
-          {error && <Alert type="error">{error}</Alert>}
-
-          <div className="qc-trace-block" style={{ marginBottom: 16 }}>
-            <dl>
-              <div>
-                <dt>Order Number</dt>
-                <dd><strong>{orderQaModal.order_number}</strong></dd>
-              </div>
-              <div>
-                <dt>QC Reference</dt>
-                <dd>{orderQaModal.qc_number}</dd>
-              </div>
-              <div>
-                <dt>Customer</dt>
-                <dd>{orderQaModal.customer_name}</dd>
-              </div>
-              <div>
-                <dt>QC Accepted Qty</dt>
-                <dd style={{ color: '#16a34a', fontWeight: 600 }}>{orderQaModal.qc_accepted_qty} units</dd>
-              </div>
-            </dl>
-          </div>
-
-          <h4 style={{ margin: '0 0 10px 0', fontSize: 14 }}>QA Release Sign-off Verification</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qaParams.bmr_review === 'PASS'}
-                onChange={(e) => setQaParams(p => ({ ...p, bmr_review: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Batch Manufacturing Record (BMR) &amp; Packaging Records Complete &amp; Verified
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qaParams.coa_verification === 'PASS'}
-                onChange={(e) => setQaParams(p => ({ ...p, coa_verification: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Certificate of Analysis (CoA) Conforms to IP/BP Pharmacopoeia Standards
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: '#f8fafc', padding: '10px 14px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <input
-                type="checkbox"
-                checked={qaParams.compliance_signoff === 'PASS'}
-                onChange={(e) => setQaParams(p => ({ ...p, compliance_signoff: e.target.checked ? 'PASS' : 'FAIL' }))}
-              />
-              Regulatory &amp; Statutory Clearance for Commercial Sale &amp; Invoicing
-            </label>
-          </div>
-
-          <div className="field" style={{ marginBottom: 16 }}>
-            <label className="field-label">Approved Billable Quantity (Units to Invoice)</label>
-            <input
-              className="field-input"
-              type="number"
-              value={qaApprovedQty}
-              onChange={(e) => setQaApprovedQty(Number(e.target.value) || 0)}
-            />
-            <span style={{ fontSize: 12, color: '#64748b', marginTop: 4, display: 'block' }}>
-              This QA-approved quantity becomes the maximum billable quantity when creating an invoice.
-            </span>
-          </div>
-
-          <div className="field field-full">
-            <label className="field-label">QA Sign-off Remarks</label>
-            <textarea
-              className="field-input"
-              rows={3}
-              value={qaRemarks}
-              onChange={(e) => setQaRemarks(e.target.value)}
-              placeholder="Enter release authorization notes or conditions of sale..."
-            />
-          </div>
-        </Modal>
-      )}
-
-      {/* ========================================================
-          MODAL: BATCH DECISION
-          ======================================================== */}
-      {decisionModal && (
-        <Modal
-          title={
-            decisionModal.type === 'qc'
-              ? `QC review — ${decisionModal.batch.number}`
-              : `QA release — ${decisionModal.batch.number}`
-          }
-          onClose={closeDecision}
-          footer={
-            <>
-              <Button variant="secondary" onClick={closeDecision} disabled={saving}>
-                Cancel
-              </Button>
-
-              {decisionModal.type === 'qc' ? (
-                <>
-                  <Button
-                    variant="secondary"
-                    loading={saving}
-                    onClick={() => submitDecision('REJECT')}
-                  >
-                    Reject
-                  </Button>
-                  <Button loading={saving} onClick={() => submitDecision('APPROVE')}>
-                    Approve QC
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    variant="secondary"
-                    loading={saving}
-                    onClick={() => submitDecision('HOLD')}
-                  >
-                    Hold
-                  </Button>
-                  <Button loading={saving} onClick={() => submitDecision('RELEASE')}>
-                    Release QA
-                  </Button>
-                </>
-              )}
-            </>
-          }
-        >
-          {error && <Alert type="error">{error}</Alert>}
-
-          <div className="qc-trace-block" style={{ marginBottom: 16 }}>
-            <dl>
-              <div>
-                <dt>Company</dt>
-                <dd>{decisionModal.batch.company_name}</dd>
-              </div>
-              <div>
-                <dt>Product</dt>
-                <dd>{decisionModal.batch.product_name}</dd>
-              </div>
-              <div>
-                <dt>Produced quantity</dt>
-                <dd>{decisionModal.batch.produced_quantity}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="field field-full">
-            <label className="field-label">Remarks</label>
-            <textarea
-              className="field-input"
-              rows={4}
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Add QC/QA remarks (visible in batch traceability)"
-            />
-          </div>
-        </Modal>
-      )}
-
       {/* ========================================================
           MODAL: FORMULA APPROVAL REVIEW (BMR DOCUMENT SLIP)
           ======================================================== */}
       {reviewFormulaModal && (
         <Modal
           title={`Formula Stoichiometric Audit Review — ${reviewFormulaModal.id}`}
+          maxWidth="920px"
           onClose={() => setReviewFormulaModal(null)}
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
@@ -1676,7 +1055,7 @@ export default function Quality() {
                 >
                   📊 Export Excel (.xls)
                 </Button>
-                <Button variant="secondary" onClick={() => exportFormulaPrint()}>
+                <Button variant="secondary" onClick={() => exportFormulaPrint('bmr-requisition-print-doc')}>
                   🖨️ Print / Save PDF
                 </Button>
               </div>
@@ -1776,6 +1155,24 @@ export default function Quality() {
               </div>
             </div>
 
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                QA Approving Officer / Authorized Signatory Name <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input
+                type="text"
+                className="field-input"
+                value={approverInputName}
+                onChange={(e) => setApproverInputName(e.target.value)}
+                placeholder="e.g. Dr. R. K. Mehta"
+                style={{ width: '100%' }}
+                required
+              />
+              <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', marginTop: '3px' }}>
+                Prepared By: <strong>{approveDialogModal.submittedBy}</strong> ({approveDialogModal.submittedByRole || 'Production Chemist'}). Approval sign-off must be performed by a designated QA/QC authority.
+              </span>
+            </div>
+
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: 6 }}>
                 QC Approval Remarks / BMR Release Endorsement (Optional)
@@ -1826,6 +1223,19 @@ export default function Quality() {
             </p>
 
             <div className="field field-full" style={{ marginBottom: 14 }}>
+              <label className="field-label">QC Reviewing Officer Name <span style={{ color: '#dc2626' }}>*</span></label>
+              <input
+                type="text"
+                className="field-input"
+                value={declinerInputName}
+                onChange={(e) => setDeclinerInputName(e.target.value)}
+                placeholder="e.g. Pooja Varma"
+                style={{ width: '100%' }}
+                required
+              />
+            </div>
+
+            <div className="field field-full" style={{ marginBottom: 14 }}>
               <label className="field-label">Discrepancy Category <span style={{ color: '#dc2626' }}>*</span></label>
               <select
                 className="field-input"
@@ -1864,6 +1274,79 @@ export default function Quality() {
 
             <Alert type="warning">
               Production will receive this finding and be prompted to adjust base active weights, excipients, or batch parameters before resubmitting.
+            </Alert>
+          </div>
+        </Modal>
+      )}
+
+      {/* ========================================================
+          MODAL: CONFIRM PRODUCTION QA DECISION
+          ======================================================== */}
+      {confirmQaDialog && (
+        <Modal
+          title="Confirm QA Decision"
+          onClose={() => setConfirmQaDialog(null)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <Button variant="secondary" onClick={() => setConfirmQaDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant={confirmQaDialog.decision === 'Issue' ? 'danger' : 'primary'}
+                onClick={handleFinalConfirmQa}
+              >
+                Confirm &amp; Save
+              </Button>
+            </div>
+          }
+        >
+          <div style={{ padding: '8px 4px' }}>
+            <p style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', margin: '0 0 12px' }}>
+              Mark Order #{confirmQaDialog.order.number || confirmQaDialog.order.id} as{' '}
+              <span
+                style={{
+                  color: confirmQaDialog.decision === 'Issue' ? '#dc2626' : '#16a34a',
+                  fontWeight: 700,
+                }}
+              >
+                {confirmQaDialog.decision}
+              </span>?
+            </p>
+
+            <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 14 }}>
+              <div style={{ fontSize: 13, marginBottom: 4 }}>
+                <span style={{ color: '#64748b' }}>Product:</span>{' '}
+                <strong>{confirmQaDialog.order.product_name}</strong> ({confirmQaDialog.order.batch_no || 'N/A'})
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 4 }}>
+                <span style={{ color: '#64748b' }}>Customer:</span>{' '}
+                <strong>{confirmQaDialog.order.customer_name}</strong>
+              </div>
+              <div style={{ fontSize: 13 }}>
+                <span style={{ color: '#64748b' }}>Quantity:</span>{' '}
+                <strong>{confirmQaDialog.order.batch_size}</strong>
+              </div>
+            </div>
+
+            {confirmQaDialog.remark ? (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4 }}>
+                  QA Remark:
+                </label>
+                <div style={{ background: confirmQaDialog.decision === 'Issue' ? '#fef2f2' : '#f0fdf4', padding: '10px 12px', borderRadius: 6, border: `1px solid ${confirmQaDialog.decision === 'Issue' ? '#fecaca' : '#bbf7d0'}`, fontSize: 13, color: confirmQaDialog.decision === 'Issue' ? '#991b1b' : '#166534' }}>
+                  {confirmQaDialog.remark}
+                </div>
+              </div>
+            ) : (
+              <p style={{ fontSize: 12.5, color: '#64748b', margin: '0 0 12px' }}>
+                No remark entered (optional for Approved).
+              </p>
+            )}
+
+            <Alert type={confirmQaDialog.decision === 'Issue' ? 'warning' : 'info'}>
+              {confirmQaDialog.decision === 'Issue'
+                ? 'Flagging an Issue will notify production staff and display the remark directly in the Production table.'
+                : 'Approving confirms QA clearance for this order.'}
             </Alert>
           </div>
         </Modal>

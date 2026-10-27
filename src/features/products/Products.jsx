@@ -376,7 +376,14 @@ export default function Products() {
       scaleFactor: currentScaleFactor,
       materials: frozenMaterials,
       remarks: approvalRemarks.trim(),
-      submittedBy: 'Fenil Rami',
+      submittedBy: (() => {
+        try {
+          const u = JSON.parse(localStorage.getItem('cmhp_user'));
+          return u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : (u?.username || 'Production Chemist');
+        } catch {
+          return 'Production Chemist';
+        }
+      })(),
       submittedByRole: 'Production Chemist',
       snapshot: {
         product: { ...activeProduct },
@@ -405,7 +412,14 @@ export default function Products() {
       withdrawFormulaApproval({
         id: activeApproval.id,
         reason: withdrawReason.trim() || 'Withdrawn by production chemist for formula adjustments.',
-        withdrawnBy: 'Fenil Rami',
+        withdrawnBy: (() => {
+          try {
+            const u = JSON.parse(localStorage.getItem('cmhp_user'));
+            return u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : (u?.username || 'Production Chemist');
+          } catch {
+            return 'Production Chemist';
+          }
+        })(),
       })
     )
     setShowWithdrawModal(false)

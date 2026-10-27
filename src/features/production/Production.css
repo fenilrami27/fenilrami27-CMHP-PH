@@ -320,8 +320,65 @@
   transition: all 0.15s ease;
 }
 
-.prod-action-btn-inv:hover {
+.prod-action-btn-inv:hover:not(:disabled) {
   background: #dcfce7;
+}
+
+.prod-action-btn-inv:disabled,
+.prod-action-btn-inv.disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+  opacity: 0.65;
+  box-shadow: none;
+}
+
+/* QA STATUS BADGES FOR PRODUCTION & PRODUCTION QA */
+.prod-qa-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.prod-qa-pending {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.prod-qa-approved {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.prod-qa-issue {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.prod-qa-issue-cell {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #dc2626;
+  max-width: 140px;
+  cursor: pointer;
+}
+
+.prod-qa-issue-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* PAGINATION */

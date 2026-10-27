@@ -44,6 +44,12 @@ import Production
 import BmrForm
   from '../features/production/BmrForm'
 
+import ProductionInvoice
+  from '../features/production/ProductionInvoice'
+
+import InvoiceViewPage
+  from '../features/invoice/InvoiceViewPage'
+
 import Invoice
   from '../features/invoice/Invoice'
 
@@ -400,6 +406,65 @@ export default function AppRoutes() {
                 ]}
               >
                 <BmrForm />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/production/invoice/:orderId"
+            element={<Navigate to="/invoices" replace />}
+          />
+
+          <Route
+            path="/invoices/new"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <InvoiceViewPage isNew />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/invoices/view/:id"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <InvoiceViewPage />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/invoices/:id"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <InvoiceViewPage />
               </RoleRoute>
             }
           />

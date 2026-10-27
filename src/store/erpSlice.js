@@ -15,6 +15,7 @@ import {
   SEED_DISPATCHES,
   SEED_FORMULAS,
   SEED_FORMULA_APPROVALS,
+  SEED_INVOICES,
 } from './seedData'
 
 import { calculateItemStockFromLedger } from '../utils/stockSelectors'
@@ -241,7 +242,7 @@ export const initialState = {
       batches: [],
       qcRecords: [],
       qaRecords: [],
-      invoices: [],
+      invoices: [...SEED_INVOICES],
       payments: [],
       suppliers: [],
       purchaseOrders: [],
@@ -566,6 +567,8 @@ export const initialState = {
   batches: [],
 
   bmrs: {},
+
+  orderInvoices: {},
 
 
   /*
@@ -2547,12 +2550,12 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-      const { batchId, decision, remarks } = action.payload
+      const { batchId, decision, remarks, by } = action.payload || {}
       const qcStatus = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
       const qcEntry = {
         decision: qcStatus,
         remarks: remarks || '',
-        by: 'Current user',
+        by: by || 'QC Officer',
         at: nowIso(),
       }
 
@@ -2573,12 +2576,12 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
-      const { batchId, decision, remarks } = action.payload
+      const { batchId, decision, remarks, by } = action.payload || {}
       const qaStatus = decision === 'RELEASE' ? 'RELEASED' : 'HOLD'
       const qaEntry = {
         decision: qaStatus,
         remarks: remarks || '',
-        by: 'Current user',
+        by: by || 'QA Officer',
         at: nowIso(),
       }
 
@@ -2674,17 +2677,83 @@ const erpSlice = createSlice({
       patchCompanyEntity(state, 'orders', id, updates)
     },
 
+    updateOrderQaStatus: (
+      state,
+      action
+    ) => {
+      const { id, qa_status, qa_remark, confirmed_by, confirmed_at } = action.payload || {}
+      const updates = {
+        qa_status: qa_status || 'Pending',
+        qa_remark: qa_remark || '',
+        qa_confirmed_by: confirmed_by || '',
+        qa_confirmed_at: confirmed_at || new Date().toISOString(),
+      }
+      patchCompanyEntity(state, 'orders', id, updates)
+    },
+
     /*
     |--------------------------------------------------------------------------
     | INVOICES
     |--------------------------------------------------------------------------
     */
 
+    saveOrderInvoice: (
+      state,
+      action
+    ) => {
+      const { orderId, invoiceData } = action.payload || {}
+      if (!state.orderInvoices) state.orderInvoices = {}
+      state.orderInvoices[String(orderId)] = invoiceData
+
+      ensureByCompanyState(state)
+      const compKey = resolveCompanyKey(state, invoiceData)
+      const compInvoices = state.byCompany?.[compKey]?.invoices || state.invoices || []
+      const existing = compInvoices.find(
+        (inv) => String(inv.order) === String(orderId) || String(inv.order_id) === String(orderId) || (inv.id && invoiceData?.id && String(inv.id) === String(invoiceData.id))
+      ) || (state.invoices || []).find(
+        (inv) => String(inv.order) === String(orderId) || String(inv.order_id) === String(orderId) || (inv.id && invoiceData?.id && String(inv.id) === String(invoiceData.id))
+      )
+
+      const invNum = invoiceData?.invoice_no || invoiceData?.number || existing?.number || (existing?.order_number ? `G/26-27/025` : 'G/26-27/024')
+      const finalTot = invoiceData?.total !== undefined ? invoiceData.total : (invoiceData?.finalTotalAfterTax !== undefined ? Math.round(invoiceData.finalTotalAfterTax) : existing?.total)
+
+      const mappedPayload = {
+        ...invoiceData,
+        number: invNum,
+        invoice_no: invNum,
+        total: finalTot,
+        total_amount: finalTot,
+        balance_due: invoiceData?.balance_due !== undefined ? invoiceData.balance_due : finalTot,
+        invoice_date: invoiceData?.invoice_date_iso || invoiceData?.invoice_date || invoiceData?.date || existing?.invoice_date || new Date().toISOString().slice(0, 10),
+        customer_name: invoiceData?.consignee_name || invoiceData?.customer_name || existing?.customer_name,
+        sheetData: invoiceData,
+      }
+      if (existing) {
+        patchCompanyEntity(state, 'invoices', existing.id, mappedPayload)
+      } else {
+        addCompanyEntity(state, 'invoices', {
+          id: invoiceData?.id || nextId(),
+          ...mappedPayload,
+          order: orderId,
+        })
+      }
+    },
+
+    resetOrderInvoice: (
+      state,
+      action
+    ) => {
+      const { orderId } = action.payload || {}
+      if (state.orderInvoices && state.orderInvoices[String(orderId)]) {
+        delete state.orderInvoices[String(orderId)]
+      }
+    },
+
     addInvoice: (
       state,
       action
     ) => {
-      const invId = nextId()
+      const invId = action.payload?.id || nextId()
       const newInv = {
         id: invId,
         status: 'ISSUED',
@@ -2714,11 +2783,13 @@ const erpSlice = createSlice({
       state,
       action
     ) => {
+      const id = action.payload.id
+      const payload = action.payload.payload || action.payload
       patchCompanyEntity(
         state,
         'invoices',
-        action.payload.id,
-        action.payload.payload
+        id,
+        payload
       )
     },
 
@@ -4446,6 +4517,8 @@ export const {
 
   updateOrderProductionStatus,
 
+  updateOrderQaStatus,
+
   // invoices
 
   addInvoice,
@@ -4455,6 +4528,10 @@ export const {
   deleteInvoice,
 
   setInvoiceStatus,
+
+  saveOrderInvoice,
+
+  resetOrderInvoice,
 
   setOrderStatus,
 

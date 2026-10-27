@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSelector } from 'react-redux'
+import { useSelector, useDispatch } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
-import { productionService } from './productionService'
+import { productionService, resolveOrderDosageForm } from './productionService'
 import Button from '../../components/Button'
 import StatusPill from '../../components/StatusPill'
-import Modal from '../inventory/components/Modal'
 import { getErrorMessage } from '../../utils/errors'
 import { DOSAGE_FORMS } from '../../constants/dosageForms'
-import { selectDosageForms } from '../../store/erpSlice'
+import { selectDosageForms, addInvoice, saveOrderInvoice } from '../../store/erpSlice'
+import { selectActiveCompanyKey } from '../../utils/companySelectors'
+import { generateInvoiceNumber } from '../invoice/invoiceService'
 import './Production.css'
-import '../invoice/Invoice.css'
 
 function money(value) {
   const n = Number(value) || 0
@@ -30,11 +30,42 @@ export default function Production() {
   const navigate = useNavigate()
   const reduxDosageForms = useSelector(selectDosageForms)
   const dosageForms = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : DOSAGE_FORMS
-  const [orders, setOrders] = useState([])
-  const [invoices, setInvoices] = useState([])
-  const [loading, setLoading] = useState(true)
+  const compKey = useSelector(selectActiveCompanyKey)
+  const reduxOrders = useSelector((state) => state.erp.byCompany?.[compKey]?.orders || state.erp.orders || [])
+  const dispatch = useDispatch()
+  const reduxCustomers = useSelector((state) => state.erp.customers || [])
+  const reduxInvoices = useSelector((state) => state.erp.byCompany?.[compKey]?.invoices || state.erp.invoices || [])
+  const reduxProducts = useSelector((state) => [
+    ...(state.erp.products || []),
+    ...(state.erp.commonProducts || []),
+    ...(state.erp.byCompany?.[compKey]?.products || []),
+  ])
+
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  // Derive live orders directly from Redux so QA and Production changes reflect immediately
+  const orders = useMemo(() => {
+    return (reduxOrders || []).map((order) => {
+      const dosage_form = resolveOrderDosageForm(order)
+      const cust = reduxCustomers.find((c) => String(c.id) === String(order.customer))
+      return {
+        ...order,
+        customer_name: order.customer_name || cust?.name || 'Direct Customer',
+        dosage_form,
+        dosageForm: dosage_form,
+        bmr_status: order.bmr_status || 'NO',
+        production_status: order.production_status || 'In Planning',
+        production_remark: order.production_remark || '',
+        packaging_status: order.packaging_status || 'Pending',
+        dispatch_status: order.dispatch_status || 'NO',
+        qa_status: order.qa_status || 'Pending',
+        qa_remark: order.qa_remark || '',
+        supply_by_date: order.supply_by_date || order.planned_mfg_date || order.delivery_deadline || '—',
+      }
+    })
+  }, [reduxOrders, reduxCustomers])
 
   // Search & Filters in a single row
   const [search, setSearch] = useState('')
@@ -49,37 +80,9 @@ export default function Production() {
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 10
 
-  // Invoice Modal
-  const [viewingInvoice, setViewingInvoice] = useState(null)
-  const [invoiceSaving, setInvoiceSaving] = useState(false)
-
-  const loadData = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [orderList, invoiceList] = await Promise.all([
-        productionService.getOrders(),
-        productionService.getInvoices(),
-      ])
-      setOrders(orderList || [])
-      setInvoices(invoiceList || [])
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadData()
-  }, [])
-
   // Update order production status in Redux
   const handleUpdate = async (orderId, updates) => {
     try {
-      setOrders((prev) =>
-        prev.map((o) => (String(o.id) === String(orderId) ? { ...o, ...updates } : o))
-      )
       await productionService.updateProduction({
         id: orderId,
         ...updates,
@@ -91,72 +94,159 @@ export default function Production() {
     }
   }
 
-  // Open Invoice in project's exact format
-  const handleOpenInvoice = (order) => {
-    const existing = invoices.find(
-      (inv) => String(inv.order) === String(order.id) || inv.batch === order.batch_no
+
+
+  // Silent invoice creation and redirection to /invoices (CHANGE 1)
+  const handleInvoiceClick = (order) => {
+    // Check if invoice already exists for this order
+    const existingInv = reduxInvoices.find(
+      (inv) =>
+        (inv.order && String(inv.order) === String(order.id)) ||
+        (inv.order_number && String(inv.order_number) === String(order.number)) ||
+        (order.batch_no && (inv.batch === order.batch_no || inv.batch_no === order.batch_no))
     )
-    if (existing) {
-      setViewingInvoice(existing)
-      return
+
+    let targetId = existingInv?.id
+
+    if (!existingInv) {
+      const newId = Date.now()
+      const invoiceNumber = generateInvoiceNumber(reduxInvoices)
+      const cust = reduxCustomers.find((c) => String(c.id) === String(order.customer) || c.name === order.customer_name)
+
+      let completedItems = []
+      if (Array.isArray(order?.lines) && order.lines.length > 0) {
+        completedItems = order.lines.filter((line) => {
+          if (line.production_status) return line.production_status.toLowerCase() === 'completed'
+          if (line.status) return line.status.toLowerCase() === 'completed'
+          return (order.production_status || '').toLowerCase() === 'completed'
+        })
+      }
+      if (completedItems.length === 0) {
+        completedItems = [
+          {
+            product_name: order.product_name || 'Me Fit',
+            pack_size: order.pack_size || order.packing_size || '30 ml.',
+            quantity: order.completed_qty || order.batch_size || order.quantity || 60,
+            rate: order.rate || order.unit_price || 35,
+            batch_no: order.batch_no || 'AO2601',
+          },
+        ]
+      }
+
+      const formattedLines = completedItems.map((item, idx) => {
+        const prod = reduxProducts.find(
+          (p) =>
+            String(p.id) === String(item.product_id || order?.product_id) ||
+            p.name === item.product_name ||
+            p.code === order?.product_code
+        )
+        const qty = Number(String(item.quantity || '60').replace(/[^0-9.]/g, '')) || 60
+        const rate = Number(String(item.rate || item.unit_price || prod?.selling_price || '35').replace(/[^0-9.]/g, '')) || 35
+        const hsn = String(prod?.hsn_code || item.hsn_code || '30049099')
+        const pkg = item.pack_size || item.pkg || prod?.pack_size || '30 ml.'
+        const batchNo = item.batch_no || order?.batch_no || 'AO2601'
+        const cgstRate = Number(item.cgst_rate || prod?.cgst_rate || 3)
+        const sgstRate = Number(item.sgst_rate || prod?.sgst_rate || 3)
+        const taxable = qty * rate
+        const cgstAmount = (taxable * cgstRate) / 100
+        const sgstAmount = (taxable * sgstRate) / 100
+
+        return {
+          id: 'item-' + Date.now() + '-' + idx,
+          sr_no: idx + 1,
+          description: item.product_name || prod?.name || 'Me Fit',
+          pkg,
+          hsn,
+          batch_no: batchNo,
+          qty,
+          rate,
+          cgst_rate: cgstRate,
+          sgst_rate: sgstRate,
+          amount: taxable,
+          taxable,
+          cgstAmount,
+          sgstAmount,
+          lineTotal: taxable + cgstAmount + sgstAmount,
+        }
+      })
+
+      const totalTaxable = formattedLines.reduce((s, l) => s + (l.taxable || 0), 0)
+      const totalCgst = formattedLines.reduce((s, l) => s + (l.cgstAmount || 0), 0)
+      const totalSgst = formattedLines.reduce((s, l) => s + (l.sgstAmount || 0), 0)
+      const totalTax = totalCgst + totalSgst
+      const grandTotal = Math.round(totalTaxable + totalTax)
+
+      const initialSheet = {
+        top_title_left: 'TAX INVOICE',
+        top_title_right: 'ORIGINAL FOR RECEPIENT',
+        company_name: 'CMHP PRIVATE LIMITED',
+        company_factory: 'Factory : 18, Shubh Laxmi, Viramgam Road,Sanand,Ahmedabad-382110. Regd.Off.: 701, Safal Prelude, Corporate Road, Ahmedabad-380015',
+        company_contacts: 'Tel: +917947977198          Mob: +919327252466',
+        company_gstin: '24AAICC9380N1Z2',
+        company_dl: 'GH-7',
+        company_pan: 'AAICC9380N',
+        invoice_no: invoiceNumber,
+        purchase_no: order.po_number || order.purchase_no || '',
+        invoice_date: new Date().toLocaleDateString('en-GB').replace(/\//g, '.'),
+        order_date: order.order_date ? new Date(order.order_date).toLocaleDateString('en-GB').replace(/\//g, '.') : '13.08.2026',
+        no_of_cartons: '01',
+        reverse_charge: 'N',
+        date_of_supply: new Date().toLocaleDateString('en-GB').replace(/\//g, '.'),
+        state: (cust?.state || 'GUJARAT').toUpperCase(),
+        state_code: cust?.state_code || '24',
+        place_of_supply: cust?.city || 'Ahmedabad',
+        freight_type: 'To Pay',
+        freight_amount: '',
+        consignee_name: cust?.name || order.customer_name || 'AQUA OVERSEAS LLP',
+        consignee_address: cust?.address || '12/A Haridarshan Society, Kashiba Road, Ahmedabad- 382480',
+        consignee_gstin: cust?.gstin || '24ACCFA5154F1ZT',
+        consignee_state: (cust?.state || 'GUJARAT').toUpperCase(),
+        consignee_code: cust?.state_code || '24',
+        buyer_name: cust?.name || order.customer_name || 'AQUA OVERSEAS LLP',
+        buyer_address: cust?.address || '12/A Haridarshan Society, Kashiba Road, Ahmedabad- 382480',
+        buyer_gstin: cust?.gstin || '24ACCFA5154F1ZT',
+        buyer_state: (cust?.state || 'GUJARAT').toUpperCase(),
+        buyer_code: cust?.state_code || '24',
+        lines: formattedLines,
+        postage_packing: '',
+        rounding_off_override: null,
+        bank_name: 'HDFC BANK LTD.',
+        bank_ac: '50200052209722',
+        bank_ifsc: 'HDFC0000048',
+        term_1: 'No Claim is entertained in transit',
+        term_2: 'Interest @ 24% p.a. will be charged,',
+        term_3: 'If this invoice not paid by due date.',
+        term_4: 'Subject to Ahmedabad Jurisdiction only.',
+        jurisdiction: 'Ahmedabad',
+      }
+
+      const newInvoice = {
+        id: newId,
+        number: invoiceNumber,
+        company: order.company || (compKey === 'tej' ? 2 : 1),
+        companyId: compKey || 'cmhp',
+        customer: cust?.id || order.customer || 1,
+        customer_name: cust?.name || order.customer_name || 'AQUA OVERSEAS LLP',
+        order: order.id,
+        order_number: order.number || ('ORD-' + order.id),
+        batch: order.batch_no || 'AO2601',
+        batch_no: order.batch_no || 'AO2601',
+        invoice_date: new Date().toISOString().slice(0, 10),
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: 'ISSUED',
+        total: grandTotal,
+        balance_due: grandTotal,
+        tax_amount: totalTax,
+        lines: formattedLines,
+        sheetData: initialSheet,
+      }
+
+      dispatch(addInvoice(newInvoice))
+      dispatch(saveOrderInvoice({ orderId: order.id, invoiceData: initialSheet }))
+      targetId = newId
     }
 
-    const quantity = Number(String(order.batch_size || '100').replace(/[^0-9.]/g, '')) || 100
-    const rate = Number(String(order.mrp_for_printing || '150').replace(/[^0-9.]/g, '')) || 150
-    const lineTotal = quantity * rate
-    const taxPercent = 18
-    const taxAmount = (lineTotal * taxPercent) / 100
-    const total = lineTotal + taxAmount
-
-    const prefilled = {
-      isNew: true,
-      company: order.company,
-      company_name: order.company_name || 'CMHP Pharma',
-      customer: order.customer,
-      customer_name: order.customer_name || 'Direct Customer',
-      order: order.id,
-      order_number: order.number || `ORD-${order.id}`,
-      batch: order.batch_no,
-      number: `INV-${order.number || order.id}`,
-      invoice_date: new Date().toISOString().slice(0, 10),
-      due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      tax_percent: taxPercent,
-      tax_amount: taxAmount,
-      subtotal: lineTotal,
-      total: total,
-      total_amount: total,
-      status: 'ISSUED',
-      notes: `Invoice pre-filled for Order #${order.number || order.id} (Batch: ${order.batch_no || 'N/A'})`,
-      lines: [
-        {
-          id: `line-${order.id}`,
-          product: order.product || 1,
-          product_name: order.product_name || order.product_code || 'Oral Liquid Formulation',
-          description: `${order.product_name || 'Oral Liquid Formulation'} - Batch ${order.batch_no || 'N/A'}`,
-          quantity: String(quantity),
-          rate: String(rate),
-        },
-      ],
-      orderRef: order,
-    }
-    setViewingInvoice(prefilled)
-  }
-
-  // Save generated invoice
-  const handleSaveInvoice = async () => {
-    if (!viewingInvoice) return
-    setInvoiceSaving(true)
-    try {
-      const created = await productionService.createInvoiceFromOrder(viewingInvoice.orderRef || viewingInvoice)
-      setViewingInvoice(created)
-      setInvoices((prev) => [created, ...prev])
-      setSuccess(`Invoice ${created.number} saved in Redux!`)
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setInvoiceSaving(false)
-    }
+    navigate('/invoices', { state: { highlightInvoiceId: targetId } })
   }
 
   // Filtering
@@ -402,6 +492,7 @@ export default function Production() {
                   <th>BMR Status</th>
                   <th>Production Status</th>
                   <th>Remark</th>
+                  <th>QA STATUS</th>
                   <th>Packaging Status</th>
                   <th>Dispatch</th>
                   <th>Invoice</th>
@@ -513,6 +604,23 @@ export default function Production() {
                         />
                       </td>
 
+                      {/* QA STATUS (Read-only in Production, reflects Quality module) */}
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                          <span className={`prod-qa-badge prod-qa-${(order.qa_status || 'Pending').toLowerCase()}`}>
+                            {order.qa_status || 'Pending'}
+                          </span>
+                          {order.qa_status === 'Issue' && order.qa_remark && (
+                            <div
+                              className="prod-qa-issue-cell"
+                              title={order.qa_remark}
+                            >
+                              ⚠️ <span className="prod-qa-issue-text">{order.qa_remark}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
                       {/* 11. Packaging Status (Pending / In Process / Completed) */}
                       <td>
                         <select
@@ -546,15 +654,38 @@ export default function Production() {
                         </div>
                       </td>
 
-                      {/* 13. Invoice (Button opening project invoice format) */}
+                      {/* 13. Invoice (Enabled only when Prod=Completed, Pkg=Completed, BMR=Yes) */}
                       <td>
-                        <button
-                          type="button"
-                          className="prod-action-btn-inv"
-                          onClick={() => handleOpenInvoice(order)}
-                        >
-                          🧾 Invoice
-                        </button>
+                        {(() => {
+                          const isProdDone = (prodStatus || '').toLowerCase() === 'completed'
+                          const isPkgDone = (pkgStatus || '').toLowerCase() === 'completed'
+                          const isBmrDone = (bmrStatus || '').toUpperCase() === 'YES'
+                          const isInvoiceActive = isProdDone && isPkgDone && isBmrDone
+
+                          const pending = []
+                          if (!isProdDone) pending.push('Production')
+                          if (!isPkgDone) pending.push('Packaging')
+                          if (!isBmrDone) pending.push('BMR')
+                          const tooltip = isInvoiceActive
+                            ? 'Generate / View Tax Invoice'
+                            : `Complete ${pending.join(', ')} to generate the invoice`
+
+                          return (
+                            <button
+                              type="button"
+                              className={`prod-action-btn-inv ${!isInvoiceActive ? 'disabled' : ''}`}
+                              disabled={!isInvoiceActive}
+                              title={tooltip}
+                              onClick={() => {
+                                if (isInvoiceActive) {
+                                  handleInvoiceClick(order)
+                                }
+                              }}
+                            >
+                              🧾 Invoice
+                            </button>
+                          )
+                        })()}
                       </td>
 
                       {/* 14. BMR Action Button */}
@@ -604,109 +735,6 @@ export default function Production() {
           </>
         )}
       </div>
-
-      {/* INVOICE MODAL (Project's Exact Existing Invoice Format) */}
-      {viewingInvoice && (
-        <Modal
-          title={`Invoice ${viewingInvoice.number || ''}`}
-          onClose={() => setViewingInvoice(null)}
-          footer={
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-              {viewingInvoice.isNew && (
-                <Button
-                  onClick={handleSaveInvoice}
-                  disabled={invoiceSaving}
-                >
-                  {invoiceSaving ? 'Saving...' : '💾 Save to Invoices'}
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => window.print()}
-              >
-                🖨️ Print Invoice
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setViewingInvoice(null)}
-              >
-                Close
-              </Button>
-            </div>
-          }
-        >
-          <div className="invoice-doc">
-            <div className="invoice-doc-header">
-              <div>
-                <h3>{viewingInvoice.company_name}</h3>
-                <p>Company Batch: {viewingInvoice.batch || '—'}</p>
-                <p>Order Reference: #{viewingInvoice.order || '—'}</p>
-              </div>
-              <StatusPill tone={statusTone(viewingInvoice.status)}>
-                {viewingInvoice.status || 'DRAFT'}
-              </StatusPill>
-            </div>
-
-            <div className="invoice-doc-meta">
-              <div>
-                <span>Bill to</span>
-                <strong>{viewingInvoice.customer_name}</strong>
-              </div>
-              <div>
-                <span>Invoice date</span>
-                <strong>{viewingInvoice.invoice_date}</strong>
-              </div>
-              <div>
-                <span>Due date</span>
-                <strong>{viewingInvoice.due_date || '—'}</strong>
-              </div>
-            </div>
-
-            <table className="inv-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th style={{ width: 80 }}>Qty</th>
-                  <th style={{ width: 110 }}>Rate (₹)</th>
-                  <th style={{ width: 120 }}>Amount (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(viewingInvoice.lines || []).map((line, idx) => (
-                  <tr key={idx}>
-                    <td>{line.description || line.product_name || '—'}</td>
-                    <td>{line.quantity}</td>
-                    <td>₹ {money(line.rate)}</td>
-                    <td>₹ {money((Number(line.quantity) || 0) * (Number(line.rate) || 0))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div className="invoice-doc-totals">
-              <div>
-                <span>Subtotal</span>
-                <strong>₹ {money(viewingInvoice.subtotal)}</strong>
-              </div>
-              <div>
-                <span>Tax ({viewingInvoice.tax_percent || 18}%)</span>
-                <strong>₹ {money(viewingInvoice.tax_amount)}</strong>
-              </div>
-              <div className="invoice-grand-total">
-                <span>Total</span>
-                <strong>₹ {money(viewingInvoice.total)}</strong>
-              </div>
-            </div>
-
-            {viewingInvoice.notes && (
-              <div className="invoice-doc-notes">
-                <span>Notes</span>
-                <p>{viewingInvoice.notes}</p>
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }

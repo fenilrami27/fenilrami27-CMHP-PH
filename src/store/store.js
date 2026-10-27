@@ -60,7 +60,7 @@ function buildInitialERPState() {
   const seedIfEmptyKeys = [
     'lots', 'commonProducts', 'commonRawMaterials', 'orders',
     'customers', 'suppliers', 'issueHistory', 'stockReturns',
-    'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches', 'dosageForms'
+    'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches', 'dosageForms', 'invoices'
   ]
   seedIfEmptyKeys.forEach((key) => {
     if (!Array.isArray(result[key]) || result[key].length === 0) {
@@ -80,6 +80,39 @@ function buildInitialERPState() {
   if (!Array.isArray(result.stockLedgerEntries)) {
     result.stockLedgerEntries = []
   }
+  if (!result.orderInvoices || typeof result.orderInvoices !== 'object') {
+    result.orderInvoices = {}
+  }
+
+  // Ensure every invoice has a valid invoice number and linked order/customer data
+  const sanitizeInvoices = (list) => {
+    if (!Array.isArray(list)) return
+    list.forEach((inv, idx) => {
+      if (!inv.number && !inv.invoice_no) {
+        inv.number = idx === 0 ? 'G/26-27/024' : 'G/26-27/025'
+        inv.invoice_no = inv.number
+      } else if (!inv.number && inv.invoice_no) {
+        inv.number = inv.invoice_no
+      }
+      const orderId = inv.order || inv.order_id
+      const allOrders = [
+        ...(Array.isArray(result.orders) ? result.orders : []),
+        ...(Array.isArray(result.byCompany?.cmhp?.orders) ? result.byCompany.cmhp.orders : []),
+        ...(Array.isArray(result.byCompany?.tej?.orders) ? result.byCompany.tej.orders : []),
+      ]
+      const order = allOrders.find((o) =>
+        (orderId && (String(o.id) === String(orderId) || String(o.number) === String(orderId))) ||
+        (inv.order_number && (String(o.number) === String(inv.order_number) || String(o.id) === String(inv.order_number)))
+      )
+      if (order) {
+        if (!inv.order_number || inv.order_number === '—') inv.order_number = order.number || (order.id ? 'ORD-' + order.id : '—')
+        if (!inv.customer_name || inv.customer_name === '—') inv.customer_name = order.customer_name
+      }
+    })
+  }
+  if (Array.isArray(result.invoices)) sanitizeInvoices(result.invoices)
+  if (result.byCompany?.cmhp?.invoices) sanitizeInvoices(result.byCompany.cmhp.invoices)
+  if (result.byCompany?.tej?.invoices) sanitizeInvoices(result.byCompany.tej.invoices)
 
   // Ensure every raw material with current_stock > 0 has an opening stock ledger entry
   if (Array.isArray(result.commonRawMaterials)) {

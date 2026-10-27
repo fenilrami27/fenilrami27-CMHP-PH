@@ -640,7 +640,7 @@
    ========================================================= */
 
 @media print {
-  body * {
+  body:has(#inward-receipt-print-area) * {
     visibility: hidden !important;
   }
 
