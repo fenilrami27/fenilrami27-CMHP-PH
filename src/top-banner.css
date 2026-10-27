@@ -14,7 +14,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) {
   position: relative !important;
@@ -87,7 +87,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) > div:first-child {
 
@@ -128,7 +128,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) h1 {
 
@@ -173,7 +173,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) p {
 
@@ -216,7 +216,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) .dash-pill,
 .layout-content :is(
@@ -224,7 +224,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) .page-hero-pill {
 
@@ -365,7 +365,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 )::before {
 
@@ -397,7 +397,7 @@
   .inv-header,
   .company-header,
   .sc-header,
-  .hr-header,
+  .products-header,
   .top-banner
 ) > * {
 
@@ -450,7 +450,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) {
 
@@ -466,7 +466,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) h1 {
 
@@ -488,7 +488,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) {
 
@@ -507,7 +507,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) > div:first-child {
 
@@ -520,7 +520,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) h1 {
 
@@ -542,7 +542,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) {
 
@@ -576,7 +576,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) > div:first-child {
 
@@ -595,7 +595,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) h1 {
 
@@ -611,7 +611,7 @@
     .inv-header,
     .company-header,
     .sc-header,
-    .hr-header,
+    .products-header,
     .top-banner
   ) p {
 

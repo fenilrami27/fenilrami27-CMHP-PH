@@ -5,6 +5,7 @@ import {
   useMemo,
   useState,
 } from 'react'
+import { useDispatch } from 'react-redux'
 
 import useAuth from '../hooks/useAuth'
 
@@ -12,8 +13,11 @@ import {
   clearSelectedWorkspace,
   getAvailableWorkspaces,
   getCurrentWorkspace,
+  getSelectedWorkspace,
   setSelectedWorkspace,
+  WORKSPACE_OPTIONS,
 } from '../utils/workspace'
+import { setActiveCompanyId } from '../store/erpSlice'
 
 
 export const WorkspaceContext =
@@ -28,12 +32,14 @@ export function WorkspaceProvider({
     user,
   } = useAuth()
 
+  const dispatch = useDispatch()
+
 
   const [
     activeWorkspace,
     setActiveWorkspaceState,
   ] = useState(() =>
-    getCurrentWorkspace(user)
+    getCurrentWorkspace(user) || getSelectedWorkspace()
   )
 
 
@@ -61,39 +67,40 @@ export function WorkspaceProvider({
 
 
     const current =
-      getCurrentWorkspace(user)
-
-
-    setActiveWorkspaceState(
-      current
-    )
+      getCurrentWorkspace(user) || getSelectedWorkspace()
 
 
     if (current) {
+
+      setActiveWorkspaceState(
+        current
+      )
 
       setSelectedWorkspace(
         current
       )
 
+      const matchedOption = Object.values(WORKSPACE_OPTIONS).find((opt) => opt.id === current)
+      if (matchedOption && matchedOption.companyId !== undefined) {
+        dispatch(setActiveCompanyId(matchedOption.companyId))
+      }
+
     }
 
-  }, [user])
+  }, [user, dispatch])
 
 
   const setActiveWorkspace =
     useCallback(
       (workspace) => {
 
-        const allowed =
-          availableWorkspaces.some(
+        if (!workspace) return
+
+        const target =
+          availableWorkspaces.find(
             (item) =>
               item.id === workspace
-          )
-
-
-        if (!allowed) {
-          return
-        }
+          ) || Object.values(WORKSPACE_OPTIONS).find((item) => item.id === workspace)
 
 
         setSelectedWorkspace(
@@ -105,21 +112,36 @@ export function WorkspaceProvider({
           workspace
         )
 
+        if (target && target.companyId !== undefined) {
+          dispatch(setActiveCompanyId(target.companyId))
+        }
+
       },
       [
         availableWorkspaces,
+        dispatch,
       ]
     )
 
 
   const activeOption =
     useMemo(
-      () =>
-        availableWorkspaces.find(
-          (item) =>
-            item.id ===
-            activeWorkspace
-        ) || null,
+      () => {
+        if (!activeWorkspace) return null
+        return (
+          availableWorkspaces.find(
+            (item) =>
+              item.id ===
+              activeWorkspace
+          ) ||
+          Object.values(WORKSPACE_OPTIONS).find(
+            (item) =>
+              item.id ===
+              activeWorkspace
+          ) ||
+          null
+        )
+      },
       [
         availableWorkspaces,
         activeWorkspace,

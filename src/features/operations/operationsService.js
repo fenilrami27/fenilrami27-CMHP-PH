@@ -15,12 +15,17 @@ import {
   addQuotation,
   addOrder,
   editOrder,
+  setOrderStatus,
 
   addBatch,
+  startProductionBatchFromOrder,
   editBatch,
 
   consumeBatchMaterial as consumeBatchMaterialAction,
 } from '../../store/erpSlice'
+
+import { qualityService } from '../quality/qualityService'
+import { recordAudit } from '../../utils/audit'
 
 import {
   getScopedCompanyId,
@@ -455,92 +460,46 @@ export const operationsService = {
   },
 
   /* ========================================================
-     CUSTOMERS
+     CUSTOMERS (SHARED)
      ======================================================== */
 
   getCustomers: () => {
-
-    const state =
-      store.getState().erp
-
-
-    return delay(
-      companyRows(
-        state.customers
-      )
-    )
-
+    const state = store.getState().erp
+    return delay(Array.isArray(state.customers) ? state.customers : [])
   },
 
-
-  createCustomer: (
-    payload
-  ) => {
-
-    store.dispatch(
-      addCustomer(
-        enforceCompanyPayload(
-          payload
-        )
-      )
-    )
-
-
+  createCustomer: (payload) => {
+    const safePayload = { ...payload }
+    store.dispatch(addCustomer(safePayload))
+    recordAudit({
+      action: 'customer/created',
+      entityType: 'Customer',
+      entityId: safePayload.code || safePayload.name,
+      payload: { name: safePayload.name, gstin: safePayload.gstin, state: safePayload.state },
+    })
     return delay(null)
-
   },
 
-
-  updateCustomer: (
-    id,
-    payload
-  ) => {
-
-    const state =
-      store.getState().erp
-
-
-    assertCompanyRecord(
-      state.customers,
-      id
-    )
-
-
-    const safePayload = {
-      ...payload,
-    }
-
-
-    delete safePayload.company
-
-
+  updateCustomer: (id, payload) => {
+    const safePayload = { ...payload }
     store.dispatch(
       editCustomer({
         id,
-        payload:
-          safePayload,
+        payload: safePayload,
       })
     )
-
-
+    recordAudit({
+      action: 'customer/updated',
+      entityType: 'Customer',
+      entityId: payload.code || id,
+      payload: safePayload,
+    })
     return delay(null)
-
   },
 
-
-  deleteCustomer: (
-    id
-  ) => {
-
-    const state =
-      store.getState().erp
-
-
-    assertCompanyRecord(
-      state.customers,
-      id
-    )
-
+  deleteCustomer: (id) => {
+    const state = store.getState().erp
+    const existing = state.customers?.find((c) => Number(c.id) === Number(id))
 
     store.dispatch(
       deleteCustomer({
@@ -548,9 +507,14 @@ export const operationsService = {
       })
     )
 
+    recordAudit({
+      action: 'customer/deleted',
+      entityType: 'Customer',
+      entityId: existing?.code || id,
+      payload: { name: existing?.name },
+    })
 
     return delay(null)
-
   },
 
 
@@ -731,6 +695,8 @@ export const operationsService = {
             )
             : null,
 
+        status: scoped.status || 'DRAFT',
+
         lines:
           scoped.lines ||
           [],
@@ -738,9 +704,46 @@ export const operationsService = {
       })
     )
 
+    recordAudit({
+      action: 'order/created',
+      entityType: 'Order',
+      entityId: scoped.number,
+      payload: { customer: scoped.customer, product: scoped.product_name, company: scoped.company },
+    })
 
     return delay(null)
 
+  },
+
+
+  /*
+   * ========================================================
+   * CONFIRM ORDER (Sends order to Quality Control)
+   * ========================================================
+   */
+  confirmOrder: (id, user = null) => {
+    const state = store.getState().erp
+    const order = state.orders.find((o) => Number(o.id) === Number(id))
+    if (!order) throw new Error('Order not found')
+
+    store.dispatch(
+      setOrderStatus({
+        id: order.id,
+        status: 'QC_PENDING',
+      })
+    )
+
+    // Automatically generate QC Inspection in quality module
+    qualityService.createQcForOrder(order, user)
+
+    recordAudit({
+      action: 'order/confirmed',
+      entityType: 'Order',
+      entityId: order.number || order.id,
+      payload: { customer: order.customer, product: order.product_name, newStatus: 'QC_PENDING' },
+    })
+
+    return delay(null)
   },
 
 
@@ -818,6 +821,14 @@ export const operationsService = {
       })
     )
 
+    const existing = state.orders.find((o) => Number(o.id) === Number(id))
+
+    recordAudit({
+      action: 'order/updated',
+      entityType: 'Order',
+      entityId: existing?.number || id,
+      payload: safePayload,
+    })
 
     return delay(null)
 
@@ -1030,6 +1041,23 @@ export const operationsService = {
 
     return delay(null)
 
+  },
+
+  produceBatchFromOrder: (payload) => {
+    store.dispatch(startProductionBatchFromOrder(payload))
+    recordAudit({
+      action: 'production/batchCreatedFromOrder',
+      entityType: 'Batch',
+      entityId: payload.batchNumber,
+      payload: {
+        orderId: payload.orderId,
+        orderNumber: payload.orderNumber,
+        productName: payload.productName,
+        plannedQuantity: payload.plannedQuantity,
+        materialsIssued: payload.materialsToIssue?.length || 0,
+      },
+    })
+    return delay(null)
   },
 
 }

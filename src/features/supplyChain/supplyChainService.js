@@ -39,6 +39,8 @@ import {
   closeRecall as closeRecallAction,
 } from '../../store/erpSlice'
 
+import { recordAudit } from '../../utils/audit'
+
 import {
   getScopedCompanyId,
   enforceCompanyPayload,
@@ -56,13 +58,9 @@ function getState() {
 
 function getCompanyId() {
   const companyId =
-    getScopedCompanyId()
-
-  if (!companyId) {
-    throw new Error(
-      'No active company is selected.'
-    )
-  }
+    getScopedCompanyId() ||
+    store.getState()?.erp?.activeCompanyId ||
+    1
 
   return Number(companyId)
 }
@@ -115,18 +113,6 @@ function findItem(
   return state.items.find(
     (item) =>
       Number(item.id) ===
-      Number(id)
-  )
-}
-
-
-function findLocation(
-  id,
-  state
-) {
-  return state.locations.find(
-    (location) =>
-      Number(location.id) ===
       Number(id)
   )
 }
@@ -208,7 +194,7 @@ export const supplyChainService = {
    * Company selector inside Supply Chain:
    *
    * Normal users:
-   *   Company A only
+   *   CMHP Pharma only
    *
    * Super Admin:
    *   Currently selected company only
@@ -259,19 +245,6 @@ export const supplyChainService = {
 
 
   /*
-   * Storage Locations belong to
-   * Common Inventory.
-   *
-   * SHARED.
-   */
-  getLocations() {
-    return delay(
-      getState().locations
-    )
-  },
-
-
-  /*
    * Lots belong to Common Inventory.
    *
    * SHARED.
@@ -300,17 +273,16 @@ export const supplyChainService = {
 
 
   /*
-   * Customers are company-specific.
+   * Customers are shared across companies.
    */
   getCustomers() {
-
     const state =
       getState()
 
     return delay(
-      filterByCompany(
-        state.customers
-      )
+      Array.isArray(state.customers)
+        ? state.customers
+        : []
     )
   },
 
@@ -761,7 +733,6 @@ export const supplyChainService = {
      */
     if (
       scoped.item &&
-      scoped.location &&
       scoped.lot_number &&
       quantity > 0
     ) {
@@ -776,11 +747,6 @@ export const supplyChainService = {
           item:
             Number(
               scoped.item
-            ),
-
-          location:
-            Number(
-              scoped.location
             ),
 
           lot_number:
@@ -1308,6 +1274,14 @@ export const supplyChainService = {
         payload
       )
 
+    const state = getState()
+    if (scoped.batch) {
+      const batch = (state.batches || []).find((b) => Number(b.id) === Number(scoped.batch))
+      if (batch && batch.qa_status !== 'RELEASED' && batch.qa_status !== 'APPROVED') {
+        throw new Error(`Cannot dispatch batch ${batch.number}: Batch has not received QA Approval yet.`)
+      }
+    }
+
     store.dispatch(
       addDispatch({
 
@@ -1341,6 +1315,18 @@ export const supplyChainService = {
 
       })
     )
+
+    recordAudit({
+      action: 'dispatch/created',
+      entityType: 'Dispatch',
+      entityId: scoped.dispatch_number,
+      payload: {
+        customer: scoped.customer,
+        batch: scoped.batch,
+        invoice: scoped.invoice,
+        dispatch_date: scoped.dispatch_date,
+      },
+    })
 
     return delay(null)
   },

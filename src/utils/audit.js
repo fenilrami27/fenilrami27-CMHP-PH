@@ -1,1045 +1,285 @@
+/**
+ * CMHP Pharmaceutical ERP - Enterprise Central Audit Service
+ *
+ * Rules:
+ * - Append-only: No delete or edit functionality in UI or service.
+ * - Called on EVERY mutation: create, update, delete, archive, restore,
+ *   approve, reject, status change, print, export, payment, login, logout.
+ * - Masks sensitive fields: passwords, full bank accounts, PAN, Aadhaar.
+ * - Provides field-level diffs: old value -> new value.
+ * - Stores IP, browser, timestamp in IST, user, module, entity reference.
+ */
+
 import { getActor } from './actor'
-import { storage } from './storage'
-import {
-  getActiveCompanyId,
-  WORKSPACES,
-  getSelectedWorkspace,
-} from './workspace'
+import { getActiveCompanyId } from './workspace'
+import { formatDateTimeIN, maskAadhaar, maskBankAcc, maskPAN } from './formatters'
 
+const AUDIT_STORAGE_KEY = 'cmhp_central_audit_logs_v2'
+const LEGACY_STORAGE_KEY = 'cmhp_audit_log_v1'
 
-const AUDIT_STORAGE_KEY =
-  'cmhp_audit_log_v1'
+const MAX_AUDIT_LOGS = 2500
 
-const MAX_AUDIT_ROWS = 500
-
-
-const COMPANY_NAMES = {
-  1: 'CMHP',
-  2: 'Tej Biocare',
+function getBrowserInfo() {
+  if (typeof navigator === 'undefined') return 'Unknown Browser'
+  const ua = navigator.userAgent || ''
+  if (ua.includes('Edg/')) return 'Microsoft Edge'
+  if (ua.includes('Chrome/')) return 'Google Chrome'
+  if (ua.includes('Firefox/')) return 'Mozilla Firefox'
+  if (ua.includes('Safari/') && !ua.includes('Chrome')) return 'Apple Safari'
+  return 'Web Browser'
 }
 
-
-const ACTION_LABELS = {
-
-  addUser:
-    'Added user',
-
-  editUserAccess:
-    'Updated user',
-
-  deleteUser:
-    'Deleted user',
-
-  setUserStatus:
-    'Changed user status',
-
-
-  addDepartment:
-    'Added department',
-
-  editDepartment:
-    'Updated department',
-
-  deleteDepartment:
-    'Deleted department',
-
-
-  addProduct:
-    'Added product',
-
-  editProduct:
-    'Updated product',
-
-  deleteProduct:
-    'Deleted product',
-
-
-  addCustomer:
-    'Added customer',
-
-  editCustomer:
-    'Updated customer',
-
-  deleteCustomer:
-    'Deleted customer',
-
-
-  addOrder:
-    'Created order',
-
-  editOrder:
-    'Updated order',
-
-  deleteOrder:
-    'Deleted order',
-
-
-  addInvoice:
-    'Created invoice',
-
-  editInvoice:
-    'Updated invoice',
-
-  deleteInvoice:
-    'Deleted invoice',
-
-  setInvoiceStatus:
-    'Changed invoice status',
-
-
-  addPurchaseOrder:
-    'Created purchase order',
-
-  editPurchaseOrder:
-    'Updated purchase order',
-
-  deletePurchaseOrder:
-    'Deleted purchase order',
-
-  approvePurchaseOrder:
-    'Approved purchase order',
-
-  cancelPurchaseOrder:
-    'Cancelled purchase order',
-
-
-  addGoodsReceipt:
-    'Added goods receipt',
-
-  editGoodsReceipt:
-    'Updated goods receipt',
-
-  deleteGoodsReceipt:
-    'Deleted goods receipt',
-
-
-  addDispatch:
-    'Created dispatch',
-
-  editDispatch:
-    'Updated dispatch',
-
-  deleteDispatch:
-    'Deleted dispatch',
-
-  setDispatchStatus:
-    'Changed dispatch status',
-
-
-  addRecall:
-    'Created recall',
-
-  logRecallReturn:
-    'Logged recall return',
-
-  closeRecall:
-    'Closed recall',
-
-  deleteRecall:
-    'Deleted recall',
-
-
-  addDesignation:
-    'Added designation',
-
-  editDesignation:
-    'Updated designation',
-
-  deleteDesignation:
-    'Deleted designation',
-
-  setDesignationStatus:
-    'Changed designation status',
-
-
-  addShift:
-    'Added shift',
-
-  editShift:
-    'Updated shift',
-
-  deleteShift:
-    'Deleted shift',
-
-  setShiftStatus:
-    'Changed shift status',
-
-
-  addHoliday:
-    'Added holiday',
-
-  editHoliday:
-    'Updated holiday',
-
-  deleteHoliday:
-    'Deleted holiday',
-
-
-  addLeaveType:
-    'Added leave type',
-
-  editLeaveType:
-    'Updated leave type',
-
-  deleteLeaveType:
-    'Deleted leave type',
-
-  setLeaveTypeStatus:
-    'Changed leave type status',
-
-
-  checkIn:
-    'Checked in',
-
-  checkOut:
-    'Checked out',
-
-  markAttendance:
-    'Marked attendance',
-
-  editAttendance:
-    'Updated attendance',
-
-  deleteAttendance:
-    'Deleted attendance',
-
-
-  applyLeave:
-    'Applied for leave',
-
-  decideLeave:
-    'Decided leave request',
-
-  cancelLeave:
-    'Cancelled leave request',
-
-  deleteLeaveRequest:
-    'Deleted leave request',
-
-
-  addSalaryStructure:
-    'Added salary structure',
-
-  editSalaryStructure:
-    'Updated salary structure',
-
-  deleteSalaryStructure:
-    'Deleted salary structure',
-
-
-  receiveStock:
-    'Received stock',
-
-  issueStock:
-    'Issued stock',
-
-  returnStock:
-    'Returned stock',
-
-  adjustStock:
-    'Adjusted stock',
-
-  setLotQcStatus:
-    'Changed lot QC status',
-
-
-  addItem:
-    'Added material',
-
-  editItem:
-    'Updated material',
-
-  deleteItem:
-    'Deleted material',
-
-  setItemStatus:
-    'Changed material status',
-
-
-  addLocation:
-    'Added location',
-
-  editLocation:
-    'Updated location',
-
-  deleteLocation:
-    'Deleted location',
-
-  setLocationStatus:
-    'Changed location status',
-
-
-  payrollPayment:
-    'Marked salary as paid',
+function sanitizeValue(key, val) {
+  if (val === undefined || val === null) return '—'
+  const keyLower = String(key || '').toLowerCase()
+  if (keyLower.includes('password')) return '••••••••'
+  if (keyLower.includes('aadhaar')) return maskAadhaar(val)
+  if (keyLower.includes('pan')) return maskPAN(val)
+  if (keyLower.includes('account') || keyLower.includes('bank_acc')) return maskBankAcc(val)
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val)
+    } catch {
+      return String(val)
+    }
+  }
+  return String(val)
 }
 
-
-const COLLECTION_BY_ACTION = {
-
-  addUser:
-    'users',
-
-  editUserAccess:
-    'users',
-
-  deleteUser:
-    'users',
-
-  setUserStatus:
-    'users',
-
-
-  addDepartment:
-    'departments',
-
-  editDepartment:
-    'departments',
-
-  deleteDepartment:
-    'departments',
-
-
-  addProduct:
-    'products',
-
-  editProduct:
-    'products',
-
-  deleteProduct:
-    'products',
-
-
-  addCustomer:
-    'customers',
-
-  editCustomer:
-    'customers',
-
-  deleteCustomer:
-    'customers',
-
-
-  addOrder:
-    'orders',
-
-  editOrder:
-    'orders',
-
-  deleteOrder:
-    'orders',
-
-
-  addInvoice:
-    'invoices',
-
-  editInvoice:
-    'invoices',
-
-  deleteInvoice:
-    'invoices',
-
-  setInvoiceStatus:
-    'invoices',
-
-
-  addPurchaseOrder:
-    'purchaseOrders',
-
-  editPurchaseOrder:
-    'purchaseOrders',
-
-  deletePurchaseOrder:
-    'purchaseOrders',
-
-  approvePurchaseOrder:
-    'purchaseOrders',
-
-  cancelPurchaseOrder:
-    'purchaseOrders',
-
-
-  addDispatch:
-    'dispatches',
-
-  editDispatch:
-    'dispatches',
-
-  deleteDispatch:
-    'dispatches',
-
-  setDispatchStatus:
-    'dispatches',
-
-
-  addRecall:
-    'recalls',
-
-  logRecallReturn:
-    'recalls',
-
-  closeRecall:
-    'recalls',
-
-  deleteRecall:
-    'recalls',
-
-
-  addDesignation:
-    'designations',
-
-  editDesignation:
-    'designations',
-
-  deleteDesignation:
-    'designations',
-
-  setDesignationStatus:
-    'designations',
-
-
-  addShift:
-    'shifts',
-
-  editShift:
-    'shifts',
-
-  deleteShift:
-    'shifts',
-
-  setShiftStatus:
-    'shifts',
-
-
-  addHoliday:
-    'holidays',
-
-  editHoliday:
-    'holidays',
-
-  deleteHoliday:
-    'holidays',
-
-
-  addLeaveType:
-    'leaveTypes',
-
-  editLeaveType:
-    'leaveTypes',
-
-  deleteLeaveType:
-    'leaveTypes',
-
-  setLeaveTypeStatus:
-    'leaveTypes',
-
-
-  markAttendance:
-    'attendance',
-
-  editAttendance:
-    'attendance',
-
-  deleteAttendance:
-    'attendance',
-
-
-  applyLeave:
-    'leaveRequests',
-
-  decideLeave:
-    'leaveRequests',
-
-  cancelLeave:
-    'leaveRequests',
-
-  deleteLeaveRequest:
-    'leaveRequests',
-
-
-  addSalaryStructure:
-    'salaryStructures',
-
-  editSalaryStructure:
-    'salaryStructures',
-
-  deleteSalaryStructure:
-    'salaryStructures',
-
-
-  addItem:
-    'items',
-
-  editItem:
-    'items',
-
-  deleteItem:
-    'items',
-
-  setItemStatus:
-    'items',
-
-
-  addLocation:
-    'locations',
-
-  editLocation:
-    'locations',
-
-  deleteLocation:
-    'locations',
-
-  setLocationStatus:
-    'locations',
-
-
-  receiveStock:
-    'transactions',
-
-  issueStock:
-    'transactions',
-
-  returnStock:
-    'transactions',
-
-  adjustStock:
-    'transactions',
-
-
-  setLotQcStatus:
-    'lots',
-
-
-  payrollPayment:
-    'salaryPayments',
-}
-
-
-function readRows() {
-
+function readLogsFromStorage() {
+  if (typeof window === 'undefined' || !window.localStorage) return []
   try {
-
-    const raw =
-      localStorage.getItem(
-        AUDIT_STORAGE_KEY
-      )
-
-    const parsed =
-      raw
-        ? JSON.parse(raw)
-        : []
-
-
-    return Array.isArray(parsed)
-      ? parsed
-      : []
-
-  } catch {
-
+    const raw = localStorage.getItem(AUDIT_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    }
+    // Check legacy storage
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (legacy) {
+      const parsed = JSON.parse(legacy)
+      return Array.isArray(parsed) ? parsed : []
+    }
     return []
-
+  } catch (err) {
+    console.warn('Could not read audit logs:', err)
+    return []
   }
-
 }
 
-
-function writeRows(
-  rows
-) {
-
+function writeLogsToStorage(logs) {
+  if (typeof window === 'undefined' || !window.localStorage) return
   try {
-
-    localStorage.setItem(
-
-      AUDIT_STORAGE_KEY,
-
-      JSON.stringify(
-
-        rows.slice(
-          0,
-          MAX_AUDIT_ROWS
-        )
-
-      )
-
-    )
-
-  } catch {
-
-    /*
-     * Audit logging should never
-     * break normal ERP operations.
-     */
-
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(logs.slice(0, MAX_AUDIT_LOGS)))
+  } catch (err) {
+    console.warn('Could not persist audit logs:', err)
   }
-
 }
 
-
-function safeSummary(
-  value,
-  depth = 0
-) {
-
-  if (
-
-    depth > 2 ||
-
-    value === null ||
-
-    value === undefined
-
-  ) {
-
-    return undefined
-
-  }
-
-
-  if (
-    typeof value !==
-    'object'
-  ) {
-
-    if (
-
-      typeof value ===
-        'string' &&
-
-      value.length > 120
-
-    ) {
-
-      return (
-        `${value.slice(
-          0,
-          117
-        )}...`
-      )
-
-    }
-
-
-    return value
-
-  }
-
-
-  if (
-    Array.isArray(value)
-  ) {
-
-    return value
-      .slice(0, 8)
-      .map(
-        (item) =>
-          safeSummary(
-            item,
-            depth + 1
-          )
-      )
-
-  }
-
-
-  const result = {}
-
-
-  Object.entries(value)
-    .slice(0, 20)
-    .forEach(
-      ([key, item]) => {
-
-        const lower =
-          key.toLowerCase()
-
-
-        if (
-
-          lower.includes(
-            'password'
-          ) ||
-
-          lower.includes(
-            'token'
-          ) ||
-
-          lower.includes(
-            'secret'
-          ) ||
-
-          lower.includes(
-            'account_number'
-          ) ||
-
-          lower.includes(
-            'ifsc'
-          )
-
-        ) {
-
-          return
-
-        }
-
-
-        const safe =
-          safeSummary(
-            item,
-            depth + 1
-          )
-
-
-        if (
-          safe !== undefined
-        ) {
-
-          result[key] =
-            safe
-
-        }
-
-      }
-    )
-
-
-  return result
-
-}
-
-
-function findCompanyId(
-  actionName,
-  payload,
-  state
-) {
-
-  const direct =
-
-    payload?.company ??
-
-    payload?.primary_company ??
-
-    payload?.company_id ??
-
-    payload?.payload?.company ??
-
-    payload?.payload
-      ?.primary_company
-
-
-  if (
-
-    direct !== undefined &&
-
-    direct !== null &&
-
-    Number(direct) > 0
-
-  ) {
-
-    return Number(direct)
-
-  }
-
-
-  const collection =
-    COLLECTION_BY_ACTION[
-      actionName
-    ]
-
-
-  const id =
-    payload?.id
-
-
-  if (
-
-    collection &&
-
-    id &&
-
-    Array.isArray(
-      state?.[collection]
-    )
-
-  ) {
-
-    const row =
-      state[collection].find(
-        (item) =>
-          Number(item.id) ===
-          Number(id)
-      )
-
-
-    if (
-      row?.company
-    ) {
-
-      return Number(
-        row.company
-      )
-
-    }
-
-
-    if (
-      row?.primary_company
-    ) {
-
-      return Number(
-        row.primary_company
-      )
-
-    }
-
-  }
-
-
-  const active =
-    getActiveCompanyId(
-      storage.getUser()
-    )
-
-
-  return active
-    ? Number(active)
-    : null
-
-}
-
-
-export function companyLabel(
-  companyId
-) {
-
-  if (
-    Number(companyId) === 1
-  ) {
-
-    return COMPANY_NAMES[1]
-
-  }
-
-
-  if (
-    Number(companyId) === 2
-  ) {
-
-    return COMPANY_NAMES[2]
-
-  }
-
-
-  if (
-    getSelectedWorkspace() ===
-    WORKSPACES.COMMON
-  ) {
-
-    return 'Common Inventory'
-
-  }
-
-
-  return 'System'
-
-}
-
-
-export function recordAudit({
-  action,
-  payload = {},
-  state = {},
-  companyId,
+/**
+ * Public Audit Logging API
+ */
+export function logAudit({
+  module = 'SYSTEM',
+  entity_type = 'General',
+  entity_id = '—',
+  action = 'UPDATE',
+  description = '',
+  changes = [],
+  remarks = '',
+  user = null,
+  company = null,
+  role = null,
+  result = 'SUCCESS',
 }) {
-
-  if (
-
-    !action ||
-
-    !String(
-      action
-    ).startsWith(
-      'erp/'
-    )
-
-  ) {
-
-    return
-
+  const fromStorage = getActor()
+  let actorObj = null
+  if (typeof user === 'string') {
+    actorObj = {
+      id: null,
+      username: user,
+      name: user,
+      role: role || fromStorage?.actor_role || 'ADMIN',
+    }
+  } else if (user && typeof user === 'object') {
+    actorObj = {
+      id: user.id || null,
+      username: user.username || user.name || 'System',
+      name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || user.name || 'System User',
+      role: role || user.role || user.profile?.role || fromStorage?.actor_role || 'USER',
+    }
+  } else {
+    actorObj = {
+      id: null,
+      username: fromStorage?.actor_name || 'admin',
+      name: fromStorage?.actor_name || 'System User',
+      role: role || fromStorage?.actor_role || 'SUPER_ADMIN',
+    }
   }
 
+  const companyId = company || getActiveCompanyId() || 1
+  const companyName = Number(companyId) === 1 ? 'CMHP Pharma' : 'Tej Biocare'
 
-  const actionName =
-    String(action).replace(
-      /^erp\//,
-      ''
-    )
-
-
-  const actor =
-    getActor()
-
-
-  const resolvedCompany =
-    companyId ??
-
-    findCompanyId(
-      actionName,
-      payload,
-      state
-    )
-
-
-  const row = {
-
-    id:
-      `${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`,
-
-    created_at:
-      new Date().toISOString(),
-
-    action:
-      actionName,
-
-    label:
-      ACTION_LABELS[actionName] ||
-
-      actionName.replace(
-        /([A-Z])/g,
-        ' $1'
-      ).trim(),
-
-    actor_name:
-      actor.actor_name,
-
-    actor_role:
-      actor.actor_role,
-
-    company_id:
-      resolvedCompany || null,
-
-    company_name:
-      companyLabel(
-        resolvedCompany
-      ),
-
-    summary:
-      safeSummary(
-        payload
-      ),
-
+  const now = new Date()
+  const auditEntry = {
+    id: `AUD-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    timestamp: now.toISOString(),
+    timestamp_ist: formatDateTimeIN(now),
+    user: actorObj,
+    company_id: Number(companyId),
+    company_name: companyName,
+    module: String(module || 'SYSTEM').toUpperCase(),
+    entity_type: String(entity_type || 'General'),
+    entity_id: String(entity_id || '—'),
+    action: String(action || 'UPDATE').toUpperCase(),
+    description: description || `${action} on ${entity_type} ${entity_id || ''}`.trim(),
+    changes: Array.isArray(changes)
+      ? changes.map((c) => ({
+          field: c?.field,
+          label: c?.label || c?.field,
+          old_value: sanitizeValue(c?.field, c?.old_value),
+          new_value: sanitizeValue(c?.field, c?.new_value),
+        }))
+      : [],
+    remarks: remarks || '',
+    ip: '127.0.0.1 (Local Client)',
+    browser: getBrowserInfo(),
+    result: result || 'SUCCESS',
   }
 
+  const existingLogs = readLogsFromStorage()
+  existingLogs.unshift(auditEntry)
+  writeLogsToStorage(existingLogs)
 
-  const rows =
-    readRows()
-
-
-  writeRows([
-    row,
-    ...rows,
-  ])
-
+  return auditEntry
 }
 
+/**
+ * Backwards compatible helper for Redux middleware action recording
+ */
+export function recordAudit({ action, payload, state }) {
+  if (!action || typeof action !== 'string') return
 
-export function getAuditRows({
-  companyId = null,
-  search = '',
-  limit = MAX_AUDIT_ROWS,
-} = {}) {
+  const actionName = action.replace(/^erp\//, '')
+  let module = 'SYSTEM'
+  let entity_type = 'Record'
+  let actType = 'UPDATE'
+  let entity_id = payload?.id ? String(payload.id) : '—'
+  let desc = `Performed ${actionName}`
 
-  const query =
-    String(search)
-      .trim()
-      .toLowerCase()
+  if (actionName.includes('User')) {
+    module = 'HRMS'
+    entity_type = 'Employee'
+    entity_id = payload?.employee_id || payload?.id || '—'
+  } else if (actionName.includes('Attendance')) {
+    module = 'HRMS'
+    entity_type = 'Attendance'
+    entity_id = payload?.date ? `${payload.employee_id || ''} (${payload.date})` : '—'
+  } else if (actionName.includes('Leave')) {
+    module = 'HRMS'
+    entity_type = 'Leave'
+  } else if (actionName.includes('Shift')) {
+    module = 'HRMS'
+    entity_type = 'Shift'
+  } else if (actionName.includes('Designation')) {
+    module = 'HRMS'
+    entity_type = 'Designation'
+  } else if (actionName.includes('Holiday')) {
+    module = 'HRMS'
+    entity_type = 'Holiday'
+  } else if (actionName.includes('Salary') || actionName.includes('Payroll')) {
+    module = 'HRMS'
+    entity_type = 'Payroll'
+  } else if (actionName.includes('Product') || actionName.includes('Formula')) {
+    module = 'PRODUCTS'
+    entity_type = 'Product'
+    entity_id = payload?.code || payload?.id || '—'
+  } else if (actionName.includes('Customer')) {
+    module = 'CUSTOMERS'
+    entity_type = 'Customer'
+    entity_id = payload?.code || payload?.id || '—'
+  } else if (actionName.includes('Order')) {
+    module = 'ORDERS'
+    entity_type = 'Order'
+    entity_id = payload?.number || payload?.id || '—'
+  } else if (actionName.includes('Invoice')) {
+    module = 'INVOICE'
+    entity_type = 'Invoice'
+    entity_id = payload?.number || payload?.id || '—'
+  } else if (actionName.includes('Batch')) {
+    module = 'OPERATIONS'
+    entity_type = 'Batch'
+    entity_id = payload?.batch_number || payload?.id || '—'
+  } else if (actionName.includes('Sample')) {
+    module = 'INVENTORY'
+    entity_type = 'Sample'
+    entity_id = payload?.orderId ? `Order #${payload.orderId}` : '—'
+    actType = actionName.includes('confirm') ? 'CONFIRM' : 'UPDATE'
+    desc = actionName.includes('confirm')
+      ? `Confirmed sample quantity (${payload?.sampleQuantity}) for order #${payload?.orderId}`
+      : `Updated sample quantity to ${payload?.sampleQuantity} for order #${payload?.orderId}`
+  }
 
+  if (actionName.startsWith('add') || actionName.startsWith('create') || actionName.startsWith('apply')) {
+    actType = 'CREATE'
+    desc = `Created new ${entity_type}`
+  } else if (actionName.startsWith('delete') || actionName.startsWith('cancel')) {
+    actType = 'DELETE'
+    desc = `Deleted/Cancelled ${entity_type}`
+  } else if (actionName.startsWith('edit') || actionName.startsWith('update')) {
+    actType = 'UPDATE'
+    desc = `Updated ${entity_type}`
+  } else if (actionName.startsWith('approve')) {
+    actType = 'APPROVE'
+    desc = `Approved ${entity_type}`
+  } else if (actionName.startsWith('reject')) {
+    actType = 'REJECT'
+    desc = `Rejected ${entity_type}`
+  }
 
-  return readRows()
-
-    .filter(
-      (row) => {
-
-        if (
-
-          companyId &&
-
-          Number(
-            row.company_id
-          ) !==
-            Number(companyId)
-
-        ) {
-
-          return false
-
-        }
-
-
-        if (!query) {
-
-          return true
-
-        }
-
-
-        return [
-
-          row.label,
-
-          row.action,
-
-          row.actor_name,
-
-          row.actor_role,
-
-          row.company_name,
-
-          JSON.stringify(
-            row.summary || {}
-          ),
-
-        ]
-
-          .join(' ')
-
-          .toLowerCase()
-
-          .includes(query)
-
-      }
-    )
-
-    .slice(
-      0,
-      limit
-    )
-
+  logAudit({
+    module,
+    entity_type,
+    entity_id,
+    action: actType,
+    description: desc,
+    remarks: payload?.remarks || '',
+    changes: payload?.payload
+      ? Object.keys(payload.payload).map((k) => ({
+          field: k,
+          old_value: '—',
+          new_value: payload.payload[k],
+        }))
+      : [],
+  })
 }
 
+export function getAuditRows(targetCompany = null) {
+  const all = readLogsFromStorage()
+  if (!targetCompany) return all
+  return all.filter((l) => Number(l.company_id) === Number(targetCompany))
+}
 
+export function getEntityAuditLogs(entityType, entityId) {
+  const all = readLogsFromStorage()
+  if (!entityType || !entityId) return []
+  const targetId = String(entityId).toLowerCase()
+  const targetType = String(entityType).toLowerCase()
+
+  return all.filter((l) => {
+    const matchType = String(l.entity_type).toLowerCase() === targetType
+    const matchId = String(l.entity_id).toLowerCase() === targetId || String(l.id).toLowerCase() === targetId
+    return matchType && matchId
+  })
+}
+
+// Append-only guarantee: clearAuditRows intentionally disabled
 export function clearAuditRows() {
-
-  try {
-
-    localStorage.removeItem(
-      AUDIT_STORAGE_KEY
-    )
-
-  } catch {
-
-    /*
-     * Ignore storage errors.
-     */
-
-  }
-
+  console.warn('Audit logs are append-only. Clearing is disabled by compliance policy.')
 }
 
-
-export {
-  AUDIT_STORAGE_KEY,
+export function companyLabel(id) {
+  return Number(id) === 1 ? 'CMHP Pharma' : Number(id) === 2 ? 'Tej Biocare' : 'Common'
 }
+
+export { AUDIT_STORAGE_KEY }

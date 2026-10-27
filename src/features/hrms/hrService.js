@@ -5,6 +5,7 @@ import {
     addUser,
     editUserAccess,
     setUserStatus,
+    deleteUser,
 
     addDesignation,
     editDesignation,
@@ -812,6 +813,24 @@ export const hrService = {
     },
 
 
+    deleteEmployee(
+        id
+    ) {
+
+        assertEmployeeCompany(
+            id
+        )
+
+        store.dispatch(
+            deleteUser({
+                id,
+            })
+        )
+
+        return delay(null)
+    },
+
+
     // =========================================================================
     // DESIGNATIONS
     // =========================================================================
@@ -1454,6 +1473,13 @@ export const hrService = {
         shift,
     }) {
 
+        const state = store.getState().erp
+        const targetUser = (state.users || []).find((u) => Number(u.id) === Number(user))
+        const role = String(targetUser?.role || targetUser?.profile?.role || '').toUpperCase()
+        if (targetUser?.is_superuser || role === 'SUPER_ADMIN' || role === 'ADMIN') {
+            return delay(null)
+        }
+
         const employee =
             assertEmployeeCompany(
                 user
@@ -1486,6 +1512,13 @@ export const hrService = {
     doCheckOut({
         user,
     }) {
+
+        const state = store.getState().erp
+        const targetUser = (state.users || []).find((u) => Number(u.id) === Number(user))
+        const role = String(targetUser?.role || targetUser?.profile?.role || '').toUpperCase()
+        if (targetUser?.is_superuser || role === 'SUPER_ADMIN' || role === 'ADMIN') {
+            return delay(null)
+        }
 
         const employee =
             assertEmployeeCompany(
@@ -2466,8 +2499,8 @@ export const hrService = {
              * These two values are intentionally
              * scoped to the active company.
              *
-             * Therefore Company A dashboard
-             * never reports Company B employees.
+             * Therefore CMHP Pharma dashboard
+             * never reports Tej Biocare employees.
              */
             company_a_employees:
                 Number(companyId) === 1

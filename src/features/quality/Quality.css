@@ -172,3 +172,574 @@
     grid-column: auto;
   }
 }
+
+@media (max-width: 640px) {
+  .qc-filter {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .qc-trace-picker {
+    max-width: 100%;
+  }
+}
+
+
+/* =========================================================
+   FORMULA APPROVALS TAB (QC / QA)
+   ========================================================= */
+
+.tab-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  margin-left: 6px;
+  line-height: 1;
+}
+
+.qc-formula-header-block {
+  padding: 18px 20px 12px 20px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.qc-formula-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  padding: 16px 20px;
+}
+
+.qc-kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.qc-kpi-card .kpi-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.qc-kpi-card .kpi-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.qc-kpi-card .kpi-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.qc-kpi-card .kpi-value {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 2px 0;
+}
+
+.qc-kpi-card .kpi-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.qc-formula-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 4px 20px 14px 20px;
+}
+
+.qc-toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filter-pill-group {
+  display: flex;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.filter-pill {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-pill:hover {
+  color: #0f172a;
+}
+
+.filter-pill.active {
+  background: #ffffff;
+  color: #123f61;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.req-id-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 12px;
+  color: #0b73df;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 3px 7px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.ingredient-count-badge {
+  display: inline-block;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.qc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.qc-status-pill.pill-approved {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.qc-status-pill.pill-pending {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.qc-status-pill.pill-declined {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.qc-status-pill.pill-neutral {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+
+/* ==========================================================================
+   PRODUCTION QA TAB STYLES
+   ========================================================================== */
+
+.prod-qa-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #ffffff;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.prod-qa-search-input {
+  flex: 1 1 240px;
+  min-width: 200px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13.5px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.prod-qa-search-input:focus {
+  border-color: #0284c7;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.12);
+}
+
+.prod-qa-select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+  outline: none;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.prod-qa-select:focus {
+  border-color: #0284c7;
+  background: #ffffff;
+}
+
+.prod-qa-table-container {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.prod-qa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.prod-qa-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.prod-qa-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.prod-qa-table tr:hover {
+  background: #fbfcfe;
+}
+
+.prod-qa-decision-toggle {
+  display: inline-flex;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+}
+
+.prod-qa-decision-btn {
+  border: none;
+  background: #ffffff;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.15s ease;
+}
+
+.prod-qa-decision-btn.active-approved {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.prod-qa-decision-btn.active-issue {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.prod-qa-remark-input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+  width: 150px;
+  outline: none;
+}
+
+.prod-qa-remark-input:focus {
+  border-color: #0284c7;
+}
+
+.prod-qa-btn-confirm {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.prod-qa-btn-confirm:hover {
+  background: #0369a1;
+}
+
+.prod-qa-btn-edit {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.prod-qa-btn-edit:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+
+/* ==========================================================================
+   QC SINGLE-ROW FILTER TOOLBAR & CONTROLS (CHANGE 1)
+   ========================================================================== */
+
+.qc-filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 200px 200px auto auto;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+@media (max-width: 960px) {
+  .qc-filter-toolbar {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .qc-search-wrapper {
+    grid-column: 1 / -1;
+  }
+  .qc-filter-count {
+    grid-column: 1 / -1;
+    text-align: left;
+    margin-left: 0 !important;
+  }
+}
+
+.qc-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.qc-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.qc-filter-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 32px 0 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13.5px;
+  color: #1e293b;
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.qc-filter-input:focus {
+  border-color: #0284c7;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+.qc-search-clear-btn {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.qc-search-clear-btn:hover {
+  color: #475569;
+}
+
+.qc-filter-select {
+  width: 100%;
+  height: 40px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.qc-filter-select:focus {
+  border-color: #0284c7;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+.qc-filter-reset-btn {
+  height: 40px;
+  padding: 0 16px;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qc-filter-reset-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.qc-filter-count {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   PRODUCTION QA TABLE ENHANCEMENTS
+   ========================================================================== */
+
+.prod-qa-table-container {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.prod-qa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.prod-qa-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  padding: 12px 14px;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.prod-qa-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.prod-qa-table tr.qc-table-row {
+  transition: background-color 150ms ease;
+}
+
+.prod-qa-table tr.qc-table-row:hover td {
+  background-color: #f8fafc;
+}
+
+.qc-cell-nowrap {
+  white-space: nowrap !important;
+}
+
+.qc-col-order {
+  white-space: nowrap !important;
+  min-width: 100px;
+}
+
+.qc-col-batch {
+  white-space: nowrap !important;
+  min-width: 120px;
+}
+
+.qc-col-action {
+  min-width: 290px !important;
+}

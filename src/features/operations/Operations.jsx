@@ -2,12 +2,16 @@ import {
   useEffect,
   useRef,
   useState,
+  useMemo,
 } from 'react'
 
 import Alert from '../../components/Alert'
 import Button from '../../components/Button'
 import Input from '../../components/Input'
 import Modal from '../inventory/components/Modal'
+import StatusPill from '../../components/StatusPill'
+import { getEntityAuditLogs } from '../../utils/audit'
+import { formatDateTimeIN } from '../../utils/formatters'
 
 import { getErrorMessage } from '../../utils/errors'
 
@@ -15,8 +19,12 @@ import { inventoryService } from '../inventory/inventoryService'
 import { operationsService } from './operationsService'
 
 import { storage } from '../../utils/storage'
-import { isSuperAdmin } from '../../utils/companyScope'
+import { isSuperAdmin, getScopedCompanyId } from '../../utils/companyScope'
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
+import { checkFormulaStockAvailability } from '../../utils/stockSelectors'
+import { store } from '../../store/store'
+import PageHeader from '../../components/PageHeader'
+import HeroBanner from '../../components/HeroBanner'
 import './Orders.css'
 
 
@@ -51,9 +59,12 @@ const PRODUCT_TYPE_OPTIONS = [
 
 
 
+import { useSelector } from 'react-redux'
+import { selectDosageForms } from '../../store/erpSlice'
 import {
   getOrderEditFields,
   canEditOrders,
+  ORDER_FIELD_LABELS,
 } from './orderPermissions'
 
 
@@ -847,6 +858,9 @@ export default function Operations({
   standaloneCustomers = false,
 }) {
 
+  const reduxDosageForms = useSelector(selectDosageForms)
+  const productTypeOptions = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : PRODUCT_TYPE_OPTIONS
+
   const [
     tab,
     setTab,
@@ -980,13 +994,35 @@ export default function Operations({
     email: '',
     phone: '',
     address: '',
+    shipping_address: '',
+    gstin: '',
+    state: 'Gujarat',
+    state_code: '24',
+    payment_terms: 'Net 30',
   })
-
 
   const [
     editingCustomer,
     setEditingCustomer,
   ] = useState(null)
+
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [customerFilterStatus, setCustomerFilterStatus] = useState('')
+
+  const [
+    viewingOrder,
+    setViewingOrder,
+  ] = useState(null)
+
+  const [
+    orderViewTab,
+    setOrderViewTab,
+  ] = useState('details')
+
+  const [produceModalOrder, setProduceModalOrder] = useState(null)
+  const [produceQuantity, setProduceQuantity] = useState(1000)
+  const [produceFormulaId, setProduceFormulaId] = useState('')
+  const [produceError, setProduceError] = useState('')
 
 
   /*
@@ -1399,22 +1435,16 @@ export default function Operations({
     )
 
     setCustomerForm({
-
-      code:
-        customer.code || '',
-
-      name:
-        customer.name || '',
-
-      email:
-        customer.email || '',
-
-      phone:
-        customer.phone || '',
-
-      address:
-        customer.address || '',
-
+      code: customer.code || '',
+      name: customer.name || '',
+      email: customer.email || '',
+      phone: customer.phone || '',
+      address: customer.address || '',
+      shipping_address: customer.shipping_address || customer.address || '',
+      gstin: customer.gstin || '',
+      state: customer.state || 'Gujarat',
+      state_code: customer.state_code || '24',
+      payment_terms: customer.payment_terms || 'Net 30',
     })
 
     setModal(
@@ -1501,62 +1531,43 @@ export default function Operations({
 
 
       const payload = {
-
         ...customerForm,
-
-        code:
-          customerCode,
-
-        name:
-          customerName,
-
-        email:
-          customerForm.email.trim(),
-
-        phone:
-          customerForm.phone.trim(),
-
-        address:
-          customerForm.address.trim(),
-
+        code: customerCode,
+        name: customerName,
+        email: customerForm.email.trim(),
+        phone: customerForm.phone.trim(),
+        address: customerForm.address.trim(),
+        shipping_address: (customerForm.shipping_address || customerForm.address).trim(),
+        gstin: (customerForm.gstin || '').trim().toUpperCase(),
+        state: customerForm.state || 'Gujarat',
+        state_code: customerForm.state_code || '24',
+        payment_terms: customerForm.payment_terms || 'Net 30',
       }
 
-
       if (editingCustomer) {
-
         await operationsService.updateCustomer(
-
           editingCustomer.id,
-
           payload
-
         )
-
-        setSuccess(
-          'Shared customer updated successfully.'
-        )
-
+        setSuccess('Shared customer updated successfully.')
       } else {
-
         await operationsService.createCustomer(
           payload
         )
-
-        setSuccess(
-          'Shared customer created successfully.'
-        )
-
+        setSuccess('Shared customer created successfully.')
       }
 
-
       setCustomerForm({
-
         code: '',
         name: '',
         email: '',
         phone: '',
         address: '',
-
+        shipping_address: '',
+        gstin: '',
+        state: 'Gujarat',
+        state_code: '24',
+        payment_terms: 'Net 30',
       })
 
 
@@ -1704,23 +1715,31 @@ export default function Operations({
       const finalOrderNumber =
         commitDocumentNumber('SALES_ORDER', orderForm.company || getScopedCompanyId())
 
-      const finalBatchNo =
-        commitDocumentNumber('BATCH', orderForm.company || getScopedCompanyId())
+      const deliveryDeadline = orderForm.planned_mfg_date || orderForm.delivery_deadline || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+      const qty = Number(orderForm.batch_size) || 1000
+      const unitRate = Number(orderForm.mrp_for_printing) || 250
+      const orderLines = [
+        {
+          id: `line-${Date.now()}`,
+          product: orderForm.product || orderForm.product_id || '',
+          product_name: orderForm.product_name || 'Pharmaceutical Formulation',
+          product_code: orderForm.product_code || '',
+          quantity: qty,
+          unit: orderForm.packing_size || 'Box',
+          rate: unitRate,
+          total: qty * unitRate,
+        },
+      ]
 
       await operationsService.createOrder({
-
         ...orderForm,
-
-        number:
-          finalOrderNumber,
-
-        batch_no:
-          finalBatchNo,
-
+        number: finalOrderNumber,
+        batch_no: finalBatchNo,
+        delivery_deadline: deliveryDeadline,
+        planned_mfg_date: deliveryDeadline,
+        total_amount: qty * unitRate,
         quotation: null,
-
-        lines: [],
-
+        lines: orderLines,
       })
 
 
@@ -1750,11 +1769,117 @@ export default function Operations({
   }
 
 
-  /*
-  |--------------------------------------------------------------------------
-  | OPEN ORDER EDIT
-  |--------------------------------------------------------------------------
-  */
+  const handleConfirmOrder = async (order) => {
+    try {
+      setSaving(true)
+      await operationsService.confirmOrder(order.id, storage.getUser())
+      setSuccess(`Order ${order.number} confirmed and routed to Quality Control (QC inspection created).`)
+      await load()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openProduceModal = (order) => {
+    setError('')
+    setSuccess('')
+    setProduceError('')
+    setProduceModalOrder(order)
+    const qty = Number(order.batch_size || order.quantity || order.lines?.[0]?.quantity) || 1000
+    setProduceQuantity(qty)
+
+    // Match formula by product id or name
+    const matchingFormula = formulas.find((f) => {
+      const pName = order.product_name || ''
+      const fName = f.name || ''
+      return (
+        String(f.product_id) === String(order.product_id || order.product) ||
+        fName.toLowerCase().includes(pName.toLowerCase()) ||
+        pName.toLowerCase().includes(fName.toLowerCase())
+      )
+    })
+    setProduceFormulaId(matchingFormula ? matchingFormula.id : (formulas[0]?.id || ''))
+  }
+
+  const currentProduceFormula = useMemo(() => {
+    if (!produceModalOrder) return null
+    if (produceFormulaId) {
+      const f = formulas.find((item) => String(item.id) === String(produceFormulaId))
+      if (f) return f
+    }
+    const match = formulas.find((f) => {
+      const pName = produceModalOrder.product_name || ''
+      const fName = f.name || ''
+      return (
+        String(f.product_id) === String(produceModalOrder.product_id || produceModalOrder.product) ||
+        fName.toLowerCase().includes(pName.toLowerCase()) ||
+        pName.toLowerCase().includes(fName.toLowerCase())
+      )
+    })
+    return match || formulas[0] || null
+  }, [produceModalOrder, produceFormulaId, formulas])
+
+  const produceStockCheck = useMemo(() => {
+    if (!produceModalOrder || !currentProduceFormula) {
+      return { canProduce: false, materials: [], hasShortage: false, totalShortageCount: 0 }
+    }
+    const erpState = store.getState()?.erp || {}
+    return checkFormulaStockAvailability(
+      erpState,
+      currentProduceFormula,
+      Number(produceQuantity) || 1000,
+      currentProduceFormula.base_unit || 'kg'
+    )
+  }, [produceModalOrder, currentProduceFormula, produceQuantity])
+
+  const handleStartProductionFromOrder = async () => {
+    if (!produceModalOrder || !currentProduceFormula) return
+    if (!produceStockCheck.canProduce) {
+      setProduceError('Cannot start production: One or more raw materials have insufficient stock in inventory.')
+      return
+    }
+
+    setSaving(true)
+    setProduceError('')
+    try {
+      const compId = produceModalOrder.company || getScopedCompanyId() || 1
+      const compKey = Number(compId) === 2 ? 'tej' : 'cmhp'
+      const finalBatchNum = commitDocumentNumber('BATCH', compId)
+
+      await operationsService.produceBatchFromOrder({
+        orderId: produceModalOrder.id,
+        orderNumber: produceModalOrder.number,
+        batchNumber: finalBatchNum,
+        productId: produceModalOrder.product_id || produceModalOrder.product || currentProduceFormula.product_id,
+        productCode: produceModalOrder.product_code || '',
+        productName: produceModalOrder.product_name || currentProduceFormula.name,
+        plannedQuantity: Number(produceQuantity) || 1000,
+        company: compId,
+        companyKey: compKey,
+        materialsToIssue: produceStockCheck.materials.map((m) => ({
+          id: m.id,
+          code: m.code,
+          name: m.name,
+          requiredAmount: m.requiredAmount,
+          issuedQuantity: m.requiredAmount,
+          remark: `${m.requiredAmount.toFixed(2)} KG (${Math.ceil(m.requiredAmount / 25)} Bag)`,
+        })),
+      })
+
+      setSuccess(`Production started for Batch #${finalBatchNum}. Raw materials issued outward and routed to QC inspection.`)
+      setProduceModalOrder(null)
+      if (viewingOrder && viewingOrder.id === produceModalOrder.id) {
+        setViewingOrder(null)
+      }
+      await load()
+    } catch (err) {
+      setProduceError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const openOrderEdit = (
     order
@@ -2093,29 +2218,86 @@ export default function Operations({
 
     <div className="inv">
 
-      <div className="inv-header">
+      {standaloneCustomers ? (
+        <>
+          <HeroBanner
+            eyebrow="Commercial Directory"
+            title="Customer Management"
+            subtitle="Manage shared customer accounts, billing addresses, tax identifiers, and contact details."
+          />
 
-        <div>
+          <PageHeader
+            breadcrumbs={[
+              { label: 'Workspace' },
+              { label: 'Customer Management' },
+            ]}
+            title="Customer Master & Directory"
+            subtitle="Manage shared customer accounts, billing addresses, tax identifiers, and contact details."
+            statusPill={{ label: `${customers.length} Accounts`, variant: 'success' }}
+            primaryAction={{
+              label: '+ Add Customer',
+              onClick: () => {
+                setEditingCustomer(null)
+                setCustomerForm({
+                  code: '',
+                  name: '',
+                  email: '',
+                  phone: '',
+                  address: '',
+                })
+                open('customer')
+              },
+            }}
+          />
 
-          <h1>
-            {standaloneOrders
-              ? 'Orders'
-              : standaloneCustomers
-                ? 'Customer Management'
+          <div className="um-kpi-grid">
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Total Customers</div>
+              <div className="um-kpi-value">{customers.length}</div>
+              <div className="um-kpi-subtext">Registered trade accounts</div>
+            </div>
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Active Accounts</div>
+              <div className="um-kpi-value">
+                {customers.filter((c) => c.is_active !== false).length}
+              </div>
+              <div className="um-kpi-subtext">Operational customer profiles</div>
+            </div>
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Linked Orders</div>
+              <div className="um-kpi-value">{orders.length}</div>
+              <div className="um-kpi-subtext">Total sales orders placed</div>
+            </div>
+            <div className="um-kpi-card">
+              <div className="um-kpi-label">Verified Emails</div>
+              <div className="um-kpi-value">
+                {customers.filter((c) => c.email && c.email.includes('@')).length}
+              </div>
+              <div className="um-kpi-subtext">Contactable via email</div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="inv-header">
+
+          <div>
+
+            <h1>
+              {standaloneOrders
+                ? 'Orders'
                 : 'Operations'}
-          </h1>
+            </h1>
 
-          <p>
-            {standaloneOrders
-              ? 'Company-wise sales orders and order traceability.'
-              : standaloneCustomers
-                ? 'Manage shared customer records used across company operations and orders.'
+            <p>
+              {standaloneOrders
+                ? 'Company-wise sales orders and order traceability.'
                 : 'Company-wise production batches, quotations, orders and traceability.'}
-          </p>
+            </p>
+
+          </div>
 
         </div>
-
-      </div>
+      )}
 
 
       {!standaloneOrders &&
@@ -2315,6 +2497,62 @@ export default function Operations({
 
           </div>
 
+          {/* Customer Search and Filter Bar */}
+          <div className="um-filter-bar" style={{ marginTop: '12px' }}>
+            <div className="um-search-box">
+              <input
+                type="text"
+                placeholder="Search customers by code, name, email, phone..."
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+              />
+              {customerSearch && (
+                <button
+                  type="button"
+                  className="um-clear-search"
+                  onClick={() => setCustomerSearch('')}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <div className="um-select-filter">
+              <select
+                value={customerFilterStatus}
+                onChange={(e) => setCustomerFilterStatus(e.target.value)}
+              >
+                <option value="">All Statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+
+            {(customerSearch || customerFilterStatus) && (
+              <button
+                type="button"
+                className="um-clear-btn"
+                onClick={() => {
+                  setCustomerSearch('')
+                  setCustomerFilterStatus('')
+                }}
+              >
+                Clear Filters
+              </button>
+            )}
+
+            <div className="um-count-pill">
+              <strong>
+                {customers.filter((c) => {
+                  const q = customerSearch.trim().toLowerCase()
+                  const matchesQ = !q || (c.name && c.name.toLowerCase().includes(q)) || (c.code && c.code.toLowerCase().includes(q)) || (c.email && c.email.toLowerCase().includes(q)) || (c.phone && c.phone.toLowerCase().includes(q))
+                  const matchesStatus = !customerFilterStatus || (customerFilterStatus === 'ACTIVE' && c.is_active !== false) || (customerFilterStatus === 'INACTIVE' && c.is_active === false)
+                  return matchesQ && matchesStatus
+                }).length}
+              </strong> customers
+            </div>
+          </div>
+
 
           <div className="inv-table-scroll">
 
@@ -2355,7 +2593,20 @@ export default function Operations({
 
               <tbody>
 
-                {customers.map(
+                {customers
+                  .filter((customer) => {
+                    const q = customerSearch.trim().toLowerCase()
+                    const matchesQ = !q ||
+                      (customer.name && customer.name.toLowerCase().includes(q)) ||
+                      (customer.code && customer.code.toLowerCase().includes(q)) ||
+                      (customer.email && customer.email.toLowerCase().includes(q)) ||
+                      (customer.phone && customer.phone.toLowerCase().includes(q))
+                    const matchesStatus = !customerFilterStatus ||
+                      (customerFilterStatus === 'ACTIVE' && customer.is_active !== false) ||
+                      (customerFilterStatus === 'INACTIVE' && customer.is_active === false)
+                    return matchesQ && matchesStatus
+                  })
+                  .map(
                   (customer) => (
 
                     <tr
@@ -2369,7 +2620,7 @@ export default function Operations({
                       </td>
 
                       <td>
-                        {customer.name}
+                        <strong>{customer.name}</strong>
                       </td>
 
                       <td>
@@ -2387,11 +2638,9 @@ export default function Operations({
                       </td>
 
                       <td>
-                        {
-                          customer.is_active
-                            ? 'Active'
-                            : 'Inactive'
-                        }
+                        <span className={`status-pill ${customer.is_active !== false ? 'approved' : 'rejected'}`}>
+                          {customer.is_active !== false ? 'Active' : 'Inactive'}
+                        </span>
                       </td>
 
                       <td>
@@ -2593,12 +2842,12 @@ export default function Operations({
                   isSuperAdmin()
                     ? 'Admin: full edit and delete access.'
 
-                    : getCurrentUser()?.profile?.role ===
+                    : storage.getUser()?.profile?.role ===
                       'HR_MANAGER'
 
                       ? 'HR Manager: edit Batch No., Packing Size, Batch Size, MRP for Printing and Printing Status only.'
 
-                      : getCurrentUser()?.profile?.role ===
+                      : storage.getUser()?.profile?.role ===
                         'STORES_MANAGER'
 
                         ? 'Store Manager: edit Packing Type, Label, Box, Insert and Requisition Status only.'
@@ -2770,6 +3019,8 @@ export default function Operations({
                         <td>
                           {
                             order.product_type ||
+                            order.type ||
+                            order.dosage_form ||
                             '—'
                           }
                         </td>
@@ -2896,57 +3147,66 @@ export default function Operations({
 
 
                         <td>
-                          {
-                            order.status ||
-                            '—'
-                          }
+                          <StatusPill
+                            tone={
+                              order.status === 'PAID' || order.status === 'READY_TO_INVOICE' || order.status === 'QA_APPROVED'
+                                ? 'success'
+                                : order.status === 'QC_FAILED' || order.status === 'QA_REJECTED'
+                                ? 'danger'
+                                : order.status === 'QC_PENDING' || order.status === 'QA_PENDING' || order.status === 'INVOICED'
+                                ? 'info'
+                                : 'neutral'
+                            }
+                          >
+                            {order.status || 'DRAFT'}
+                          </StatusPill>
                         </td>
 
-
                         <td>
-
-                          {canEditOrders() && (
-
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <button
                               type="button"
                               className="table-edit"
-                              onClick={() =>
-                                openOrderEdit(
-                                  order
-                                )
-                              }
-                            >
-                              Edit
-                            </button>
-
-                          )}
-
-
-                          {isSuperAdmin() && (
-
-                            <button
-                              type="button"
-                              className="table-delete"
-                              onClick={() =>
-                                deleteOrder(
-                                  order.id
-                                )
-                              }
-                              style={{
-                                marginLeft:
-                                  6,
+                              onClick={() => {
+                                setViewingOrder(order)
+                                setOrderViewTab('details')
                               }}
                             >
-                              Delete
+                              View
                             </button>
 
-                          )}
+                            {(!order.status || order.status === 'DRAFT' || order.status === 'CONFIRMED') && (
+                              <button
+                                type="button"
+                                className="table-edit"
+                                style={{ backgroundColor: '#ecfdf5', color: '#047857', borderColor: '#a7f3d0', fontWeight: 600 }}
+                                onClick={() => openProduceModal(order)}
+                                title="Produce batch automatically from formula BOM"
+                              >
+                                Produce (BOM)
+                              </button>
+                            )}
 
+                            {canEditOrders() && (
+                              <button
+                                type="button"
+                                className="table-edit"
+                                onClick={() => openOrderEdit(order)}
+                              >
+                                Edit
+                              </button>
+                            )}
 
-                          {!canEditOrders() &&
-                            !isSuperAdmin() &&
-                            'View only'}
-
+                            {isSuperAdmin() && (
+                              <button
+                                type="button"
+                                className="table-delete"
+                                onClick={() => deleteOrder(order.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
                         </td>
 
                       </tr>
@@ -3324,87 +3584,135 @@ export default function Operations({
           >
 
             <div className="inv-form-grid">
-
               <Input
                 label="Customer code (Auto-Generated)"
-                value={
-                  customerForm.code
-                }
+                value={customerForm.code}
                 readOnly
                 disabled
                 style={{ backgroundColor: 'var(--surface-hover)', cursor: 'not-allowed' }}
               />
 
-
               <Input
-                label="Customer name"
-                value={
-                  customerForm.name
-                }
+                label="Customer name *"
+                value={customerForm.name}
                 onChange={(e) =>
                   setCustomerForm({
                     ...customerForm,
-                    name:
-                      e.target.value,
+                    name: e.target.value,
                   })
                 }
                 required
               />
 
+              <Input
+                label="GSTIN (15-Digit GST Number)"
+                value={customerForm.gstin}
+                onChange={(e) =>
+                  setCustomerForm({
+                    ...customerForm,
+                    gstin: e.target.value.toUpperCase(),
+                  })
+                }
+                placeholder="e.g. 24AAACC1234P1Z5"
+              />
+
+              <div className="field">
+                <label className="field-label">State / Place of Supply</label>
+                <select
+                  className="field-input"
+                  value={customerForm.state_code}
+                  onChange={(e) => {
+                    const code = e.target.value
+                    const stateName = code === '24' ? 'Gujarat' : code === '27' ? 'Maharashtra' : code === '29' ? 'Karnataka' : code === '07' ? 'Delhi' : 'Other State'
+                    setCustomerForm({
+                      ...customerForm,
+                      state_code: code,
+                      state: stateName,
+                    })
+                  }}
+                >
+                  <option value="24">24 - Gujarat (Intra-State CGST+SGST)</option>
+                  <option value="27">27 - Maharashtra (Inter-State IGST)</option>
+                  <option value="29">29 - Karnataka (Inter-State IGST)</option>
+                  <option value="07">07 - Delhi (Inter-State IGST)</option>
+                  <option value="99">99 - Other State / Inter-State</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="field-label">Payment Terms</label>
+                <select
+                  className="field-input"
+                  value={customerForm.payment_terms}
+                  onChange={(e) =>
+                    setCustomerForm({
+                      ...customerForm,
+                      payment_terms: e.target.value,
+                    })
+                  }
+                >
+                  <option value="Net 30">Net 30 Days</option>
+                  <option value="Net 15">Net 15 Days</option>
+                  <option value="Net 45">Net 45 Days</option>
+                  <option value="Net 60">Net 60 Days</option>
+                  <option value="Immediate">Immediate / Advance</option>
+                </select>
+              </div>
 
               <Input
                 label="Email"
                 type="email"
-                value={
-                  customerForm.email
-                }
+                value={customerForm.email}
                 onChange={(e) =>
                   setCustomerForm({
                     ...customerForm,
-                    email:
-                      e.target.value,
+                    email: e.target.value,
                   })
                 }
               />
-
 
               <Input
                 label="Phone"
-                value={
-                  customerForm.phone
-                }
+                value={customerForm.phone}
                 onChange={(e) =>
                   setCustomerForm({
                     ...customerForm,
-                    phone:
-                      e.target.value,
+                    phone: e.target.value,
                   })
                 }
               />
 
-
               <div className="field field-full">
-
-                <label className="field-label">
-                  Address
-                </label>
-
+                <label className="field-label">Billing Address</label>
                 <textarea
                   className="field-input"
-                  value={
-                    customerForm.address
-                  }
+                  rows={2}
+                  value={customerForm.address}
                   onChange={(e) =>
                     setCustomerForm({
                       ...customerForm,
-                      address:
-                        e.target.value,
+                      address: e.target.value,
                     })
                   }
+                  placeholder="Registered company billing address"
                 />
-
               </div>
 
+              <div className="field field-full">
+                <label className="field-label">Shipping Address</label>
+                <textarea
+                  className="field-input"
+                  rows={2}
+                  value={customerForm.shipping_address}
+                  onChange={(e) =>
+                    setCustomerForm({
+                      ...customerForm,
+                      shipping_address: e.target.value,
+                    })
+                  }
+                  placeholder="Warehouse / delivery destination (leave blank if same as billing)"
+                />
+              </div>
             </div>
 
           </form>
@@ -3827,7 +4135,7 @@ export default function Operations({
                     Select type
                   </option>
 
-                  {PRODUCT_TYPE_OPTIONS.map(
+                  {productTypeOptions.map(
                     (type) => (
 
                       <option
@@ -4224,7 +4532,7 @@ export default function Operations({
                           Select type
                         </option>
 
-                        {PRODUCT_TYPE_OPTIONS.map(
+                        {productTypeOptions.map(
                           (type) => (
 
                             <option
@@ -4893,11 +5201,325 @@ export default function Operations({
           </form>
 
         </Modal>
+      )}
 
+      {/* =========================================================
+          PRODUCE BATCH FROM ORDER (FORMULA BOM) MODAL
+          ========================================================= */}
+      {produceModalOrder && (
+        <Modal
+          title={`Produce Batch: Order #${produceModalOrder.number}`}
+          onClose={() => setProduceModalOrder(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Order Number</span>
+                <div style={{ fontWeight: 700, color: '#1e293b' }}>{produceModalOrder.number}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Customer</span>
+                <div style={{ fontWeight: 600 }}>{produceModalOrder.customer_name || 'Direct Customer'}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Product</span>
+                <div style={{ fontWeight: 600, color: '#0284c7' }}>{produceModalOrder.product_name}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Due / Delivery Date</span>
+                <div style={{ fontWeight: 600, color: produceModalOrder.delivery_deadline ? '#d97706' : '#64748b' }}>
+                  {produceModalOrder.delivery_deadline || produceModalOrder.planned_mfg_date || 'No deadline'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Batch Quantity (to produce)
+                </label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={produceQuantity}
+                  onChange={(e) => setProduceQuantity(e.target.value)}
+                  placeholder="Batch quantity"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  BOM Formula
+                </label>
+                <select
+                  className="input-select"
+                  value={currentProduceFormula?.id || ''}
+                  onChange={(e) => setProduceFormulaId(e.target.value)}
+                  style={{ width: '100%', height: '38px', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '0 10px' }}
+                >
+                  {formulas.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name} (Base: {f.base_quantity} {f.base_unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {produceError && <Alert type="error">{produceError}</Alert>}
+
+            {/* Formula Raw Materials Availability Check */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#334155' }}>
+                  Raw Material Requirements & Live Stock Verification
+                </h4>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Formula Base: {currentProduceFormula?.base_quantity || 100} {currentProduceFormula?.base_unit || 'g'} | Scale: {produceStockCheck.scaleFactor ? produceStockCheck.scaleFactor.toFixed(2) : '1.0'}x
+                </span>
+              </div>
+
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '8px 12px' }}>Material</th>
+                      <th style={{ padding: '8px 12px' }}>Base Qty</th>
+                      <th style={{ padding: '8px 12px' }}>Required Qty</th>
+                      <th style={{ padding: '8px 12px' }}>Stock Available</th>
+                      <th style={{ padding: '8px 12px' }}>Shortage</th>
+                      <th style={{ padding: '8px 12px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {produceStockCheck.materials.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>
+                          No raw materials defined for this formula. Select or create a formula revision in Products.
+                        </td>
+                      </tr>
+                    ) : (
+                      produceStockCheck.materials.map((m, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: m.isSufficient ? 'white' : '#fff1f2' }}>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{m.name}</td>
+                          <td style={{ padding: '8px 12px', color: '#64748b' }}>{m.baseQuantity} {m.unit}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#0f172a' }}>{m.requiredAmount.toFixed(2)} {m.unit}</td>
+                          <td style={{ padding: '8px 12px', color: m.isSufficient ? '#16a34a' : '#e11d48', fontWeight: 600 }}>
+                            {m.availableStock.toFixed(2)} {m.unit}
+                          </td>
+                          <td style={{ padding: '8px 12px', color: '#e11d48', fontWeight: 700 }}>
+                            {m.shortage > 0 ? `-${m.shortage.toFixed(2)} ${m.unit}` : '0'}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              background: m.isSufficient ? '#dcfce7' : '#fee2e2',
+                              color: m.isSufficient ? '#15803d' : '#b91c1c',
+                            }}>
+                              {m.isSufficient ? 'In Stock' : 'SHORTAGE'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Shortage warning or green confirmation */}
+            {produceStockCheck.hasShortage ? (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '12px', borderRadius: '6px', color: '#991b1b', fontSize: '13px' }}>
+                <strong>⚠️ Production Blocked:</strong> Stock is insufficient for {produceStockCheck.totalShortageCount} raw material(s). Inward stock into inventory before issuing to production.
+              </div>
+            ) : (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '12px', borderRadius: '6px', color: '#166534', fontSize: '13px' }}>
+                <strong>✓ Stock Verified:</strong> All required raw materials are available in inventory. Starting production will issue materials outward from the Stock Ledger and schedule QC inspection.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <Button variant="secondary" onClick={() => setProduceModalOrder(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={produceStockCheck.hasShortage || saving || produceStockCheck.materials.length === 0}
+                onClick={handleStartProductionFromOrder}
+                style={{
+                  backgroundColor: produceStockCheck.hasShortage ? '#cbd5e1' : '#16a34a',
+                  cursor: produceStockCheck.hasShortage ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {saving ? 'Issuing Materials...' : produceStockCheck.hasShortage ? 'Production Blocked (Shortage)' : 'Start Production & Issue Materials'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* =========================================================
+          VIEW SALES ORDER MODAL WITH AUDIT HISTORY
+          ========================================================= */}
+      {viewingOrder && (
+        <Modal
+          title={`Sales Order ${viewingOrder.number}`}
+          onClose={() => setViewingOrder(null)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {(!viewingOrder.status || viewingOrder.status === 'DRAFT' || viewingOrder.status === 'CONFIRMED') && (
+                  <Button
+                    onClick={() => openProduceModal(viewingOrder)}
+                    style={{ backgroundColor: '#059669' }}
+                  >
+                    Produce Batch (Formula BOM)
+                  </Button>
+                )}
+                {(!viewingOrder.status || viewingOrder.status === 'DRAFT') && (
+                  <Button
+                    onClick={() => {
+                      handleConfirmOrder(viewingOrder)
+                      setViewingOrder(null)
+                    }}
+                    style={{ backgroundColor: '#1d4ed8' }}
+                  >
+                    Confirm & Route to QC
+                  </Button>
+                )}
+              </div>
+              <Button variant="secondary" onClick={() => setViewingOrder(null)}>
+                Close
+              </Button>
+            </div>
+          }
+        >
+          <div className="inv-view-tabs" style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0', marginBottom: '16px' }}>
+            <button
+              type="button"
+              className={`inv-tab-btn ${orderViewTab === 'details' ? 'active' : ''}`}
+              onClick={() => setOrderViewTab('details')}
+            >
+              Order Details & Traceability
+            </button>
+            <button
+              type="button"
+              className={`inv-tab-btn ${orderViewTab === 'activity' ? 'active' : ''}`}
+              onClick={() => setOrderViewTab('activity')}
+            >
+              Activity & Audit History
+            </button>
+          </div>
+
+          {orderViewTab === 'details' && (
+            <div>
+              <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Order No</span>
+                    <strong>{viewingOrder.number}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Customer</span>
+                    <strong>{viewingOrder.customer_name || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Order Date</span>
+                    <strong>{viewingOrder.order_date || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Overall Status</span>
+                    <StatusPill tone={viewingOrder.status === 'PAID' || viewingOrder.status === 'READY_TO_INVOICE' ? 'success' : viewingOrder.status === 'QC_FAILED' ? 'danger' : 'info'}>
+                      {viewingOrder.status || 'DRAFT'}
+                    </StatusPill>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                <div style={{ border: '1px solid #e2e8f0', padding: '12px', borderRadius: '6px' }}>
+                  <h4 style={{ margin: '0 0 8px', fontSize: '12px', color: '#0b73df', textTransform: 'uppercase' }}>Product Specifications</h4>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Product: <strong>{viewingOrder.product_name || '—'}</strong> ({viewingOrder.product_type || 'Formulation'})</p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Product Code: <strong>{viewingOrder.product_code || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Packing Size: <strong>{viewingOrder.packing_size || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Batch Size: <strong>{viewingOrder.batch_size || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>MRP for Printing: <strong>₹{viewingOrder.mrp_for_printing || '0'}</strong></p>
+                </div>
+
+                <div style={{ border: '1px solid #e2e8f0', padding: '12px', borderRadius: '6px' }}>
+                  <h4 style={{ margin: '0 0 8px', fontSize: '12px', color: '#0b73df', textTransform: 'uppercase' }}>Workflow & Quality Clearance</h4>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Batch No: <strong>{viewingOrder.batch_no || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Planned Mfg: <strong>{viewingOrder.planned_mfg_date || '—'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>QC Inspection: <strong style={{ color: viewingOrder.qc_status === 'PASSED' ? '#059669' : viewingOrder.qc_status === 'FAILED' ? '#dc2626' : '#2563eb' }}>{viewingOrder.qc_status || 'PENDING'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>QA Release: <strong style={{ color: viewingOrder.qa_status === 'APPROVED' ? '#059669' : viewingOrder.qa_status === 'REJECTED' ? '#dc2626' : '#2563eb' }}>{viewingOrder.qa_status || 'PENDING'}</strong></p>
+                  <p style={{ margin: '4px 0', fontSize: '13px' }}>Invoiced Quantity: <strong>{viewingOrder.invoiced_qty || 0} / {viewingOrder.batch_size || 1000}</strong></p>
+                </div>
+              </div>
+
+              {(!viewingOrder.status || viewingOrder.status === 'DRAFT') && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '12px', borderRadius: '6px', textAlign: 'center' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#1e40af' }}>
+                    This order is in <strong>DRAFT</strong> status. Confirming the order will lock initial specs and automatically trigger the <strong>QC Inspection</strong>.
+                  </p>
+                  <Button
+                    onClick={() => {
+                      handleConfirmOrder(viewingOrder)
+                      setViewingOrder(null)
+                    }}
+                    style={{ backgroundColor: '#1d4ed8' }}
+                  >
+                    Confirm Order & Schedule QC Inspection
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {orderViewTab === 'activity' && (
+            <div>
+              <h4 style={{ margin: '0 0 12px', color: '#163b59' }}>Audit Trail for Order {viewingOrder.number}</h4>
+              <div className="inv-table-scroll">
+                <table className="inv-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp (IST)</th>
+                      <th>User</th>
+                      <th>Action</th>
+                      <th>Description</th>
+                      <th>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getEntityAuditLogs('Order', viewingOrder.number).map((log) => (
+                      <tr key={log.id}>
+                        <td>{formatDateTimeIN(log.timestamp)}</td>
+                        <td>
+                          <strong>{log.user_name || log.user_id}</strong>
+                          <span style={{ display: 'block', fontSize: '10px', color: '#64748b' }}>{log.role}</span>
+                        </td>
+                        <td><span style={{ fontWeight: 700, color: '#0b73df' }}>{log.action}</span></td>
+                        <td>{log.description}</td>
+                        <td>{log.remarks || '—'}</td>
+                      </tr>
+                    ))}
+                    {getEntityAuditLogs('Order', viewingOrder.number).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="inv-empty">
+                          No audit entries found for this order.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
 
     </div>
-
   )
-
 }

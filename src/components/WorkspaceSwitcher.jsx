@@ -5,6 +5,7 @@ import {
 } from 'react'
 
 import { useNavigate } from 'react-router-dom'
+import { useDispatch } from 'react-redux'
 
 import {
   BuildingIcon,
@@ -14,6 +15,7 @@ import {
 import useWorkspace from '../hooks/useWorkspace'
 
 import { WORKSPACES } from '../utils/workspace'
+import { setActiveCompanyId } from '../store/erpSlice'
 
 import './WorkspaceSwitcher.css'
 
@@ -34,20 +36,22 @@ function WorkspaceIcon({
   workspaceId,
   size = 17,
 }) {
+  const [hasError, setHasError] = useState(false)
+
   if (type === 'inventory' || workspaceId === WORKSPACES.COMMON) {
     return <InventoryIcon size={size} />
   }
 
   const logo = getCompanyLogo(workspaceId)
 
-  if (logo) {
+  if (logo && !hasError) {
     return (
       <img
         src={logo}
-        alt=""
-        aria-hidden="true"
-        onError={(e) => {
-          e.currentTarget.style.display = 'none'
+        alt="Workspace Logo"
+        loading="eager"
+        onError={() => {
+          setHasError(true)
         }}
         style={{
           width: '100%',
@@ -77,6 +81,7 @@ export default function WorkspaceSwitcher() {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const navigate = useNavigate()
+  const dispatch = useDispatch()
 
   useEffect(() => {
     const handleOutside = (event) => {
@@ -146,7 +151,7 @@ export default function WorkspaceSwitcher() {
           <div className="workspace-menu-head">
             <span className="workspace-menu-kicker">Switch Workspace Context</span>
             <span className="workspace-menu-subtitle">
-              Select company entity, consolidated group view, or shared stores
+              Select company entity or shared common store
             </span>
           </div>
 
@@ -161,12 +166,11 @@ export default function WorkspaceSwitcher() {
                   className={`workspace-option ${selected ? 'selected' : ''}`}
                   role="menuitem"
                   onClick={() => {
+                    if (option.companyId !== undefined) {
+                      dispatch(setActiveCompanyId(option.companyId))
+                    }
                     setActiveWorkspace(option.id)
                     setOpen(false)
-
-                    if (option.id === activeWorkspace) {
-                      return
-                    }
 
                     navigate(
                       option.id === WORKSPACES.COMMON

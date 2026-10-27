@@ -38,6 +38,18 @@ import Orders
 import Quality
   from '../features/quality/Quality'
 
+import Production
+  from '../features/production/Production'
+
+import BmrForm
+  from '../features/production/BmrForm'
+
+import ProductionInvoice
+  from '../features/production/ProductionInvoice'
+
+import InvoiceViewPage
+  from '../features/invoice/InvoiceViewPage'
+
 import Invoice
   from '../features/invoice/Invoice'
 
@@ -82,6 +94,9 @@ import AuditLog
 
 import Profile
   from '../features/profile/Profile'
+
+import NotificationsPage
+  from '../features/notifications/NotificationsPage'
 
 import NotFound
   from '../components/NotFound'
@@ -169,6 +184,17 @@ export default function AppRoutes() {
             }
           />
 
+          {/* =================================================
+              NOTIFICATIONS
+              ================================================= */}
+
+          <Route
+            path="/notifications"
+            element={
+              <NotificationsPage />
+            }
+          />
+
 
           {/* =================================================
               DASHBOARD
@@ -210,7 +236,16 @@ export default function AppRoutes() {
           <Route
             path="/inventory/*"
             element={
-              <Inventory />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'STORES_MANAGER',
+                  'STORES_USER',
+                ]}
+              >
+                <Inventory />
+              </RoleRoute>
             }
           />
 
@@ -222,7 +257,16 @@ export default function AppRoutes() {
           <Route
             path="/products"
             element={
-              <Products />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                ]}
+              >
+                <Products />
+              </RoleRoute>
             }
           />
 
@@ -234,46 +278,256 @@ export default function AppRoutes() {
           />
 
 
+          {/* =================================================
+              ORDERS
+              ================================================= */}
+
           <Route
             path="/orders"
             element={
-              <Orders />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                ]}
+              >
+                <Orders />
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="/orders/new"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                ]}
+              >
+                <Orders defaultMode="create" />
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="/orders/edit/:id"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                ]}
+              >
+                <Orders defaultMode="edit" />
+              </RoleRoute>
             }
           />
 
+
+          {/* =================================================
+              QUALITY CONTROL & QA RELEASE
+              ================================================= */}
 
           <Route
             path="/quality"
             element={
-              <Quality />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                ]}
+              >
+                <Quality />
+              </RoleRoute>
             }
           />
 
+
+          {/* =================================================
+              PRODUCTION & BMR
+              ================================================= */}
+
+          <Route
+            path="/production"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <Production />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/production/bmr"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <BmrForm />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/production/bmr/:orderId"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <BmrForm />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/production/invoice/:orderId"
+            element={<Navigate to="/invoices" replace />}
+          />
+
+          <Route
+            path="/invoices/new"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <InvoiceViewPage isNew />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/invoices/view/:id"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <InvoiceViewPage />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/invoices/:id"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <InvoiceViewPage />
+              </RoleRoute>
+            }
+          />
+
+
+          {/* =================================================
+              INVOICING
+              ================================================= */}
 
           <Route
             path="/invoices"
             element={
-              <Invoice />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                ]}
+              >
+                <Invoice />
+              </RoleRoute>
             }
           />
 
+
+          {/* =================================================
+              SUPPLY CHAIN
+              ================================================= */}
 
           <Route
             path="/supply-chain"
             element={
-              <SupplyChain />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'STORES_MANAGER',
+                  'STORES_USER',
+                ]}
+              >
+                <SupplyChain />
+              </RoleRoute>
             }
           />
 
 
-          {/* CUSTOMER MANAGEMENT */}
+          {/* =================================================
+              CUSTOMER MANAGEMENT
+              ================================================= */}
 
           <Route
             path="/customer-management"
             element={
-              <Operations
-                standaloneCustomers
-              />
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                ]}
+              >
+                <Operations
+                  standaloneCustomers
+                />
+              </RoleRoute>
             }
           />
 
@@ -334,14 +588,7 @@ export default function AppRoutes() {
           <Route
             path="/hrms/shifts"
             element={
-              <RoleRoute
-                roles={[
-                  'SUPER_ADMIN',
-                  'HR_ADMINISTRATOR',
-                ]}
-              >
-                <Shifts />
-              </RoleRoute>
+              <Shifts />
             }
           />
 
@@ -352,7 +599,9 @@ export default function AppRoutes() {
               <RoleRoute
                 roles={[
                   'SUPER_ADMIN',
+                  'MANAGEMENT',
                   'HR_ADMINISTRATOR',
+                  'HR_MANAGER',
                 ]}
               >
                 <Designations />
@@ -360,17 +609,22 @@ export default function AppRoutes() {
             }
           />
 
+          <Route
+            path="/hrms/designation"
+            element={
+              <Navigate to="/hrms/designations" replace />
+            }
+          />
+
 
           {/* =================================================
-              ADMIN PAYROLL
+              PAYROLL (Admin management or Employee own salary)
               ================================================= */}
 
           <Route
             path="/hrms/payroll"
             element={
-              <RoleRoute
-                adminOnly
-              >
+              <RoleRoute adminOnly>
                 <Payroll
                   initialTab="structures"
                 />

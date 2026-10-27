@@ -27,7 +27,7 @@ import {
  * HRMS permissions:
  *
  * Super Admin
- * -> Company A + Company B
+ * -> CMHP Pharma + Tej Biocare
  * -> Full HRMS
  *
  * HR Administrator
@@ -108,11 +108,14 @@ function hasPermission(
   user,
   permission
 ) {
+  const role = String(user?.profile?.role || user?.role || '').trim().toUpperCase()
 
   return (
-    user?.is_superuser ||
+    Boolean(user?.is_superuser) ||
+    role === 'SUPER_ADMIN' ||
+    role === 'ADMIN' ||
     (
-      MATRIX[user?.profile?.role] || []
+      MATRIX[role] || []
     ).includes(permission)
   )
 }
@@ -251,7 +254,7 @@ export function canViewAllCompanies(user) {
  *
  * Empty array = no restriction.
  *
- * When Company A or Company B is selected in the
+ * When CMHP Pharma or Tej Biocare is selected in the
  * header switcher, that company becomes the active
  * HRMS scope.
  */

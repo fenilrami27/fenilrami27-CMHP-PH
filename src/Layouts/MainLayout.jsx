@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 import {
   NavLink,
   Outlet,
   useNavigate,
+  useLocation,
 } from 'react-router-dom'
 
 import useAuth from '../hooks/useAuth'
@@ -16,7 +17,9 @@ import {
   TruckIcon,
   ShieldCheckIcon,
   UsersIcon,
+  UserIcon,
   MenuIcon,
+  CloseIcon,
   LogoutIcon,
   ReceiptIcon,
   ClockIcon,
@@ -24,6 +27,7 @@ import {
   WalletIcon,
   ClipboardIcon,
   BuildingIcon,
+  FactoryIcon,
 } from '../components/icons'
 
 import {
@@ -32,9 +36,14 @@ import {
 
 import WorkspaceSwitcher
   from '../components/WorkspaceSwitcher'
+import NotificationBell
+  from '../components/NotificationBell'
 
 import {
   WORKSPACES,
+  getCurrentWorkspace,
+  getSelectedWorkspace,
+  requiresWorkspaceSelection,
 } from '../utils/workspace'
 
 import './MainLayout.css'
@@ -65,6 +74,7 @@ const NAV_SECTIONS = [
         icon: FlaskIcon,
         accent: '#22b8a6',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER'],
       },
 
       {
@@ -73,6 +83,7 @@ const NAV_SECTIONS = [
         icon: ClipboardIcon,
         accent: '#f2b84b',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER', 'HR_MANAGER'],
       },
 
       {
@@ -81,6 +92,16 @@ const NAV_SECTIONS = [
         icon: ShieldCheckIcon,
         accent: '#34d399',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER'],
+      },
+
+      {
+        label: 'Production',
+        path: '/production',
+        icon: FactoryIcon,
+        accent: '#f97316',
+        companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER', 'HR_MANAGER', 'EMPLOYEE'],
       },
 
       {
@@ -89,6 +110,7 @@ const NAV_SECTIONS = [
         icon: ReceiptIcon,
         accent: '#0b73df',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT'],
       },
 
       {
@@ -97,6 +119,7 @@ const NAV_SECTIONS = [
         icon: TruckIcon,
         accent: '#f5a623',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -105,6 +128,7 @@ const NAV_SECTIONS = [
         icon: UsersIcon,
         accent: '#34d399',
         companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER'],
       },
 
       {
@@ -114,6 +138,7 @@ const NAV_SECTIONS = [
         accent: '#34d399',
         companyOnly: true,
         requiresCompanyAccess: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'HR_ADMINISTRATOR', 'HR_MANAGER'],
       },
 
     ],
@@ -126,11 +151,39 @@ const NAV_SECTIONS = [
     items: [
 
       {
-        label: 'Overview',
+        label: 'Dashboard',
         path: '/inventory',
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Products',
+        path: '/inventory/products',
+        icon: FlaskIcon,
+        accent: '#8b7cf6',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Raw Materials',
+        path: '/inventory/materials',
+        icon: InventoryIcon,
+        accent: '#8b7cf6',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Orders',
+        path: '/inventory/orders',
+        icon: ClipboardIcon,
+        accent: '#8b7cf6',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -139,22 +192,7 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
-      },
-
-      {
-        label: 'Materials',
-        path: '/inventory/materials',
-        icon: InventoryIcon,
-        accent: '#8b7cf6',
-        commonInventoryOnly: true,
-      },
-
-      {
-        label: 'Locations',
-        path: '/inventory/locations',
-        icon: InventoryIcon,
-        accent: '#8b7cf6',
-        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
@@ -163,14 +201,34 @@ const NAV_SECTIONS = [
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {
-        label: 'Consumption Ledger',
+        label: 'Stock Ledger',
         path: '/inventory/ledger',
         icon: InventoryIcon,
         accent: '#8b7cf6',
         commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Samples',
+        path: '/inventory/samples',
+        icon: FlaskIcon,
+        accent: '#8b7cf6',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
+        label: 'Stock Requests',
+        path: '/inventory/requests',
+        icon: ClipboardIcon,
+        accent: '#f59e0b',
+        commonInventoryOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
     ],
@@ -229,7 +287,6 @@ const NAV_SECTIONS = [
         icon: ClockIcon,
         accent: '#f472b6',
         companyOnly: true,
-        requiresHrmsMasters: true,
       },
 
       {
@@ -313,207 +370,106 @@ function visibleSections(
   user,
   activeWorkspace
 ) {
-
   const role =
-    user?.profile?.role
+    user?.profile?.role ||
+    user?.role ||
+    ''
 
-
-  const commonInventory =
-    activeWorkspace ===
-    WORKSPACES.COMMON
-
-
-  const companyWorkspace =
-    activeWorkspace ===
-    WORKSPACES.COMPANY_A ||
-    activeWorkspace ===
-    WORKSPACES.COMPANY_B ||
-    activeWorkspace ===
-    WORKSPACES.ALL_COMPANIES
-
-
-  /*
-   * COMPANY ACCESS
-   */
-
-  const companyAccess =
-    user?.is_superuser ||
-    role === 'SUPER_ADMIN' ||
-    role === 'MANAGEMENT' ||
-    role === 'HR_ADMINISTRATOR' ||
-    role === 'HR_MANAGER'
-
-
-  /*
-   * HR MANAGEMENT ACCESS
-   */
-
-  const hrmsManageAccess =
-    user?.is_superuser ||
-    role === 'SUPER_ADMIN' ||
-    role === 'HR_ADMINISTRATOR' ||
-    role === 'HR_MANAGER' ||
-    role === 'MANAGEMENT'
-
-
-  /*
-   * HR MASTER ACCESS
-   */
-
-  const hrmsMastersAccess =
-    user?.is_superuser ||
-    role === 'SUPER_ADMIN' ||
-    role === 'HR_ADMINISTRATOR'
-
+  const isCommonInventory =
+    activeWorkspace === WORKSPACES.COMMON
 
   /*
    * ADMIN CHECK
    */
-
   const isAdmin =
-    Boolean(
-      user?.is_superuser
-    ) ||
+    Boolean(user?.is_superuser) ||
     role === 'SUPER_ADMIN'
 
+  /*
+   * COMPANY ACCESS
+   */
+  const companyAccess =
+    isAdmin ||
+    role === 'MANAGEMENT' ||
+    role === 'HR_ADMINISTRATOR' ||
+    role === 'HR_MANAGER'
 
-  return NAV_SECTIONS
+  /*
+   * HR MANAGEMENT ACCESS
+   */
+  const hrmsManageAccess =
+    isAdmin ||
+    role === 'HR_ADMINISTRATOR' ||
+    role === 'HR_MANAGER' ||
+    role === 'MANAGEMENT'
 
-    .map(
-      (section) => ({
+  /*
+   * HR MASTER ACCESS
+   */
+  const hrmsMastersAccess =
+    isAdmin ||
+    role === 'HR_ADMINISTRATOR'
 
-        ...section,
+  // Requirement 1:
+  // When Common Inventory is selected, show ONLY the Inventory section.
+  // When a Company workspace is selected, show ONLY company sections (Main menu and HRMS).
+  const targetSections = isCommonInventory
+    ? NAV_SECTIONS.filter((section) => section.title === 'Inventory')
+    : NAV_SECTIONS.filter((section) => section.title !== 'Inventory')
 
-        items:
-          section.items.filter(
-            (item) => {
+  return targetSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        // In Common Inventory, hide companyOnly items
+        if (isCommonInventory && item.companyOnly) {
+          return false
+        }
 
-              /*
-               * COMMON INVENTORY
-               */
+        // In Company workspace, hide Common Inventory only items
+        if (!isCommonInventory && item.commonInventoryOnly) {
+          return false
+        }
 
-              if (
-                commonInventory
-              ) {
+        // Admin sees all permitted items within the current workspace (except nonAdminOnly)
+        if (isAdmin) {
+          if (item.nonAdminOnly) return false
+          return true
+        }
 
-                return Boolean(
-                  item.commonInventoryOnly
-                )
+        // Company and HR role checks for non-admin
+        if (item.requiresCompanyAccess && !companyAccess) {
+          return false
+        }
 
-              }
+        if (item.requiresHrmsManage && !hrmsManageAccess) {
+          return false
+        }
 
+        if (item.requiresHrmsMasters && !hrmsMastersAccess) {
+          return false
+        }
 
-              /*
-               * COMPANY WORKSPACE
-               */
+        if (item.adminOnly) {
+          return false
+        }
 
-              if (
-                companyWorkspace &&
-                item.commonInventoryOnly
-              ) {
+        if (item.nonAdminOnly && isAdmin) {
+          return false
+        }
 
-                return false
+        if (
+          Array.isArray(item.roles) &&
+          item.roles.length > 0 &&
+          !item.roles.includes(role)
+        ) {
+          return false
+        }
 
-              }
-
-
-              /*
-               * COMPANY ONLY
-               */
-
-              if (
-                item.companyOnly &&
-                !companyWorkspace
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * COMPANY MANAGEMENT
-               */
-
-              if (
-                item.requiresCompanyAccess &&
-                !companyAccess
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * HR MANAGEMENT
-               */
-
-              if (
-                item.requiresHrmsManage &&
-                !hrmsManageAccess
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * HR MASTER
-               */
-
-              if (
-                item.requiresHrmsMasters &&
-                !hrmsMastersAccess
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * ADMIN ONLY
-               */
-
-              if (
-                item.adminOnly &&
-                !isAdmin
-              ) {
-
-                return false
-
-              }
-
-
-              /*
-               * NON ADMIN ONLY
-               */
-
-              if (
-                item.nonAdminOnly &&
-                isAdmin
-              ) {
-
-                return false
-
-              }
-
-
-              return true
-
-            }
-          ),
-
-      })
-    )
-
-    .filter(
-      (section) =>
-        section.items.length > 0
-    )
-
+        return true
+      }),
+    }))
+    .filter((section) => section.items.length > 0)
 }
 
 
@@ -627,22 +583,113 @@ export default function MainLayout() {
   const {
     activeWorkspace,
     activeOption,
+    setActiveWorkspace,
   } = useWorkspace()
 
 
   const navigate =
     useNavigate()
+  const location =
+    useLocation()
 
+  const [expandedSections, setExpandedSections] = useState({
+    'Main menu': true,
+    'Inventory': true,
+    'HRMS': true,
+  })
+
+  const toggleSection = (title) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [title]: prev[title] === undefined ? false : !prev[title],
+    }))
+  }
 
   const [
     menuOpen,
     setMenuOpen,
   ] = useState(false)
 
+  const menuButtonRef = useRef(null)
+  const drawerRef = useRef(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && menuOpen) {
+        setMenuOpen(false)
+        menuButtonRef.current?.focus()
+      }
+    }
+
+    if (menuOpen) {
+      window.addEventListener('keydown', handleKeyDown)
+      const prevOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      drawerRef.current?.focus()
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown)
+        document.body.style.overflow = prevOverflow
+      }
+    }
+  }, [menuOpen])
 
   const [
     collapsed,
   ] = useState(false)
+
+  const [
+    profileOpen,
+    setProfileOpen,
+  ] = useState(false)
+
+  const profileRef = useRef(null)
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false)
+      }
+    }
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setProfileOpen(false)
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener('mousedown', handleOutsideClick)
+      document.addEventListener('keydown', handleEscape)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [profileOpen])
+
+
+  const effectiveWorkspace =
+    activeWorkspace ||
+    getCurrentWorkspace(user) ||
+    getSelectedWorkspace() ||
+    WORKSPACES.COMPANY_A
+
+
+  useEffect(() => {
+    if (user && effectiveWorkspace && effectiveWorkspace !== activeWorkspace && setActiveWorkspace) {
+      setActiveWorkspace(effectiveWorkspace)
+    }
+  }, [user, effectiveWorkspace, activeWorkspace, setActiveWorkspace])
+
+
+  useEffect(() => {
+    if (!user) {
+      navigate('/login', { replace: true })
+      return
+    }
+    if (!effectiveWorkspace && requiresWorkspaceSelection(user)) {
+      navigate('/workspace-select', { replace: true })
+    }
+  }, [user, effectiveWorkspace, navigate])
 
 
   const displayName =
@@ -660,14 +707,23 @@ export default function MainLayout() {
   const sections =
     visibleSections(
       user,
-      activeWorkspace
+      effectiveWorkspace
     )
 
 
   const companyLogo =
     getCompanyLogo(
-      activeWorkspace
+      effectiveWorkspace
     )
+
+
+  const currentCompanyName =
+    activeOption?.name ||
+    (effectiveWorkspace === WORKSPACES.COMPANY_B
+      ? 'Tej Biocare'
+      : effectiveWorkspace === WORKSPACES.COMMON
+      ? 'Common Inventory'
+      : 'CMHP Pharma')
 
 
   const sidebarClass = [
@@ -696,7 +752,11 @@ export default function MainLayout() {
           ===================================================== */}
 
       <aside
+        id="app-sidebar"
+        ref={drawerRef}
+        tabIndex={-1}
         className={sidebarClass}
+        aria-label="Navigation drawer"
       >
 
         <div className="sidebar-brand">
@@ -711,9 +771,12 @@ export default function MainLayout() {
               <img
                 src={companyLogo}
                 alt={
-                  activeOption?.name ||
-                  ''
+                  currentCompanyName
                 }
+                loading="eager"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
                 style={{
                   width: '100%',
                   height: '100%',
@@ -741,7 +804,7 @@ export default function MainLayout() {
             <div className="sidebar-name-row">
 
               <span className="sidebar-name">
-                CMHP Pharma
+                {currentCompanyName}
               </span>
 
             </div>
@@ -753,6 +816,18 @@ export default function MainLayout() {
 
           </div>
 
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={() => {
+              setMenuOpen(false)
+              menuButtonRef.current?.focus()
+            }}
+            aria-label="Close navigation menu"
+          >
+            <CloseIcon size={18} />
+          </button>
+
         </div>
 
 
@@ -760,51 +835,63 @@ export default function MainLayout() {
           className="sidebar-nav"
           aria-label="Main navigation"
         >
+          {sections.map((section) => {
+            const isSectionActive = section.items.some(
+              (item) =>
+                location.pathname === item.path ||
+                (item.path !== '/' && location.pathname.startsWith(item.path))
+            )
+            const isExpanded =
+              expandedSections[section.title] !== undefined
+                ? expandedSections[section.title]
+                : true
 
-          {sections.map(
-            (section) => (
-
-              <div
-                key={section.title}
-              >
-
-                <p className="nav-section-title">
-
+            return (
+              <div key={section.title} className="nav-section-group">
+                <button
+                  type="button"
+                  className={`nav-section-header ${isSectionActive ? 'is-active-section' : ''}`}
+                  onClick={() => toggleSection(section.title)}
+                  aria-expanded={isExpanded}
+                  title={`Toggle ${section.title}`}
+                >
                   <span className="nav-section-text">
                     {section.title}
                   </span>
+                  <svg
+                    className={`nav-section-chevron ${isExpanded ? 'is-expanded' : ''}`}
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
 
-                </p>
-
-
-                <div className="nav-list">
-
-                  {section.items.map(
-                    (item) => (
-
+                {isExpanded && (
+                  <div className="nav-list">
+                    {section.items.map((item) => (
                       <NavItem
                         key={item.label}
                         item={item}
-                        collapsed={
-                          collapsed
-                        }
-                        onNavigate={() =>
-                          setMenuOpen(
-                            false
-                          )
-                        }
+                        collapsed={collapsed}
+                        onNavigate={() => {
+                          setMenuOpen(false)
+                          menuButtonRef.current?.focus()
+                        }}
                       />
-
-                    )
-                  )}
-
-                </div>
-
+                    ))}
+                  </div>
+                )}
               </div>
-
             )
-          )}
-
+          })}
         </nav>
 
 
@@ -869,9 +956,11 @@ export default function MainLayout() {
 
         <div
           className="layout-overlay"
-          onClick={() =>
+          onClick={() => {
             setMenuOpen(false)
-          }
+            menuButtonRef.current?.focus()
+          }}
+          aria-label="Close navigation overlay"
         />
 
       )}
@@ -888,15 +977,39 @@ export default function MainLayout() {
           <button
             type="button"
             className="menu-toggle"
+            ref={menuButtonRef}
             onClick={() =>
-              setMenuOpen(true)
+              setMenuOpen((prev) => !prev)
             }
-            aria-label="Open menu"
+            aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={menuOpen}
+            aria-controls="app-sidebar"
           >
 
-            <MenuIcon size={17} />
+            <MenuIcon size={18} />
 
           </button>
+
+          <div className="mobile-header-brand" aria-label={currentCompanyName}>
+            <span className="mobile-header-logo" aria-hidden="true">
+              {companyLogo ? (
+                <img
+                  src={companyLogo}
+                  alt=""
+                  loading="eager"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+              ) : (
+                <BuildingIcon size={18} />
+              )}
+            </span>
+            <div className="mobile-header-info">
+              <span className="mobile-header-name">{currentCompanyName}</span>
+              <span className="mobile-header-sub">ERP</span>
+            </div>
+          </div>
 
 
           <div className="header-search">
@@ -936,97 +1049,77 @@ export default function MainLayout() {
             <WorkspaceSwitcher />
 
 
-            <button
-              type="button"
-              className="header-icon-btn"
-              aria-label="Notifications"
-            >
+            <NotificationBell />
 
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+
+            {/* PROFILE MENU */}
+            <div className="user-profile-menu" ref={profileRef}>
+              <button
+                type="button"
+                className={`user-chip user-chip-button ${profileOpen ? 'is-open' : ''}`}
+                onClick={() => setProfileOpen((prev) => !prev)}
+                title="Account menu"
+                aria-label="Account menu"
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
               >
-
-                <path
-                  d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"
-                />
-
-                <path d="M10 21h4" />
-
-              </svg>
-
-
-              <span
-                className="header-notification-dot"
-              />
-
-            </button>
-
-
-            {/* PROFILE */}
-
-            <button
-              type="button"
-              className="user-chip user-chip-button"
-              onClick={() =>
-                navigate('/profile')
-              }
-              title="Open my profile"
-              aria-label="Open my profile"
-            >
-
-              <span className="user-avatar">
-
-                {initial}
-
-              </span>
-
-
-              <span className="user-meta">
-
-                <span className="user-name">
-
-                  {displayName}
-
+                <span className="user-avatar">
+                  {initial}
                 </span>
 
-
-                {user?.email && (
-
-                  <span className="user-email">
-
-                    {user.email}
-
+                <span className="user-meta">
+                  <span className="user-name">
+                    {displayName}
                   </span>
+                  <span className="user-role-label">
+                    {user?.profile?.role_display || user?.profile?.role || user?.role || 'Employee'}
+                  </span>
+                </span>
+              </button>
 
-                )}
+              {profileOpen && (
+                <div className="user-profile-popover" role="menu">
+                  <div className="user-popover-header">
+                    <div className="user-popover-name">
+                      {displayName}
+                    </div>
+                    {user?.email && (
+                      <div className="user-popover-email">
+                        {user.email}
+                      </div>
+                    )}
+                  </div>
 
-              </span>
+                  <div className="user-popover-divider" />
 
-            </button>
+                  <button
+                    type="button"
+                    className="user-popover-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileOpen(false)
+                      navigate('/profile')
+                    }}
+                  >
+                    <UserIcon size={16} />
+                    <span>My Profile</span>
+                  </button>
 
-
-            <button
-              type="button"
-              className="logout-btn"
-              onClick={logout}
-              title="Logout"
-              aria-label="Logout"
-            >
-
-              <LogoutIcon size={15} />
-
-              <span>
-                Logout
-              </span>
-
-            </button>
+                  <button
+                    type="button"
+                    className="user-popover-item is-signout"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfileOpen(false)
+                      logout()
+                    }}
+                  >
+                    <LogoutIcon size={16} />
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
           </div>
 

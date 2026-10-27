@@ -1,6 +1,7 @@
 import {
   useEffect,
   useState,
+  useMemo,
 } from 'react'
 
 import {
@@ -9,6 +10,8 @@ import {
 
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
 import { getScopedCompanyId } from '../../utils/companyScope'
+import PageHeader from '../../components/PageHeader'
+import HeroBanner from '../../components/HeroBanner'
 
 import './SupplyChain.css'
 
@@ -58,7 +61,6 @@ const emptyGRN = {
   supplier: '',
   po: '',
   item: '',
-  location: '',
   lot_number: '',
   quantity: '',
   manufacture_date: '',
@@ -199,9 +201,6 @@ export default function SupplyChain() {
   const [items, setItems] =
     useState([])
 
-  const [locations, setLocations] =
-    useState([])
-
   const [lots, setLots] =
     useState([])
 
@@ -268,6 +267,114 @@ export default function SupplyChain() {
   const [modal, setModal] =
     useState(null)
 
+  const [searchTerm, setSearchTerm] = useState('')
+  const [filterCompany, setFilterCompany] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+
+  // Filtered lists based on search, company, status
+  const normalizedSearch = searchTerm.trim().toLowerCase()
+
+  const filteredSuppliers = useMemo(() => {
+    return suppliers.filter((s) => {
+      const matchSearch = !normalizedSearch ||
+        (s.name && s.name.toLowerCase().includes(normalizedSearch)) ||
+        (s.code && s.code.toLowerCase().includes(normalizedSearch)) ||
+        (s.email && s.email.toLowerCase().includes(normalizedSearch)) ||
+        (s.phone && s.phone.toLowerCase().includes(normalizedSearch))
+      const matchStatus = !filterStatus ||
+        (filterStatus === 'ACTIVE' && s.is_active) ||
+        (filterStatus === 'INACTIVE' && !s.is_active)
+      return matchSearch && matchStatus
+    })
+  }, [suppliers, normalizedSearch, filterStatus])
+
+  const filteredPurchaseOrders = useMemo(() => {
+    return purchaseOrders.filter((po) => {
+      const matchSearch = !normalizedSearch ||
+        (po.po_number && po.po_number.toLowerCase().includes(normalizedSearch)) ||
+        (po.supplier_name && po.supplier_name.toLowerCase().includes(normalizedSearch)) ||
+        (po.company_name && po.company_name.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (po.company_name && po.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      const matchStatus = !filterStatus ||
+        (po.status && po.status.toUpperCase() === filterStatus.toUpperCase())
+      return matchSearch && matchCompany && matchStatus
+    })
+  }, [purchaseOrders, normalizedSearch, filterCompany, filterStatus])
+
+  const filteredGoodsReceipts = useMemo(() => {
+    return goodsReceipts.filter((grn) => {
+      const matchSearch = !normalizedSearch ||
+        (grn.grn_number && grn.grn_number.toLowerCase().includes(normalizedSearch)) ||
+        (grn.supplier_name && grn.supplier_name.toLowerCase().includes(normalizedSearch)) ||
+        (grn.lot_number && grn.lot_number.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (grn.company_name && grn.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      return matchSearch && matchCompany
+    })
+  }, [goodsReceipts, normalizedSearch, filterCompany])
+
+  const filteredPurchaseBills = useMemo(() => {
+    return purchaseBills.filter((bill) => {
+      const matchSearch = !normalizedSearch ||
+        (bill.bill_number && bill.bill_number.toLowerCase().includes(normalizedSearch)) ||
+        (bill.supplier_name && bill.supplier_name.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (bill.company_name && bill.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      return matchSearch && matchCompany
+    })
+  }, [purchaseBills, normalizedSearch, filterCompany])
+
+  const filteredAllocations = useMemo(() => {
+    return allocations.filter((alloc) => {
+      const matchSearch = !normalizedSearch ||
+        (alloc.item_name && alloc.item_name.toLowerCase().includes(normalizedSearch)) ||
+        (alloc.lot_number && alloc.lot_number.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (alloc.company_name && alloc.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      return matchSearch && matchCompany
+    })
+  }, [allocations, normalizedSearch, filterCompany])
+
+  const filteredDispatches = useMemo(() => {
+    return dispatches.filter((disp) => {
+      const matchSearch = !normalizedSearch ||
+        (disp.dispatch_number && disp.dispatch_number.toLowerCase().includes(normalizedSearch)) ||
+        (disp.customer_name && disp.customer_name.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (disp.company_name && disp.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      const matchStatus = !filterStatus ||
+        (disp.status && disp.status.toUpperCase() === filterStatus.toUpperCase())
+      return matchSearch && matchCompany && matchStatus
+    })
+  }, [dispatches, normalizedSearch, filterCompany, filterStatus])
+
+  const filteredSalesReturns = useMemo(() => {
+    return salesReturns.filter((ret) => {
+      const matchSearch = !normalizedSearch ||
+        (ret.return_number && ret.return_number.toLowerCase().includes(normalizedSearch)) ||
+        (ret.customer_name && ret.customer_name.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (ret.company_name && ret.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      const matchStatus = !filterStatus ||
+        (ret.status && ret.status.toUpperCase() === filterStatus.toUpperCase())
+      return matchSearch && matchCompany && matchStatus
+    })
+  }, [salesReturns, normalizedSearch, filterCompany, filterStatus])
+
+  const filteredRecalls = useMemo(() => {
+    return recalls.filter((rec) => {
+      const matchSearch = !normalizedSearch ||
+        (rec.recall_number && rec.recall_number.toLowerCase().includes(normalizedSearch)) ||
+        (rec.batch && rec.batch.toLowerCase().includes(normalizedSearch))
+      const matchCompany = !filterCompany ||
+        (rec.company_name && rec.company_name.toLowerCase().includes(filterCompany.toLowerCase()))
+      const matchStatus = !filterStatus ||
+        (rec.status && rec.status.toUpperCase() === filterStatus.toUpperCase())
+      return matchSearch && matchCompany && matchStatus
+    })
+  }, [recalls, normalizedSearch, filterCompany, filterStatus])
+
 
   // ==========================================================
   // FORMS
@@ -312,7 +419,6 @@ export default function SupplyChain() {
         companyResponse,
         supplierResponse,
         itemResponse,
-        locationResponse,
         lotResponse,
         customerResponse,
         batchResponse,
@@ -332,8 +438,6 @@ export default function SupplyChain() {
         supplyChainService.getSuppliers(),
 
         supplyChainService.getItems(),
-
-        supplyChainService.getLocations(),
 
         supplyChainService.getLots(),
 
@@ -369,10 +473,6 @@ export default function SupplyChain() {
 
       setItems(
         itemResponse.data || []
-      )
-
-      setLocations(
-        locationResponse.data || []
       )
 
       setLots(
@@ -653,12 +753,6 @@ export default function SupplyChain() {
         )
       }
 
-      if (!grnForm.location) {
-        throw new Error(
-          'Please select a storage location.'
-        )
-      }
-
       if (!grnForm.quantity) {
         throw new Error(
           'Please enter quantity.'
@@ -801,6 +895,13 @@ export default function SupplyChain() {
         throw new Error(
           'Please select a company.'
         )
+      }
+
+      if (dispatchForm.batch) {
+        const selBatch = batches.find((b) => String(b.id) === String(dispatchForm.batch))
+        if (selBatch && selBatch.qa_status !== 'RELEASED' && selBatch.qa_status !== 'APPROVED') {
+          throw new Error(`Cannot dispatch Batch ${selBatch.number}: Batch has not passed QA release sign-off yet.`)
+        }
       }
 
       const finalDispatchNum = commitDocumentNumber('DELIVERY', dispatchForm.company || getScopedCompanyId())
@@ -1003,27 +1104,62 @@ export default function SupplyChain() {
 
   return (
     <div className="supply-chain">
+      <HeroBanner
+        eyebrow="Procurement &amp; Logistics"
+        title="Supply Chain Management"
+        subtitle="Manage supplier procurements, goods receipts, internal material allocations, and dispatches."
+      />
 
-      <header className="sc-header">
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Workspace' },
+          { label: 'Supply Chain' },
+        ]}
+        title="Supply Chain Management"
+        subtitle="Manage supplier procurements, goods receipts, internal material allocations, and dispatches."
+        statusPill={{ label: 'Live Operations', variant: 'success' }}
+        primaryAction={
+          activeTab === 'purchase'
+            ? { label: '+ Create Purchase Order', onClick: () => openModal('po') }
+            : activeTab === 'allocation'
+            ? { label: '+ New Internal Allocation', onClick: () => openModal('allocation') }
+            : activeTab === 'dispatch'
+            ? { label: '+ New Dispatch', onClick: () => openModal('dispatch') }
+            : { label: '+ Record Return', onClick: () => openModal('return') }
+        }
+        secondaryActions={[
+          { label: 'Master Sync', onClick: loadData },
+        ]}
+      />
 
-        <div>
-
-          <span className="sc-eyebrow">
-            CMHP PHARMACEUTICAL ERP
-          </span>
-
-          <h1>
-            Supply Chain Management
-          </h1>
-
-          <p>
-            Purchase, internal material allocation,
-            dispatch, sales returns and product recall.
-          </p>
-
+      {/* KPI Summary Cards */}
+      <div className="sc-kpi-grid">
+        <div className="sc-kpi-card">
+          <div className="sc-kpi-label">Active Suppliers</div>
+          <div className="sc-kpi-value">{suppliers.length}</div>
+          <div className="sc-kpi-subtext">Approved vendors on record</div>
         </div>
-
-      </header>
+        <div className="sc-kpi-card">
+          <div className="sc-kpi-label">Purchase Orders</div>
+          <div className="sc-kpi-value">{purchaseOrders.length}</div>
+          <div className="sc-kpi-subtext">Procurement orders issued</div>
+        </div>
+        <div className="sc-kpi-card">
+          <div className="sc-kpi-label">Goods Receipts (GRN)</div>
+          <div className="sc-kpi-value">{goodsReceipts.length}</div>
+          <div className="sc-kpi-subtext">Material shipments received</div>
+        </div>
+        <div className="sc-kpi-card">
+          <div className="sc-kpi-label">Active Dispatches</div>
+          <div className="sc-kpi-value">{dispatches.length}</div>
+          <div className="sc-kpi-subtext">Outbound shipments logged</div>
+        </div>
+        <div className="sc-kpi-card">
+          <div className="sc-kpi-label">Allocations & Returns</div>
+          <div className="sc-kpi-value">{allocations.length + salesReturns.length + recalls.length}</div>
+          <div className="sc-kpi-subtext">Internal movement & recall items</div>
+        </div>
+      </div>
 
 
       {error && (
@@ -1101,6 +1237,69 @@ export default function SupplyChain() {
           Refresh
         </button>
 
+      </div>
+
+      {/* Global Filter Bar for Tables */}
+      <div className="sc-filter-bar">
+        <div className="sc-search-box">
+          <input
+            type="text"
+            placeholder="Search suppliers, POs, GRNs, dispatch, or batch..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              className="sc-clear-search"
+              onClick={() => setSearchTerm('')}
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        <div className="sc-select-filter">
+          <select
+            value={filterCompany}
+            onChange={(e) => setFilterCompany(e.target.value)}
+          >
+            <option value="">All Operating Companies</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.name}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="sc-select-filter">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="">All Statuses</option>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="INACTIVE">INACTIVE</option>
+            <option value="DRAFT">DRAFT</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="SENT">SENT</option>
+            <option value="COMPLETED">COMPLETED</option>
+            <option value="PENDING">PENDING</option>
+          </select>
+        </div>
+
+        {(searchTerm || filterCompany || filterStatus) && (
+          <button
+            type="button"
+            className="sc-clear-btn"
+            onClick={() => {
+              setSearchTerm('')
+              setFilterCompany('')
+              setFilterStatus('')
+            }}
+          >
+            Clear Filters
+          </button>
+        )}
       </div>
 
 
@@ -1203,13 +1402,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {suppliers.length === 0 ? (
+                {filteredSuppliers.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No suppliers added yet."
+                    text={suppliers.length === 0 ? "No suppliers added yet." : "No suppliers match the filter criteria."}
                   />
                 ) : (
-                  suppliers.map(
+                  filteredSuppliers.map(
                     (supplier) => (
                       <tr key={supplier.id}>
 
@@ -1285,13 +1484,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {purchaseOrders.length === 0 ? (
+                {filteredPurchaseOrders.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No purchase orders created yet."
+                    text={purchaseOrders.length === 0 ? "No purchase orders created yet." : "No purchase orders match the filter criteria."}
                   />
                 ) : (
-                  purchaseOrders.map(
+                  filteredPurchaseOrders.map(
                     (po) => (
                       <tr key={po.id}>
 
@@ -1365,13 +1564,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {goodsReceipts.length === 0 ? (
+                {filteredGoodsReceipts.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No goods receipts created yet."
+                    text={goodsReceipts.length === 0 ? "No goods receipts created yet." : "No goods receipts match the filter criteria."}
                   />
                 ) : (
-                  goodsReceipts.map(
+                  filteredGoodsReceipts.map(
                     (grn) => (
                       <tr key={grn.id}>
 
@@ -1441,13 +1640,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {purchaseBills.length === 0 ? (
+                {filteredPurchaseBills.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No purchase bills created yet."
+                    text={purchaseBills.length === 0 ? "No purchase bills created yet." : "No purchase bills match the filter criteria."}
                   />
                 ) : (
-                  purchaseBills.map(
+                  filteredPurchaseBills.map(
                     (bill) => (
                       <tr key={bill.id}>
 
@@ -1523,7 +1722,7 @@ export default function SupplyChain() {
 
           <Section
             title="Internal Material Allocation"
-            subtitle="Allocate common inventory to Company A or Company B"
+            subtitle="Allocate common inventory to CMHP Pharma or Tej Biocare"
           >
 
             <Table>
@@ -1540,13 +1739,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {allocations.length === 0 ? (
+                {filteredAllocations.length === 0 ? (
                   <EmptyRow
                     colSpan={5}
-                    text="No internal allocations created yet."
+                    text={allocations.length === 0 ? "No internal allocations created yet." : "No allocations match the filter criteria."}
                   />
                 ) : (
-                  allocations.map(
+                  filteredAllocations.map(
                     (row) => (
                       <tr key={row.id}>
 
@@ -1636,13 +1835,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {dispatches.length === 0 ? (
+                {filteredDispatches.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No dispatches created yet."
+                    text={dispatches.length === 0 ? "No dispatches created yet." : "No dispatches match the filter criteria."}
                   />
                 ) : (
-                  dispatches.map(
+                  filteredDispatches.map(
                     (row) => (
                       <tr key={row.id}>
 
@@ -1760,13 +1959,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {salesReturns.length === 0 ? (
+                {filteredSalesReturns.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No sales returns created yet."
+                    text={salesReturns.length === 0 ? "No sales returns created yet." : "No sales returns match the filter criteria."}
                   />
                 ) : (
-                  salesReturns.map(
+                  filteredSalesReturns.map(
                     (row) => (
                       <tr key={row.id}>
 
@@ -1838,13 +2037,13 @@ export default function SupplyChain() {
 
               <tbody>
 
-                {recalls.length === 0 ? (
+                {filteredRecalls.length === 0 ? (
                   <EmptyRow
                     colSpan={6}
-                    text="No recalls created yet."
+                    text={recalls.length === 0 ? "No recalls created yet." : "No recalls match the filter criteria."}
                   />
                 ) : (
-                  recalls.map(
+                  filteredRecalls.map(
                     (row) => (
                       <tr key={row.id}>
 
@@ -2325,39 +2524,6 @@ export default function SupplyChain() {
 
 
                 <Field
-                  label="Storage Location"
-                  required
-                >
-                  <Select
-                    value={grnForm.location}
-                    onChange={(e) =>
-                      setGrnForm({
-                        ...grnForm,
-                        location:
-                          e.target.value,
-                      })
-                    }
-                    required
-                  >
-                    <option value="">
-                      Select location
-                    </option>
-
-                    {locations.map(
-                      (location) => (
-                        <option
-                          key={location.id}
-                          value={location.id}
-                        >
-                          {location.code} - {location.name}
-                        </option>
-                      )
-                    )}
-                  </Select>
-                </Field>
-
-
-                <Field
                   label="Lot Number"
                   required
                 >
@@ -2825,17 +2991,18 @@ export default function SupplyChain() {
                       Select batch
                     </option>
 
-                    {batches.map(
-                      (batch) => (
+                    {batches.map((batch) => {
+                      const isQaPassed = batch.qa_status === 'RELEASED' || batch.qa_status === 'APPROVED'
+                      return (
                         <option
                           key={batch.id}
                           value={batch.id}
+                          disabled={!isQaPassed}
                         >
-                          {batch.number ||
-                            `BATCH-${batch.id}`}
+                          {batch.number || `BATCH-${batch.id}`} {isQaPassed ? '✓ (QA Released)' : '⏳ (Awaiting QA)'}
                         </option>
                       )
-                    )}
+                    })}
                   </Select>
                 </Field>
 

@@ -11,59 +11,69 @@ import {
   saveFormula,
   addFormulaRevision,
   saveRevisionMaterials,
+  submitFormulaApproval,
+  withdrawFormulaApproval,
 } from '../../store/erpSlice'
 import { previewDocumentNumber, commitDocumentNumber } from '../../utils/documentNumbers'
+import {
+  selectProducts,
+  selectFormulas,
+  selectFormulaApprovals,
+  selectActiveCompanyId,
+  selectActiveCompanyKey,
+} from '../../utils/companySelectors'
 import {
   SUPPORTED_UNITS,
   calculateBatchScaleFactor,
   calculateRevisionRequirements,
   formatPharmaNumber,
 } from './formulaCalculation'
+import BmrRequisitionDocument from '../../components/BmrRequisitionDocument'
+import {
+  exportFormulaPrint,
+  exportFormulaExcel,
+  exportFormulaCsv,
+} from '../../utils/formulaExport'
+import { calculateItemStockFromLedger } from '../../utils/stockSelectors'
+import { DOSAGE_FORMS, DEFAULT_DOSAGE_FORM } from '../../constants/dosageForms'
+import { selectDosageForms, addDosageForm } from '../../store/erpSlice'
 import './Products.css'
-
-const DOSAGE_FORMS = [
-  'Tablet',
-  'Capsule',
-  'Syrup',
-  'Suspension',
-  'Injection',
-  'Ointment',
-  'Cream',
-  'Gel',
-  'Drops',
-  'Inhaler',
-  'Solution',
-  'Powder',
-  'Emulsion',
-]
-
-const COMMON_RAW_MATERIALS = [
-  'Paracetamol IP/BP (Active API)',
-  'Amoxicillin Trihydrate Compacted (API)',
-  'Omeprazole Base BP (Active API)',
-  'Microcrystalline Cellulose (Avicel PH-101)',
-  'Microcrystalline Cellulose (Avicel PH-102)',
-  'Maize Starch BP (Binder & Disintegrant)',
-  'Povidone K-30 (Wet Granulating Binder)',
-  'Croscarmellose Sodium (Superdisintegrant)',
-  'Crosspovidone XL (Superdisintegrant)',
-  'Magnesium Stearate (Lubricant)',
-  'Talc Purified USP (Glidant & Anti-tacking)',
-  'Colloidal Silicon Dioxide (Aerosil 200)',
-  'Lactose Monohydrate',
-  'Sucrose Extra Fine (Sweetener)',
-  'Sodium Benzoate (Preservative)',
-  'Sodium Citrate Dihydrate (Buffer)',
-  'Xanthan Gum (Suspending Agent)',
-  'Hypromellose (HPMC 2910)',
-  'Methacrylic Acid Copolymer Type C',
-  'Triethyl Citrate (Plasticizer)',
-  'Purified Water USP',
-]
 
 export default function Products() {
   const dispatch = useDispatch()
-  const { products = [], formulas = [] } = useSelector((state) => state.erp)
+  const erpState = useSelector((state) => state.erp || {})
+  const products = useSelector(selectProducts)
+  const formulas = useSelector(selectFormulas)
+  const formulaApprovals = useSelector(selectFormulaApprovals)
+  const activeCompanyId = useSelector(selectActiveCompanyId)
+  const activeCompanyKey = useSelector(selectActiveCompanyKey)
+
+  const commonRawMaterials = erpState.commonRawMaterials || []
+  const reduxDosageForms = useSelector(selectDosageForms)
+  const dosageForms = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : DOSAGE_FORMS
+  const [customDosageForm, setCustomDosageForm] = useState('')
+  const [isCustomType, setIsCustomType] = useState(false)
+  const stockLedgerEntries = erpState.stockLedgerEntries || []
+
+  // Catalog of raw materials with available stock from Stock Ledger
+  const availableRawMaterialsCatalog = useMemo(() => {
+    return commonRawMaterials.map((mat) => {
+      const avail = calculateItemStockFromLedger({ erp: erpState }, mat)
+      return {
+        ...mat,
+        availableStock: avail,
+      }
+    })
+  }, [commonRawMaterials, stockLedgerEntries, erpState])
+
+  // QC Approval Flow State
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [approvalRemarks, setApprovalRemarks] = useState('')
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false)
+  const [withdrawReason, setWithdrawReason] = useState('')
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const [showBmrDocModal, setShowBmrDocModal] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
 
   // Navigation & View Mode
   const [activeView, setActiveView] = useState('list') // 'list' | 'formula'
@@ -81,7 +91,7 @@ export default function Products() {
   const [productForm, setProductForm] = useState({
     name: '',
     code: '',
-    dosage_form: 'Tablet',
+    dosage_form: DEFAULT_DOSAGE_FORM,
     strength: '',
     pack_size: '',
     description: '',
@@ -284,17 +294,155 @@ export default function Products() {
     )
   }, [activeFormula, requiredBatchQty, requiredBatchUnit])
 
+  // Latest QC Approval record for active product
+  const activeApproval = useMemo(() => {
+    if (!activeProduct) return null
+    const list = (formulaApprovals || []).filter(
+      (a) => String(a.productId) === String(activeProduct.id)
+    )
+    if (!list.length) return null
+    return list[list.length - 1]
+  }, [formulaApprovals, activeProduct])
+
+  const approvalStatus = useMemo(() => {
+    if (activeApproval?.status) return activeApproval.status
+    if (activeProduct?.formula_approval_status) return activeProduct.formula_approval_status
+    return 'NOT_SUBMITTED'
+  }, [activeApproval, activeProduct])
+
+  const isPendingApproval = approvalStatus === 'PENDING'
+  const isApproved = approvalStatus === 'APPROVED'
+  const isDeclined = approvalStatus === 'DECLINED'
+
+  // Validation for "Get Approval from QC"
+  const isCalculationValid = useMemo(() => {
+    const qty = Number(requiredBatchQty)
+    return (
+      !isNaN(qty) &&
+      qty > 0 &&
+      Boolean(requiredBatchUnit) &&
+      calculatedMaterials.length > 0
+    )
+  }, [requiredBatchQty, requiredBatchUnit, calculatedMaterials])
+
+  const calculationInvalidReason = useMemo(() => {
+    if (!requiredBatchQty || Number(requiredBatchQty) <= 0) {
+      return 'Enter a valid Required Batch Quantity (> 0) to submit for QC approval.'
+    }
+    if (!requiredBatchUnit) {
+      return 'Select a valid batch unit (kg, g, L, ml).'
+    }
+    if (calculatedMaterials.length === 0) {
+      return 'At least one raw material must be added to the formula revision in Step 2.'
+    }
+    return ''
+  }, [requiredBatchQty, requiredBatchUnit, calculatedMaterials])
+
+  // Submit to QC Handler (Saves immutable snapshot)
+  const handleConfirmSubmitToQc = () => {
+    if (!activeProduct || !activeFormula || !activeRevision) return
+    if (!isCalculationValid) return
+
+    const frozenMaterials = calculatedMaterials.map((m, idx) => ({
+      id: m.id,
+      rmCode: m.rm_code || m.rmCode || `RM-${String(idx + 1).padStart(3, '0')}`,
+      name: m.name,
+      labelClaim: m.label_claim || m.labelClaim || `${m.baseQuantity} ${m.baseUnit}`,
+      baseQuantity: Number(m.baseQuantity) || 0,
+      baseUnit: m.baseUnit || 'g',
+      scaledQuantity: Number(m.requiredQuantity) || 0,
+      scaledUnit: m.bestFit?.unit || m.baseUnit || 'kg',
+      displayQty: m.bestFit?.formatted || `${formatPharmaNumber(m.requiredQuantity, 3)} ${m.baseUnit}`,
+      percentage: m.percentage !== null ? Number(m.percentage) : 0,
+      arNo: m.arNo || '—',
+      category: m.category || (m.isExcipient ? 'Excipient' : 'Active API'),
+    }))
+
+    const payload = {
+      productId: activeProduct.id,
+      productName: activeProduct.name,
+      productCode: activeProduct.code,
+      dosageForm: activeProduct.dosage_form,
+      company: activeProduct.company || activeCompanyId,
+      companyId: activeCompanyKey,
+      formulaId: activeFormula.id,
+      formulaName: activeFormula.name,
+      revisionId: activeRevision.id,
+      revisionName: activeRevision.name,
+      formulaBaseQuantity: activeFormula.base_quantity,
+      formulaBaseUnit: activeFormula.base_unit,
+      batchQuantity: Number(requiredBatchQty),
+      batchUnit: requiredBatchUnit,
+      scaleFactor: currentScaleFactor,
+      materials: frozenMaterials,
+      remarks: approvalRemarks.trim(),
+      submittedBy: (() => {
+        try {
+          const u = JSON.parse(localStorage.getItem('cmhp_user'));
+          return u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : (u?.username || 'Production Chemist');
+        } catch {
+          return 'Production Chemist';
+        }
+      })(),
+      submittedByRole: 'Production Chemist',
+      snapshot: {
+        product: { ...activeProduct },
+        formula: { ...activeFormula },
+        revision: { ...activeRevision },
+        batchQuantity: Number(requiredBatchQty),
+        batchUnit: requiredBatchUnit,
+        scaleFactor: currentScaleFactor,
+        calculatedMaterials: frozenMaterials,
+      },
+    }
+
+    dispatch(submitFormulaApproval(payload))
+    setShowApprovalModal(false)
+    setApprovalRemarks('')
+    setNotification({
+      type: 'success',
+      message: `Formulation for ${activeProduct.name} successfully submitted to QC for analytical approval!`,
+    })
+  }
+
+  // Withdraw Request Handler
+  const handleConfirmWithdrawRequest = () => {
+    if (!activeApproval) return
+    dispatch(
+      withdrawFormulaApproval({
+        id: activeApproval.id,
+        reason: withdrawReason.trim() || 'Withdrawn by production chemist for formula adjustments.',
+        withdrawnBy: (() => {
+          try {
+            const u = JSON.parse(localStorage.getItem('cmhp_user'));
+            return u?.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : (u?.username || 'Production Chemist');
+          } catch {
+            return 'Production Chemist';
+          }
+        })(),
+      })
+    )
+    setShowWithdrawModal(false)
+    setWithdrawReason('')
+    setNotification({
+      type: 'info',
+      message: 'QC approval request has been retracted back to draft.',
+    })
+  }
+
   /* =========================================================
      PRODUCT ACTIONS (ADD, EDIT, DELETE)
      ========================================================= */
 
   const handleOpenAddProduct = () => {
     setModalError('')
-    const generatedCode = previewDocumentNumber('PRODUCT')
+    setIsCustomType(false)
+    setCustomDosageForm('')
+    const generatedCode = previewDocumentNumber('PRODUCT', activeCompanyId)
     setProductForm({
       name: '',
       code: generatedCode,
-      dosage_form: 'Tablet',
+      dosage_form: DEFAULT_DOSAGE_FORM,
       strength: '',
       pack_size: '',
       description: '',
@@ -304,10 +452,12 @@ export default function Products() {
 
   const handleOpenEditProduct = (product) => {
     setModalError('')
+    setIsCustomType(false)
+    setCustomDosageForm('')
     setProductForm({
       name: product.name || '',
       code: product.code || '',
-      dosage_form: product.dosage_form || 'Tablet',
+      dosage_form: product.dosage_form || DEFAULT_DOSAGE_FORM,
       strength: product.strength || '',
       pack_size: product.pack_size || '',
       description: product.description || '',
@@ -332,16 +482,28 @@ export default function Products() {
       return
     }
 
+    const finalDosageForm = isCustomType ? customDosageForm.trim() : productForm.dosage_form
+    if (!finalDosageForm) {
+      setModalError(isCustomType ? 'Please enter the new dosage form / type name.' : 'Dosage Form is required.')
+      return
+    }
+
+    if (isCustomType && customDosageForm.trim()) {
+      dispatch(addDosageForm(customDosageForm.trim()))
+    }
+
     if (productModalMode === 'add') {
-      const finalCode = commitDocumentNumber('PRODUCT')
+      const finalCode = commitDocumentNumber('PRODUCT', activeCompanyId)
       dispatch(
         addProduct({
           name: productForm.name.trim(),
           code: finalCode,
-          dosage_form: productForm.dosage_form,
+          dosage_form: finalDosageForm,
           strength: productForm.strength.trim(),
           pack_size: productForm.pack_size.trim(),
           description: productForm.description.trim(),
+          company: activeCompanyId,
+          companyId: activeCompanyKey,
         })
       )
       setNotification({
@@ -354,7 +516,7 @@ export default function Products() {
           id: activeProduct?.id || selectedProductId,
           payload: {
             name: productForm.name.trim(),
-            dosage_form: productForm.dosage_form,
+            dosage_form: finalDosageForm,
             strength: productForm.strength.trim(),
             pack_size: productForm.pack_size.trim(),
             description: productForm.description.trim(),
@@ -412,6 +574,8 @@ export default function Products() {
         name: newFormulaData.name.trim(),
         base_quantity: bQty,
         base_unit: newFormulaData.base_unit,
+        company: activeCompanyId,
+        companyId: activeCompanyKey,
         revisions: [
           {
             id: defaultRevId,
@@ -640,30 +804,31 @@ export default function Products() {
         <Alert type={notification.type}>{notification.message}</Alert>
       )}
 
+      {/* Top Photo Banner (Consistent with all ERP pages) */}
+      <div className="products-header top-banner">
+        <div>
+          <span className="page-hero-pill">PHARMACEUTICAL FORMULATION</span>
+          <h1>Products &amp; Formulations</h1>
+          <p>
+            Pharma-grade product master, master formula records (MFR), revisions, and live batch scaling.
+          </p>
+        </div>
+      </div>
+
       {/* =========================================================
           VIEW 1: PRODUCT LIST
           ========================================================= */}
       {activeView === 'list' && (
         <>
-          {/* Header */}
-          <div className="products-header">
-            <div className="products-header-title">
-              <h1>
-                <span>💊</span> Products & Formulations
-              </h1>
-              <p>
-                Pharma-grade product master, master formula records (MFR), revisions, and live batch scaling.
-              </p>
+          {/* Top Stats Overview */}
+          <div className="products-stats-row">
+            <div className="product-stat-badge">
+              <span className="num">{products.length}</span>
+              <span className="label">Total Products</span>
             </div>
-            <div className="products-stats-row">
-              <div className="product-stat-badge">
-                <span className="num">{products.length}</span>
-                <span className="label">Total Products</span>
-              </div>
-              <div className="product-stat-badge">
-                <span className="num">{formulas.length}</span>
-                <span className="label">Master Formulas</span>
-              </div>
+            <div className="product-stat-badge">
+              <span className="num">{formulas.length}</span>
+              <span className="label">Master Formulas</span>
             </div>
           </div>
 
@@ -687,7 +852,7 @@ export default function Products() {
                 onChange={(e) => setDosageFilter(e.target.value)}
               >
                 <option value="">All Dosage Forms</option>
-                {DOSAGE_FORMS.map((df) => (
+                {dosageForms.map((df) => (
                   <option key={df} value={df}>
                     {df}
                   </option>
@@ -713,13 +878,14 @@ export default function Products() {
                     <th>Pack Size</th>
                     <th>Description</th>
                     <th>Formula Records</th>
+                    <th>QC Approval</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredProducts.length === 0 ? (
                     <tr>
-                      <td colSpan="8">
+                      <td colSpan="9">
                         <div className="products-empty-state">
                           <span className="products-empty-icon">📦</span>
                           <h3>No pharmaceutical products found</h3>
@@ -739,6 +905,10 @@ export default function Products() {
                       const prodFormulas = formulas.filter(
                         (f) => String(f.product_id) === String(prod.id)
                       )
+                      const prodApproval = (formulaApprovals || []).find(
+                        (a) => String(a.productId) === String(prod.id)
+                      )
+                      const pStatus = prodApproval?.status || prod.formula_approval_status || 'NOT_SUBMITTED'
                       const dosageClass = `dosage-${prod.dosage_form?.toLowerCase() || 'default'}`
 
                       return (
@@ -770,6 +940,25 @@ export default function Products() {
                             ) : (
                               <span style={{ fontSize: '12px', color: '#94a3b8' }}>
                                 No Formula Defined
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {pStatus === 'APPROVED' ? (
+                              <span className="approval-pill pill-approved" title={`Approved by QC (${prodApproval?.decidedBy || 'QA/QC'})`}>
+                                ✓ Approved
+                              </span>
+                            ) : pStatus === 'PENDING' ? (
+                              <span className="approval-pill pill-pending" title={`Pending QC review (Submitted by ${prodApproval?.submittedBy || 'Production'})`}>
+                                ⏳ Pending QC
+                              </span>
+                            ) : pStatus === 'DECLINED' ? (
+                              <span className="approval-pill pill-declined" title={`Declined by QC: ${prodApproval?.declineReason || 'Non-compliant'}`}>
+                                ✕ Declined
+                              </span>
+                            ) : (
+                              <span className="approval-pill pill-neutral" title="Formula calculation has not been submitted to QC">
+                                Not Submitted
                               </span>
                             )}
                           </td>
@@ -818,6 +1007,17 @@ export default function Products() {
       {/* =========================================================
           VIEW 2: FORMULA FLOW & LIVE BATCH CALCULATION
           ========================================================= */}
+      {activeView === 'formula' && !activeProduct && (
+        <div className="products-card">
+          <div className="products-empty-state">
+            <span className="products-empty-icon">📦</span>
+            <h3>No Product Selected</h3>
+            <p>Please select a product from the product list to view or configure its Master Formulas.</p>
+            <Button onClick={() => setActiveView('list')}>← Back to Products List</Button>
+          </div>
+        </div>
+      )}
+
       {activeView === 'formula' && activeProduct && (
         <div className="formula-flow-panel">
           {/* Active Product Banner */}
@@ -874,7 +1074,9 @@ export default function Products() {
             </button>
             <button
               type="button"
-              className={`step-tab-btn ${formulaStep === 2 ? 'active' : ''}`}
+              className={`step-tab-btn ${formulaStep === 2 ? 'active' : ''} ${
+                activeRevision && (activeRevision.materials || []).length > 0 ? 'completed' : ''
+              }`}
               onClick={() => {
                 if (activeFormula) {
                   setFormulaStep(2)
@@ -888,6 +1090,23 @@ export default function Products() {
             >
               <span className="step-number-circle">2</span>
               <span>Step 2: Raw Materials & Formulation</span>
+            </button>
+            <button
+              type="button"
+              className={`step-tab-btn ${formulaStep === 3 ? 'active' : ''}`}
+              onClick={() => {
+                if (activeFormula && activeRevision) {
+                  setFormulaStep(3)
+                } else {
+                  setNotification({
+                    type: 'error',
+                    message: 'Please select a formula and revision first.',
+                  })
+                }
+              }}
+            >
+              <span className="step-number-circle">3</span>
+              <span>Step 3: Batch Calculation</span>
             </button>
           </div>
 
@@ -1113,6 +1332,23 @@ export default function Products() {
           )}
 
           {/* STEP 2: RAW MATERIALS */}
+          {formulaStep === 2 && (!activeFormula || !activeRevision) && (
+            <div className="formula-step-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>🧪</div>
+              <h3 style={{ fontSize: '18px', color: '#123f61', marginBottom: '8px' }}>
+                No Master Formula or Revision Selected
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '14px', maxWidth: '480px', margin: '0 auto 20px auto' }}>
+                Please select or create an approved Master Formula and Revision in Step 1 before specifying raw materials.
+              </p>
+              <div>
+                <Button onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1: Formula &amp; Revision
+                </Button>
+              </div>
+            </div>
+          )}
+
           {formulaStep === 2 && activeFormula && activeRevision && (
             <div className="formula-step-card">
               <div className="formula-step-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -1140,13 +1376,29 @@ export default function Products() {
                       type="text"
                       className="field-input"
                       list="common-materials-list"
-                      placeholder="e.g. Paracetamol IP, Maize Starch, etc."
+                      placeholder="Enter raw material name (API, binder, excipient...)"
                       value={materialForm.name}
-                      onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        const matched = availableRawMaterialsCatalog.find(
+                          (m) => m.name.toLowerCase() === val.toLowerCase()
+                        )
+                        setMaterialForm((prev) => ({
+                          ...prev,
+                          name: val,
+                          unit: matched?.base_unit || prev.unit,
+                        }))
+                      }}
                     />
                     <datalist id="common-materials-list">
-                      {COMMON_RAW_MATERIALS.map((mat) => (
-                        <option key={mat} value={mat} />
+                      {availableRawMaterialsCatalog.map((mat) => (
+                        <option
+                          key={mat.id || mat.name}
+                          value={mat.name}
+                          label={`${mat.name} (Available: ${mat.availableStock} ${mat.base_unit || 'KG'})`}
+                        >
+                          {mat.name} [Avail: ${mat.availableStock} ${mat.base_unit || 'KG'}]
+                        </option>
                       ))}
                     </datalist>
                   </div>
@@ -1274,29 +1526,102 @@ export default function Products() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Step 2 Footer Navigation */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingTop: '16px',
+                  borderTop: '1px solid #f1f5f9',
+                  marginTop: '16px',
+                }}
+              >
+                <Button variant="secondary" onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1
+                </Button>
+                <Button onClick={() => setFormulaStep(3)}>
+                  Next: Calculation →
+                </Button>
+              </div>
             </div>
           )}
 
           {/* =========================================================
-              CALCULATION SECTION (LARGE CARD)
-              Always visible under Formula & Materials flow
+              STEP 3: BATCH CALCULATION
               ========================================================= */}
-          {activeFormula && activeRevision && (
+          {formulaStep === 3 && (!activeFormula || !activeRevision) && (
+            <div className="formula-step-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>📋</div>
+              <h3 style={{ fontSize: '18px', color: '#123f61', marginBottom: '8px' }}>
+                No Formula or Revision Selected
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '14px', maxWidth: '480px', margin: '0 auto 20px auto' }}>
+                Please select or create an approved Master Formula and Revision in Step 1 before calculating batch requirements.
+              </p>
+              <div>
+                <Button onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {formulaStep === 3 && activeFormula && activeRevision && (!activeRevision.materials || activeRevision.materials.length === 0) && (
+            <div className="formula-step-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>⚖️</div>
+              <h3 style={{ fontSize: '18px', color: '#123f61', marginBottom: '8px' }}>
+                No Raw Materials Defined
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '14px', maxWidth: '520px', margin: '0 auto 20px auto' }}>
+                Formula <strong>{activeFormula.name}</strong> ({activeRevision.name}) has no raw materials defined yet. Add raw materials in Step 2 to generate live batch formulation calculations.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+                <Button variant="secondary" onClick={() => setFormulaStep(1)}>
+                  ← Back to Step 1
+                </Button>
+                <Button onClick={() => setFormulaStep(2)}>
+                  ← Back to Step 2 (Add Materials)
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {formulaStep === 3 && activeFormula && activeRevision && activeRevision.materials && activeRevision.materials.length > 0 && (
             <div className="calculation-master-card">
               <div className="calc-card-header">
-                <div className="calc-card-title">
-                  <div className="calc-icon-badge">⚖️</div>
-                  <div>
-                    <h3>Live Batch Formulation Calculation Engine</h3>
-                    <p>
-                      Precision stoichiometric scaling with automatic multi-unit conversion and best-fit representation.
-                    </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
+                  <div className="calc-card-title">
+                    <div className="calc-icon-badge">⚖️</div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <h3 style={{ margin: 0 }}>Step 3: Live Batch Formulation Calculation Engine</h3>
+                        {isPendingApproval ? (
+                          <span className="qc-status-badge badge-pending">⏳ Pending QC Approval</span>
+                        ) : isApproved ? (
+                          <span className="qc-status-badge badge-approved">✓ Approved by QC</span>
+                        ) : isDeclined ? (
+                          <span className="qc-status-badge badge-declined">✕ Declined by QC</span>
+                        ) : (
+                          <span className="qc-status-badge badge-neutral">⚪ Not Submitted to QC</span>
+                        )}
+                      </div>
+                      <p style={{ marginTop: '4px' }}>
+                        Precision stoichiometric scaling with automatic multi-unit conversion and best-fit representation.
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <Button variant="secondary" onClick={() => setFormulaStep(2)}>
+                      ← Back to Step 2
+                    </Button>
                   </div>
                 </div>
 
                 <div className="calc-context-pill-row">
                   <div className="calc-context-pill">
-                    Product: <strong>{activeProduct.name}</strong>
+                    Product: <strong>{activeProduct.name}</strong> ({activeProduct.code})
                   </div>
                   <div className="calc-context-pill">
                     Formula: <strong>{activeFormula.name}</strong>
@@ -1310,10 +1635,80 @@ export default function Products() {
                 </div>
               </div>
 
+              {/* Status Banner */}
+              {isPendingApproval && activeApproval && (
+                <div className="approval-banner banner-pending">
+                  <div className="banner-icon">⏳</div>
+                  <div className="banner-content">
+                    <div className="banner-title">Under Review by Quality Control (QC)</div>
+                    <div className="banner-desc">
+                      Submitted on <strong>{new Date(activeApproval.submittedAt).toLocaleString()}</strong> by{' '}
+                      <strong>{activeApproval.submittedBy}</strong> ({activeApproval.submittedByRole || 'Production Chemist'}).
+                      Calculation parameters are locked while awaiting QC analytical clearance.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => setShowWithdrawModal(true)}>
+                    Withdraw Request
+                  </Button>
+                </div>
+              )}
+
+              {isApproved && activeApproval && (
+                <div className="approval-banner banner-approved">
+                  <div className="banner-icon">✓</div>
+                  <div className="banner-content">
+                    <div className="banner-title">Certified & Approved by Quality Control</div>
+                    <div className="banner-desc">
+                      Approved on <strong>{new Date(activeApproval.decidedAt).toLocaleString()}</strong> by{' '}
+                      <strong>{activeApproval.decidedBy}</strong> ({activeApproval.decidedByRole || 'QA Manager'}).
+                      {activeApproval.decisionRemarks && (
+                        <span> QC Remarks: "<em>{activeApproval.decisionRemarks}</em>"</span>
+                      )}
+                      — This formulation is locked as the master standard for batch manufacturing.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => setShowBmrDocModal(true)}>
+                    📄 View BMR Requisition Slip
+                  </Button>
+                </div>
+              )}
+
+              {isDeclined && activeApproval && (
+                <div className="approval-banner banner-declined">
+                  <div className="banner-icon">✕</div>
+                  <div className="banner-content">
+                    <div className="banner-title">
+                      Formulation Calculation Declined by QC
+                      {activeApproval.declineCategory ? ` — [${activeApproval.declineCategory}]` : ''}
+                    </div>
+                    <div className="banner-desc">
+                      Declined on <strong>{new Date(activeApproval.decidedAt).toLocaleString()}</strong> by{' '}
+                      <strong>{activeApproval.decidedBy}</strong> ({activeApproval.decidedByRole || 'QC In-Charge'}).
+                      <div className="decline-finding-card">
+                        <strong>QC Finding:</strong> {activeApproval.declineReason || activeApproval.decisionRemarks}
+                      </div>
+                      Inputs have been unlocked. You may modify the batch quantity or update revision materials in Step 2, then resubmit for approval.
+                    </div>
+                  </div>
+                  {activeApproval.history && activeApproval.history.length > 1 && (
+                    <Button variant="secondary" onClick={() => setShowHistoryModal(true)}>
+                      Audit Trail ({activeApproval.history.length})
+                    </Button>
+                  )}
+                </div>
+              )}
+
               {/* Batch Quantity Input Panel */}
               <div className="calc-input-panel">
                 <div className="calc-batch-entry">
-                  <span className="calc-batch-label">Required Batch Quantity:</span>
+                  <span className="calc-batch-label">
+                    Required Batch Quantity:
+                    {(isPendingApproval || isApproved) && (
+                      <span className="lock-tag" title="Inputs are locked for submitted/approved formulations">
+                        🔒 Locked ({isApproved ? 'Approved Master' : 'In Review'})
+                      </span>
+                    )}
+                  </span>
                   <div className="calc-batch-input-group">
                     <input
                       type="number"
@@ -1323,11 +1718,13 @@ export default function Products() {
                       value={requiredBatchQty}
                       onChange={(e) => setRequiredBatchQty(e.target.value)}
                       placeholder="e.g. 1"
+                      disabled={isPendingApproval || isApproved}
                     />
                     <select
                       className="calc-unit-select"
                       value={requiredBatchUnit}
                       onChange={(e) => setRequiredBatchUnit(e.target.value)}
+                      disabled={isPendingApproval || isApproved}
                     >
                       {SUPPORTED_UNITS.map((u) => (
                         <option key={u.value} value={u.value}>
@@ -1359,7 +1756,17 @@ export default function Products() {
                     </tr>
                   </thead>
                   <tbody>
-                    {calculatedMaterials.length === 0 ? (
+                    {!requiredBatchQty || Number(requiredBatchQty) <= 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                          <div style={{ fontSize: '24px', marginBottom: '8px' }}>⚖️</div>
+                          <div style={{ fontWeight: 600, color: '#123f61', marginBottom: '4px' }}>
+                            Enter Batch Quantity to Run Calculation
+                          </div>
+                          <div>Specify a batch quantity above to calculate stoichiometric requirements for this revision.</div>
+                        </td>
+                      </tr>
+                    ) : calculatedMaterials.length === 0 ? (
                       <tr>
                         <td colSpan="5" style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                           No raw materials defined in <strong>{activeRevision.name}</strong>. Add materials in Step 2 to generate live batch requirements.
@@ -1417,6 +1824,139 @@ export default function Products() {
                   </div>
                 </div>
               )}
+
+              {/* Step 3 Action Bar */}
+              <div className="calc-action-bar">
+                <div className="action-bar-left">
+                  <Button variant="secondary" onClick={() => setFormulaStep(2)}>
+                    ← Back to Step 2
+                  </Button>
+                </div>
+
+                <div className="action-bar-right">
+                  {/* Export / Print Dropdown Menu */}
+                  <div className="export-dropdown-wrapper">
+                    <Button
+                      variant="secondary"
+                      onClick={() => setShowExportMenu(!showExportMenu)}
+                    >
+                      📄 Export / Print ▾
+                    </Button>
+
+                    {showExportMenu && (
+                      <div className="export-menu-dropdown">
+                        <button
+                          type="button"
+                          className="export-menu-item"
+                          onClick={() => {
+                            setShowExportMenu(false)
+                            setShowBmrDocModal(true)
+                          }}
+                        >
+                          <span>👁️</span> Preview BMR Slip
+                        </button>
+                        <button
+                          type="button"
+                          className="export-menu-item"
+                          onClick={() => {
+                            setShowExportMenu(false)
+                            setShowBmrDocModal(true)
+                            setTimeout(() => exportFormulaPrint(), 400)
+                          }}
+                        >
+                          <span>🖨️</span> Print / Save PDF
+                        </button>
+                        <button
+                          type="button"
+                          className="export-menu-item"
+                          onClick={() => {
+                            setShowExportMenu(false)
+                            exportFormulaExcel({
+                              product: activeProduct,
+                              formula: activeFormula,
+                              revision: activeRevision,
+                              materials: calculatedMaterials,
+                              batchQty: requiredBatchQty,
+                              batchUnit: requiredBatchUnit,
+                              scaleFactor: currentScaleFactor,
+                              approval: activeApproval,
+                              companyName: activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                            })
+                          }}
+                        >
+                          <span>📊</span> Export to Excel (.xls)
+                        </button>
+                        <button
+                          type="button"
+                          className="export-menu-item"
+                          onClick={() => {
+                            setShowExportMenu(false)
+                            exportFormulaCsv({
+                              product: activeProduct,
+                              formula: activeFormula,
+                              revision: activeRevision,
+                              materials: calculatedMaterials,
+                              batchQty: requiredBatchQty,
+                              batchUnit: requiredBatchUnit,
+                              approval: activeApproval,
+                            })
+                          }}
+                        >
+                          <span>📑</span> Export to CSV
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Primary QC Approval Action Button */}
+                  {isPendingApproval ? (
+                    <Button
+                      variant="danger"
+                      onClick={() => setShowWithdrawModal(true)}
+                    >
+                      ✕ Withdraw Request
+                    </Button>
+                  ) : isApproved ? (
+                    <div className="approved-lock-indicator">
+                      <span className="badge-approved-pill">
+                        ✓ Approved Manufacturing Standard
+                      </span>
+                    </div>
+                  ) : isDeclined ? (
+                    <div className="tooltip-container">
+                      <Button
+                        variant="primary"
+                        onClick={() => {
+                          setApprovalRemarks('')
+                          setShowApprovalModal(true)
+                        }}
+                        disabled={!isCalculationValid}
+                      >
+                        🔄 Resubmit to QC
+                      </Button>
+                      {!isCalculationValid && (
+                        <div className="tooltip-bubble">{calculationInvalidReason}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="tooltip-container">
+                      <Button
+                        variant="primary"
+                        onClick={() => {
+                          setApprovalRemarks('')
+                          setShowApprovalModal(true)
+                        }}
+                        disabled={!isCalculationValid}
+                      >
+                        🚀 Get Approval from QC
+                      </Button>
+                      {!isCalculationValid && (
+                        <div className="tooltip-bubble">{calculationInvalidReason}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1452,7 +1992,7 @@ export default function Products() {
               <input
                 type="text"
                 className="pharma-input"
-                placeholder="e.g. Paracetamol Tablets"
+                placeholder="Enter product name"
                 value={productForm.name}
                 onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
                 required
@@ -1476,15 +2016,41 @@ export default function Products() {
               </label>
               <select
                 className="pharma-select"
-                value={productForm.dosage_form}
-                onChange={(e) => setProductForm({ ...productForm, dosage_form: e.target.value })}
+                value={isCustomType ? '__NEW_TYPE__' : productForm.dosage_form}
+                onChange={(e) => {
+                  if (e.target.value === '__NEW_TYPE__') {
+                    setIsCustomType(true)
+                  } else {
+                    setIsCustomType(false)
+                    setProductForm({ ...productForm, dosage_form: e.target.value })
+                  }
+                }}
               >
-                {DOSAGE_FORMS.map((df) => (
+                {!dosageForms.includes(productForm.dosage_form) && productForm.dosage_form && !isCustomType && (
+                  <option value={productForm.dosage_form}>
+                    {productForm.dosage_form}
+                  </option>
+                )}
+                {dosageForms.map((df) => (
                   <option key={df} value={df}>
                     {df}
                   </option>
                 ))}
+                <option value="__NEW_TYPE__">+ Add New Type...</option>
               </select>
+              {isCustomType && (
+                <div style={{ marginTop: 6 }}>
+                  <input
+                    type="text"
+                    className="pharma-input"
+                    placeholder="Enter new dosage form / type (e.g. Inhalation, Ointment, Gel)"
+                    value={customDosageForm}
+                    onChange={(e) => setCustomDosageForm(e.target.value)}
+                    autoFocus
+                    required
+                  />
+                </div>
+              )}
             </div>
 
             <div className="pharma-form-row">
@@ -1576,6 +2142,208 @@ export default function Products() {
             Are you sure you want to remove <strong>{deleteMaterialTarget.name}</strong> ({deleteMaterialTarget.base_quantity}{' '}
             {deleteMaterialTarget.unit}) from <strong>{activeRevision?.name}</strong>?
           </p>
+        </Modal>
+      )}
+
+      {/* Send to QC for Approval Confirmation Modal */}
+      {showApprovalModal && (
+        <Modal
+          title={isDeclined ? 'Resubmit Formulation Calculation to QC' : 'Get Quality Control (QC) Approval'}
+          onClose={() => setShowApprovalModal(false)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <Button variant="secondary" onClick={() => setShowApprovalModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmSubmitToQc}>
+                🚀 {isDeclined ? 'Confirm & Resubmit to QC' : 'Confirm & Submit to QC'}
+              </Button>
+            </div>
+          }
+        >
+          <div className="qc-submit-modal-content">
+            <p style={{ margin: '0 0 14px 0', fontSize: '13.5px', color: '#475569' }}>
+              Review the stoichiometric batch calculation snapshot before forwarding to Quality Control for review:
+            </p>
+
+            <div className="qc-summary-read-only-card">
+              <div className="qc-summary-row">
+                <span className="lbl">Product:</span>
+                <span className="val bold-val">{activeProduct?.name} ({activeProduct?.code})</span>
+              </div>
+              <div className="qc-summary-row">
+                <span className="lbl">Formula:</span>
+                <span className="val">{activeFormula?.name}</span>
+              </div>
+              <div className="qc-summary-row">
+                <span className="lbl">Revision:</span>
+                <span className="val">{activeRevision?.name}</span>
+              </div>
+              <div className="qc-summary-row">
+                <span className="lbl">Formula Base:</span>
+                <span className="val">{activeFormula?.base_quantity} {activeFormula?.base_unit}</span>
+              </div>
+              <div className="qc-summary-row">
+                <span className="lbl">Target Batch Qty:</span>
+                <span className="val bold-val" style={{ color: '#0f766e' }}>
+                  {requiredBatchQty} {requiredBatchUnit} ({formatPharmaNumber(currentScaleFactor, 3)}× scale)
+                </span>
+              </div>
+              <div className="qc-summary-row">
+                <span className="lbl">Material Count:</span>
+                <span className="val">{calculatedMaterials.length} Ingredients</span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '14px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                Remarks for QC (Optional)
+              </label>
+              <textarea
+                className="pharma-textarea"
+                rows="3"
+                placeholder="e.g. Standard production batch calculation for scheduled Q4 commercial run. All excipients stoichiometry verified."
+                value={approvalRemarks}
+                onChange={(e) => setApprovalRemarks(e.target.value)}
+              />
+            </div>
+
+            <div style={{ marginTop: '12px' }}>
+              <Alert type="info">
+                Submitting creates an immutable snapshot of this calculation. Formula edits in draft mode will not alter the submitted record until re-submitted.
+              </Alert>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Withdraw Request Modal */}
+      {showWithdrawModal && (
+        <Modal
+          title="Withdraw QC Approval Request"
+          onClose={() => setShowWithdrawModal(false)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <Button variant="secondary" onClick={() => setShowWithdrawModal(false)}>
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={handleConfirmWithdrawRequest}>
+                Confirm Withdrawal
+              </Button>
+            </div>
+          }
+        >
+          <div className="withdraw-modal-content">
+            <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#334155' }}>
+              Are you sure you want to withdraw the pending QC approval request for{' '}
+              <strong>{activeProduct?.name}</strong>?
+            </p>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                Withdrawal Reason (Optional)
+              </label>
+              <textarea
+                className="pharma-textarea"
+                rows="2"
+                placeholder="e.g. Need to adjust excipient binder ratio before final sign-off."
+                value={withdrawReason}
+                onChange={(e) => setWithdrawReason(e.target.value)}
+              />
+            </div>
+            <Alert type="warning">
+              Withdrawing will return this formulation calculation to draft state, allowing unrestricted edits and unlocking all inputs.
+            </Alert>
+          </div>
+        </Modal>
+      )}
+
+      {/* BMR Requisition Document Modal */}
+      {showBmrDocModal && (
+        <Modal
+          title="Batch Manufacturing Record (BMR) - Raw Material Requisition Slip"
+          onClose={() => setShowBmrDocModal(false)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    exportFormulaExcel({
+                      product: activeProduct,
+                      formula: activeFormula,
+                      revision: activeRevision,
+                      materials: calculatedMaterials,
+                      batchQty: requiredBatchQty,
+                      batchUnit: requiredBatchUnit,
+                      scaleFactor: currentScaleFactor,
+                      approval: activeApproval,
+                      companyName: activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                    })
+                  }
+                >
+                  📊 Export Excel (.xls)
+                </Button>
+                <Button variant="secondary" onClick={() => exportFormulaPrint()}>
+                  🖨️ Print / Save PDF
+                </Button>
+              </div>
+              <Button onClick={() => setShowBmrDocModal(false)}>
+                Close Preview
+              </Button>
+            </div>
+          }
+        >
+          <div style={{ maxHeight: '72vh', overflowY: 'auto', padding: '10px 4px' }}>
+            <BmrRequisitionDocument
+              product={activeProduct}
+              formula={activeFormula}
+              revision={activeRevision}
+              materials={calculatedMaterials}
+              batchQty={requiredBatchQty}
+              batchUnit={requiredBatchUnit}
+              scaleFactor={currentScaleFactor}
+              approval={activeApproval}
+              companyName={activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
+              companyCode={activeCompanyId === 2 ? 'TEJ' : 'CMHP'}
+              department={['Liquid', 'Syrup', 'Drops', 'Oil', 'Syrups', 'Suspension'].includes(activeProduct?.dosage_form) ? 'PRODUCTION ( ORAL LIQUID DEPARTMENT )' : 'PRODUCTION ( ORAL SOLID DOSAGE DEPARTMENT )'}
+            />
+          </div>
+        </Modal>
+      )}
+
+      {/* Audit History Timeline Modal */}
+      {showHistoryModal && activeApproval?.history && (
+        <Modal
+          title="QC Approval & Review Audit Trail"
+          onClose={() => setShowHistoryModal(false)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button onClick={() => setShowHistoryModal(false)}>Close</Button>
+            </div>
+          }
+        >
+          <div className="qc-audit-timeline">
+            {activeApproval.history.map((h, i) => (
+              <div key={i} className={`timeline-entry timeline-${h.action.toLowerCase()}`}>
+                <div className="timeline-dot" />
+                <div className="timeline-body">
+                  <div className="timeline-header">
+                    <span className={`timeline-badge badge-${h.action.toLowerCase()}`}>{h.action}</span>
+                    <span className="timeline-time">{new Date(h.at).toLocaleString()}</span>
+                  </div>
+                  <div className="timeline-author">
+                    By <strong>{h.by}</strong> {h.role ? `(${h.role})` : ''}
+                  </div>
+                  {h.remarks && <div className="timeline-notes">"{h.remarks}"</div>}
+                  {h.reason && (
+                    <div className="timeline-reason">
+                      <strong>Decline Finding {h.category ? `[${h.category}]` : ''}:</strong> {h.reason}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </Modal>
       )}
     </div>

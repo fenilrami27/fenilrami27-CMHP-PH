@@ -50,7 +50,8 @@
       rgba(255, 255, 255, 0.62) 58%,
       rgba(255, 255, 255, 0.08) 100%
     ),
-    url('/images/pharma-dashboard.jpg');
+    url('/images/pharma-dashboard.jpg'),
+    url('/pharma-banner.png');
 
   background-size: cover;
   background-position: center;
@@ -1419,4 +1420,155 @@
   outline: 3px solid rgba(33, 134, 217, 0.18);
 
   outline-offset: 2px;
+}
+
+/* =========================================================
+   USER MANAGEMENT KPI GRID & ENHANCED FILTERS
+   ========================================================= */
+
+.um-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.um-kpi-card {
+  background: #ffffff;
+  border: 1px solid #e1eaf1;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 2px 6px rgba(18, 52, 77, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.um-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(18, 52, 77, 0.08);
+}
+
+.um-kpi-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.um-kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f2c42;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+
+.um-kpi-subtext {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.um-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.um-search-box {
+  position: relative;
+  flex: 1 1 280px;
+  min-width: 240px;
+}
+
+.um-search-box input {
+  width: 100%;
+  height: 38px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.um-search-box input:focus {
+  border-color: #0284c7;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+}
+
+.um-clear-search {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.um-clear-search:hover {
+  color: #475569;
+}
+
+.um-select-filter select {
+  height: 38px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #334155;
+  background: #f8fafc;
+  outline: none;
+  cursor: pointer;
+}
+
+.um-select-filter select:focus {
+  border-color: #0284c7;
+  background: #ffffff;
+}
+
+.um-clear-btn {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.um-clear-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.um-count-pill {
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+  background: #f8fafc;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+}
+
+.um-count-pill strong {
+  color: #0f172a;
 }

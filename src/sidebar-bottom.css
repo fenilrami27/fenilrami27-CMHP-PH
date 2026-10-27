@@ -219,20 +219,24 @@
     flex-direction: column;
 
     min-height: 100vh;
+    min-height: 100dvh;
 
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 
 /*
-   If your sidebar menu has one of these wrappers,
-   allow it to consume available space.
+   Allow sidebar menu to scroll independently
 */
 
 .layout-sidebar .sidebar-menu,
 .layout-sidebar .sidebar-nav,
 .layout-sidebar nav {
+    flex: 1 1 auto;
     min-height: 0;
+    overflow-y: auto;
 }
 
 
