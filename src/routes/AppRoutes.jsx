@@ -1,3 +1,4 @@
+import Dispatch from '../features/dispatch/Dispatch'
 import {
   Routes,
   Route,
@@ -505,6 +506,27 @@ export default function AppRoutes() {
                 ]}
               >
                 <SupplyChain />
+              </RoleRoute>
+            }
+          />
+
+          {/* =================================================
+              DISPATCH
+              ================================================= */}
+
+          <Route
+            path="/dispatch"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'STORES_USER',
+                ]}
+              >
+                <Dispatch />
               </RoleRoute>
             }
           />

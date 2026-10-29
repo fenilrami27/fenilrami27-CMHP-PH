@@ -1,3 +1,4 @@
+import { DOSAGE_FORMS } from '../constants/dosageForms'
 import {
   configureStore,
 } from '@reduxjs/toolkit'
@@ -61,7 +62,7 @@ function buildInitialERPState() {
     'lots', 'commonProducts', 'commonRawMaterials', 'products', 'orders', 'batches',
     'customers', 'suppliers', 'issueHistory', 'stockReturns',
     'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches', 'dosageForms', 'invoices',
-    'designations', 'salaryStructures', 'attendance', 'payments'
+    'designations', 'salaryStructures', 'attendance', 'payments', 'formulas', 'formulaApprovals'
   ]
   seedIfEmptyKeys.forEach((key) => {
     if (!Array.isArray(result[key]) || result[key].length === 0) {
@@ -91,6 +92,27 @@ function buildInitialERPState() {
 
   if (!result.byCompany || !result.byCompany.cmhp || !result.byCompany.cmhp.orders || result.byCompany.cmhp.orders.length === 0) {
     result.byCompany = JSON.parse(JSON.stringify(initialState.byCompany || {}))
+  }
+
+  // Ensure dosageForms includes all current DOSAGE_FORMS and removes any 'Tablets'
+  if (Array.isArray(result.dosageForms)) {
+    result.dosageForms = result.dosageForms
+      .map((df) => (String(df).trim().toLowerCase() === 'tablets' ? 'Tablet' : String(df).trim()))
+      .filter((df) => df.toLowerCase() !== 'tablets')
+    DOSAGE_FORMS.forEach((df) => {
+      if (!result.dosageForms.some((x) => String(x).toLowerCase() === String(df).toLowerCase())) {
+        result.dosageForms.push(df)
+      }
+    })
+    const seenDf = new Set()
+    result.dosageForms = result.dosageForms.filter((df) => {
+      const lower = df.toLowerCase()
+      if (seenDf.has(lower)) return false
+      seenDf.add(lower)
+      return true
+    })
+  } else {
+    result.dosageForms = [...DOSAGE_FORMS]
   }
 
   // Ensure notifications, stockRequests, and ledger arrays exist
@@ -254,9 +276,74 @@ function buildInitialERPState() {
     })
   }
 
+  // Normalize 'Tablets' -> 'Tablet' across all persisted records
+  const normalizeTablet = (val) => {
+    if (typeof val === 'string' && val.trim().toLowerCase() === 'tablets') {
+      return 'Tablet'
+    }
+    return val
+  }
+
+  const migrateProductRecord = (p) => {
+    if (!p || typeof p !== 'object') return
+    if (p.dosage_form) p.dosage_form = normalizeTablet(p.dosage_form)
+    if (p.category) p.category = normalizeTablet(p.category)
+    if (p.type) p.type = normalizeTablet(p.type)
+  }
+  if (Array.isArray(result.products)) result.products.forEach(migrateProductRecord)
+  if (Array.isArray(result.commonProducts)) result.commonProducts.forEach(migrateProductRecord)
+  if (Array.isArray(result.byCompany?.cmhp?.products)) result.byCompany.cmhp.products.forEach(migrateProductRecord)
+  if (Array.isArray(result.byCompany?.tej?.products)) result.byCompany.tej.products.forEach(migrateProductRecord)
+
+  const migrateOrderRecord = (o) => {
+    if (!o || typeof o !== 'object') return
+    if (o.dosage_form) o.dosage_form = normalizeTablet(o.dosage_form)
+    if (o.dosageForm) o.dosageForm = normalizeTablet(o.dosageForm)
+    if (o.product_type) o.product_type = normalizeTablet(o.product_type)
+    if (o.type) o.type = normalizeTablet(o.type)
+  }
+  if (Array.isArray(result.orders)) result.orders.forEach(migrateOrderRecord)
+  if (Array.isArray(result.byCompany?.cmhp?.orders)) result.byCompany.cmhp.orders.forEach(migrateOrderRecord)
+  if (Array.isArray(result.byCompany?.tej?.orders)) result.byCompany.tej.orders.forEach(migrateOrderRecord)
+
+  const migrateBatchRecord = (b) => {
+    if (!b || typeof b !== 'object') return
+    if (b.dosage_form) b.dosage_form = normalizeTablet(b.dosage_form)
+    if (b.dosageForm) b.dosageForm = normalizeTablet(b.dosageForm)
+    if (b.product_type) b.product_type = normalizeTablet(b.product_type)
+    if (b.type) b.type = normalizeTablet(b.type)
+  }
+  if (Array.isArray(result.batches)) result.batches.forEach(migrateBatchRecord)
+  if (Array.isArray(result.byCompany?.cmhp?.batches)) result.byCompany.cmhp.batches.forEach(migrateBatchRecord)
+  if (Array.isArray(result.byCompany?.tej?.batches)) result.byCompany.tej.batches.forEach(migrateBatchRecord)
+
+  const migrateFormulaRecord = (f) => {
+    if (!f || typeof f !== 'object') return
+    if (f.category) f.category = normalizeTablet(f.category)
+    if (f.dosage_form) f.dosage_form = normalizeTablet(f.dosage_form)
+    if (f.dosageForm) f.dosageForm = normalizeTablet(f.dosageForm)
+    if (f.type) f.type = normalizeTablet(f.type)
+  }
+  if (Array.isArray(result.formulas)) result.formulas.forEach(migrateFormulaRecord)
+  if (Array.isArray(result.byCompany?.cmhp?.formulas)) result.byCompany.cmhp.formulas.forEach(migrateFormulaRecord)
+  if (Array.isArray(result.byCompany?.tej?.formulas)) result.byCompany.tej.formulas.forEach(migrateFormulaRecord)
+
+  if (Array.isArray(result.lots)) {
+    result.lots.forEach((l) => {
+      if (l?.category) l.category = normalizeTablet(l.category)
+    })
+  }
+  if (Array.isArray(result.stockLedgerEntries)) {
+    result.stockLedgerEntries.forEach((e) => {
+      if (e?.category) e.category = normalizeTablet(e.category)
+    })
+  }
+
   migrateDocumentNumbers(
     result
   )
+
+  savePersistedERPState(result)
 
   return result
 }

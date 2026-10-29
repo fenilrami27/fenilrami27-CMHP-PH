@@ -1,7 +1,7 @@
 const ERP_STORAGE_KEY = 'cmhp_erp_state_v5'
 const STORAGE_VERSION = 5
 const SEED_VERSION_KEY = 'cmhp_seed_version'
-export const CURRENT_SEED_VERSION = 10
+export const CURRENT_SEED_VERSION = 11
 
 function isBrowser() {
   return (
@@ -41,13 +41,11 @@ export function loadPersistedERPState() {
       }
     }
 
-    // Fresh browser or outdated seed version: ensure seed version key is saved
+    // Fresh browser or outdated seed version: clear stale local storage and initialize from master seed
     if (!storedSeedVersion || Number(storedSeedVersion) < CURRENT_SEED_VERSION) {
       localStorage.setItem(SEED_VERSION_KEY, String(CURRENT_SEED_VERSION))
-      // If no stored state exists yet, returning null allows store.js to initialize with committed master seed
-      if (!raw) {
-        return null
-      }
+      localStorage.removeItem(ERP_STORAGE_KEY)
+      return null
     }
 
     if (!raw) {

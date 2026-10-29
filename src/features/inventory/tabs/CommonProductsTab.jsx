@@ -63,11 +63,24 @@ export default function CommonProductsTab({ role }) {
 
   // Dynamic filter options built from data in Redux (empty/All if no data yet)
   const categoryOptions = useMemo(() => {
-    const set = new Set(dosageForms)
-    commonProducts.forEach((p) => {
-      const cat = p.category || p.dosage_form || p.type
-      if (cat && String(cat).trim()) set.add(String(cat).trim())
+    const set = new Set()
+    dosageForms.forEach((df) => {
+      if (String(df).trim().toLowerCase() !== 'tablets') {
+        set.add(String(df).trim())
+      }
     })
+    commonProducts.forEach((p) => {
+      let cat = p.category || p.dosage_form || p.type
+      if (cat && String(cat).trim()) {
+        const trimmed = String(cat).trim()
+        if (trimmed.toLowerCase() === 'tablets') {
+          set.add('Tablet')
+        } else {
+          set.add(trimmed)
+        }
+      }
+    })
+    set.delete('Tablets')
     return Array.from(set)
   }, [commonProducts, dosageForms])
 
@@ -118,7 +131,7 @@ export default function CommonProductsTab({ role }) {
     setForm({
       code: product.code || '',
       name: product.name || '',
-      category: product.category || 'Tablets',
+      category: (product.category === 'Tablets' ? 'Tablet' : product.category) || 'Tablet',
       uom: product.uom || 'Pack',
       current_stock: product.current_stock ?? 0,
       reorder_level: product.reorder_level ?? 0,
@@ -848,10 +861,10 @@ export default function CommonProductsTab({ role }) {
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
                   className="company-input"
                 >
-                  {!dosageForms.includes(form.category) && form.category && (
+                  {!dosageForms.includes(form.category) && form.category && form.category !== 'Tablets' && (
                     <option value={form.category}>{form.category}</option>
                   )}
-                  {dosageForms.map((cat) => (
+                  {dosageForms.filter((cat) => String(cat).trim().toLowerCase() !== 'tablets').map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>

@@ -1,8 +1,7 @@
 /**
  * BMR Template Registry
  * Central mapping from dosage form to BMR definition.
- * Dosage Form options: Liquid, Tablet, Capsule, Syrup, Drops, Oil, Kits, Pills.
- * Every dosage form has a 19-section GMP Master BMR template.
+ * Dosage Form options: Liquid, Tablet, Capsule, Syrup, Drops, Oil, Kits, Pills, Mother Tincture.
  */
 
 import {
@@ -18,6 +17,20 @@ import {
   normalizeSyrupBmrData,
   getSyrupSectionStatus,
 } from '../syrupInitialData.js'
+
+import {
+  TABLET_BMR_SECTIONS,
+  getEmptyTabletBmrData,
+  normalizeTabletBmrData,
+  getTabletSectionStatus,
+} from '../tabletInitialData.js'
+
+import {
+  MOTHER_TINCTURE_BMR_SECTIONS,
+  getEmptyMotherTinctureBmrData,
+  normalizeMotherTinctureBmrData,
+  getMotherTinctureSectionStatus,
+} from '../motherTinctureInitialData.js'
 
 export const BMR_TEMPLATES = {
   Syrup: {
@@ -65,11 +78,26 @@ export const BMR_TEMPLATES = {
     title: 'Tablet Dosage Form BMR (19 Pages)',
     pagesCount: 19,
     department: 'PRODUCTION ( TABLET DEPARTMENT)',
-    formNo: 'FORM NO. SOP/QA/04/F-04/00',
-    sections: DROPS_BMR_SECTIONS,
-    getEmptyData: getEmptyDropsBmrData,
-    normalizeData: normalizeDropsBmrData,
-    getSectionStatus: getDropsSectionStatus,
+    formNo: 'FORM NO. SOP/QA/04/F-05/00',
+    hideMasterCopy: true,
+    sections: TABLET_BMR_SECTIONS,
+    getEmptyData: getEmptyTabletBmrData,
+    normalizeData: normalizeTabletBmrData,
+    getSectionStatus: getTabletSectionStatus,
+    isAvailable: true,
+  },
+  'Mother Tincture': {
+    dosageForm: 'Mother Tincture',
+    bmrType: 'mother_tincture',
+    title: 'Mother Tincture Department BMR (6 Pages)',
+    pagesCount: 6,
+    department: 'PRODUCTION ( MOTHER TINCTURE DEPARTMENT)',
+    formNo: 'SOP/QA/04/F-01/00',
+    hideMasterCopy: true,
+    sections: MOTHER_TINCTURE_BMR_SECTIONS,
+    getEmptyData: getEmptyMotherTinctureBmrData,
+    normalizeData: normalizeMotherTinctureBmrData,
+    getSectionStatus: getMotherTinctureSectionStatus,
     isAvailable: true,
   },
   Capsule: {
@@ -83,7 +111,7 @@ export const BMR_TEMPLATES = {
     getEmptyData: getEmptyDropsBmrData,
     normalizeData: normalizeDropsBmrData,
     getSectionStatus: getDropsSectionStatus,
-    isAvailable: true,
+    isAvailable: false,
   },
   Oil: {
     dosageForm: 'Oil',
@@ -96,7 +124,7 @@ export const BMR_TEMPLATES = {
     getEmptyData: getEmptyDropsBmrData,
     normalizeData: normalizeDropsBmrData,
     getSectionStatus: getDropsSectionStatus,
-    isAvailable: true,
+    isAvailable: false,
   },
   Kits: {
     dosageForm: 'Kits',
@@ -109,7 +137,7 @@ export const BMR_TEMPLATES = {
     getEmptyData: getEmptyDropsBmrData,
     normalizeData: normalizeDropsBmrData,
     getSectionStatus: getDropsSectionStatus,
-    isAvailable: true,
+    isAvailable: false,
   },
   Pills: {
     dosageForm: 'Pills',
@@ -122,13 +150,12 @@ export const BMR_TEMPLATES = {
     getEmptyData: getEmptyDropsBmrData,
     normalizeData: normalizeDropsBmrData,
     getSectionStatus: getDropsSectionStatus,
-    isAvailable: true,
+    isAvailable: false,
   },
 }
 
 // Aliases for plurals and common synonyms
 BMR_TEMPLATES.Syrups = BMR_TEMPLATES.Syrup
-BMR_TEMPLATES.Tablets = BMR_TEMPLATES.Tablet
 BMR_TEMPLATES.Capsules = BMR_TEMPLATES.Capsule
 BMR_TEMPLATES.Liquids = BMR_TEMPLATES.Liquid
 BMR_TEMPLATES.Suspension = BMR_TEMPLATES.Liquid
@@ -137,13 +164,16 @@ BMR_TEMPLATES.Drop = BMR_TEMPLATES.Drops
 BMR_TEMPLATES.Oils = BMR_TEMPLATES.Oil
 BMR_TEMPLATES.Kit = BMR_TEMPLATES.Kits
 BMR_TEMPLATES.Pill = BMR_TEMPLATES.Pills
+BMR_TEMPLATES['Mother Tinctures'] = BMR_TEMPLATES['Mother Tincture']
+BMR_TEMPLATES['MotherTincture'] = BMR_TEMPLATES['Mother Tincture']
+BMR_TEMPLATES['MT'] = BMR_TEMPLATES['Mother Tincture']
+BMR_TEMPLATES['Mother-Tincture'] = BMR_TEMPLATES['Mother Tincture']
 
 /**
  * Returns the canonical template for a dosage form string, matching
  * case-insensitively, trimmed, and across singular/plural variants.
- * Never returns null so every order has a working 19-section BMR.
  * @param {string} dosageForm
- * @returns {object}
+ * @returns {object|null}
  */
 export function getBmrTemplate(dosageForm) {
   if (!dosageForm) return BMR_TEMPLATES.Drops
@@ -160,6 +190,7 @@ export function getBmrTemplate(dosageForm) {
   }
 
   // 2. Partial substring matching
+  if (lower.includes('mother') || lower.includes('tincture') || lower === 'mt') return BMR_TEMPLATES['Mother Tincture']
   if (lower.includes('syrup')) return BMR_TEMPLATES.Syrup
   if (lower.includes('drop')) return BMR_TEMPLATES.Drops
   if (lower.includes('tablet') || lower.includes('tab')) return BMR_TEMPLATES.Tablet
@@ -169,12 +200,7 @@ export function getBmrTemplate(dosageForm) {
   if (lower.includes('kit')) return BMR_TEMPLATES.Kits
   if (lower.includes('pill')) return BMR_TEMPLATES.Pills
 
-  // 3. Fallback: return Drops template with preserved dosageForm name
-  return {
-    ...BMR_TEMPLATES.Drops,
-    dosageForm: raw,
-    title: `${raw} Dosage Form BMR (19 Pages)`,
-  }
+  return null
 }
 
 /**
@@ -183,5 +209,6 @@ export function getBmrTemplate(dosageForm) {
  * @returns {boolean}
  */
 export function isBmrAvailable(dosageForm) {
-  return true
+  const tmpl = getBmrTemplate(dosageForm)
+  return Boolean(tmpl && tmpl.isAvailable)
 }

@@ -46,16 +46,9 @@ const listData = (response) =>
     : response.data?.results || []
 
 
-const PRODUCT_TYPE_OPTIONS = [
-  'Liquid',
-  'Tablet',
-  'Capsule',
-  'Syrup',
-  'Drops',
-  'Oil',
-  'Kit',
-  'Pills',
-]
+import { DOSAGE_FORMS } from '../../constants/dosageForms'
+
+const PRODUCT_TYPE_OPTIONS = DOSAGE_FORMS
 
 
 

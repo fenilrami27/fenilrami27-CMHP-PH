@@ -26,7 +26,7 @@ const FINANCIAL_YEARS = ['2026-27', '2025-26', '2024-25', '2027-28']
  * Auto-generate next sequential Goods Receipt Note (GRN) number for Raw Materials
  * Format: GRN-YYYY-0001
  */
-export function getNextGrnNumber(stockLedgerEntries = [], financialYear = '2026-27') {
+function getNextGrnNumber(stockLedgerEntries = [], financialYear = '2026-27') {
   const yearStr = financialYear ? financialYear.split('-')[0] : String(new Date().getFullYear())
   const prefix = `GRN-${yearStr}-`
   let maxSeq = 0
@@ -100,7 +100,6 @@ export default function StockLedgerTab() {
         i.item_type === 'FINISHED_GOODS' ||
         i.category === 'Finished Product' ||
         DOSAGE_FORMS.includes(i.category) ||
-        i.category === 'Tablets' ||
         i.category === 'Capsules' ||
         i.category === 'Syrups' ||
         i.category === 'Injections' ||

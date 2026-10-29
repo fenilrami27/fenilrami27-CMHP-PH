@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSelector, useDispatch } from 'react-redux'
+import { useSelector } from 'react-redux'
 import { selectActiveCompanyKey, selectActiveCompanyId } from '../../utils/companySelectors'
 import { computeSheetGrandTotal, resolveDueDate } from './invoiceService'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -9,13 +9,15 @@ import Input from '../../components/Input'
 import StatusPill from '../../components/StatusPill'
 import Modal from '../inventory/components/Modal'
 import { getErrorMessage } from '../../utils/errors'
-import { inventoryService } from '../inventory/inventoryService'
-import { operationsService } from '../operations/operationsService'
-import { qualityService } from '../quality/qualityService'
 import { invoiceService } from './invoiceService'
-import { previewDocumentNumber } from '../../utils/documentNumbers'
 import { formatINR, numberToWordsINR, formatDateIN, formatDateTimeIN } from '../../utils/formatters'
 import { getEntityAuditLogs, recordAudit } from '../../utils/audit'
+import {
+  getCurrentMonthKey,
+  buildMonthOptions,
+  matchesMonthYear,
+  formatMonthYearLabel,
+} from '../../utils/dateUtils'
 import {
   ReceiptIcon,
   WalletIcon,
@@ -42,37 +44,6 @@ const PAYMENT_MODES = [
   'Cash',
 ]
 
-const listData = (response) =>
-  Array.isArray(response?.data)
-    ? response.data
-    : response?.data?.results || []
-
-const emptyLine = () => ({
-  id: crypto.randomUUID ? crypto.randomUUID() : `line-${Date.now()}-${Math.random()}`,
-  product: '',
-  product_name: '',
-  hsn_code: '30049099',
-  quantity: '100',
-  unit: 'Box',
-  rate: '0',
-  discount: '0',
-  gst_percent: '18',
-})
-
-const emptyForm = {
-  company: '',
-  customer: '',
-  order: '',
-  batch: '',
-  number: '',
-  invoice_date: new Date().toISOString().slice(0, 10),
-  due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-  payment_terms: 'Net 30',
-  tax_percent: '18',
-  tax_exempt: false,
-  notes: 'Payment to be made via NEFT/RTGS to company bank account. Goods once sold will not be taken back.',
-}
-
 function statusTone(status) {
   if (status === 'PAID') return 'success'
   if (status === 'PARTIALLY_PAID') return 'warning'
@@ -86,7 +57,6 @@ export default function Invoice() {
   const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const dispatch = useDispatch()
   const [highlightedId, setHighlightedId] = useState(null)
 
   const compKey = useSelector(selectActiveCompanyKey)
@@ -140,7 +110,6 @@ export default function Invoice() {
       const balanceDue = Math.max(grandTotal - totalPaid, 0)
 
       const dueDate = resolveDueDate(inv, order, customer)
-
       const today = new Date().toISOString().slice(0, 10)
       let status = 'ISSUED'
       if (inv.status === 'CANCELLED') {
@@ -158,6 +127,7 @@ export default function Invoice() {
         id: inv.id,
         number,
         invoice_no: number,
+        invoice_date: inv.invoice_date || inv.date || inv.created_at || new Date().toISOString().slice(0, 10),
         customer_name: customerName,
         company_name: Number(inv.company) === 2 ? 'Tej Biocare' : 'CMHP Pharma',
         order_number: order?.number || inv.order_number || (order?.id ? `ORD-${order.id}` : '—'),
@@ -172,21 +142,18 @@ export default function Invoice() {
       }
     })
   }, [reduxInvoices, compId, reduxOrders, reduxCustomers, savedOrderInvoices, reduxPayments])
-  const [companies, setCompanies] = useState([])
-  const [customers, setCustomers] = useState([])
-  const [orders, setOrders] = useState([])
-  const [products, setProducts] = useState([])
-  const [qaRecords, setQaRecords] = useState([])
 
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  // Monthly Filter State (Default: Current Month, e.g. 2026-10)
+  const currentMonthKey = useMemo(() => getCurrentMonthKey(), [])
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey)
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
 
   const [modal, setModal] = useState('')
-  const [createMode, setCreateMode] = useState('ORDER') // 'ORDER' | 'DIRECT'
   const [saving, setSaving] = useState(false)
   const [viewing, setViewing] = useState(null)
   const [activeViewTab, setActiveViewTab] = useState('invoice') // 'invoice' | 'payments' | 'activity'
@@ -206,45 +173,11 @@ export default function Invoice() {
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
 
-  const [form, setForm] = useState(emptyForm)
-  const [lines, setLines] = useState([emptyLine()])
-
-  const load = async () => {
-    setLoading(true)
-    setError('')
-
-    try {
-      const [
-        invRes,
-        companyRes,
-        customerRes,
-        orderRes,
-        productRes,
-        qaRes,
-      ] = await Promise.all([
-        invoiceService.getInvoices(),
-        inventoryService.getCompanies(),
-        operationsService.getCustomers(),
-        operationsService.getOrders(),
-        operationsService.getProducts(),
-        qualityService.getQaRecords(),
-      ])
-
-            setCompanies(listData(companyRes))
-      setCustomers(listData(customerRes))
-      setOrders(listData(orderRes))
-      setProducts(listData(productRes))
-      setQaRecords(listData(qaRes))
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
+  // Build Month/Year Options for Select
+  const monthOptions = useMemo(() => {
+    const dates = invoices.map((inv) => inv.invoice_date || inv.date || inv.created_at)
+    return buildMonthOptions(dates, currentMonthKey)
+  }, [invoices, currentMonthKey])
 
   // Auto-scroll and highlight target invoice when redirected from Production (2-second highlight)
   useEffect(() => {
@@ -252,9 +185,9 @@ export default function Invoice() {
     if (targetId) {
       setSearch('')
       setStatusFilter('ALL')
+      setSelectedMonth('ALL')
       setHighlightedId(targetId)
 
-      // Clear navigation state so refresh or back button will not re-trigger highlight
       window.history.replaceState({}, document.title)
 
       const timerScroll = setTimeout(() => {
@@ -275,10 +208,20 @@ export default function Invoice() {
     }
   }, [location.state])
 
+  // Filter strictly by Selected Month first
+  const monthlyInvoices = useMemo(() => {
+    if (selectedMonth === 'ALL') return invoices
+    return invoices.filter((inv) => {
+      const d = inv.invoice_date || inv.date || inv.created_at
+      return matchesMonthYear(d, selectedMonth)
+    })
+  }, [invoices, selectedMonth])
+
+  // Combined Search and Status filter within the selected month
   const filteredInvoices = useMemo(() => {
     const term = search.trim().toLowerCase()
 
-    return invoices.filter((inv) => {
+    return monthlyInvoices.filter((inv) => {
       const matchesStatus =
         statusFilter === 'ALL' ||
         inv.status === statusFilter
@@ -292,30 +235,31 @@ export default function Invoice() {
 
       return matchesStatus && matchesTerm
     })
-  }, [invoices, search, statusFilter])
+  }, [monthlyInvoices, search, statusFilter])
 
+  // Summary KPIs for Selected Month (Single Source of Truth)
   const kpis = useMemo(() => {
-    const activeInvoices = invoices.filter((i) => i.status !== 'CANCELLED')
+    const activeInvoices = monthlyInvoices.filter((i) => i.status !== 'CANCELLED')
+    const activeCount = activeInvoices.length
 
-    // Total Invoiced = sum of totals, with the invoice count.
+    // Total Invoiced for month
     const totalInvoiced = activeInvoices.reduce(
       (sum, i) => sum + (Number(i.total) || 0),
       0
     )
-    const activeCount = activeInvoices.length
 
-    // Collected / Paid = sum of paid amounts, with the count of fully settled invoices.
-    const paid = invoices.reduce(
+    // Collected / Paid for month
+    const paid = monthlyInvoices.reduce(
       (sum, i) => sum + (Number(i.total_paid) || 0),
       0
     )
     const paidCount = activeInvoices.filter((i) => i.status === 'PAID').length
 
-    // Overdue Amount = balance of overdue invoices, with the count.
+    // Overdue Amount
     const today = new Date().toISOString().slice(0, 10)
     const overdueInvoices = activeInvoices.filter((i) => {
       if (i.status === 'OVERDUE') return true
-      return Boolean(i.due_date && i.due_date < today && (Number(i.balance_due) > 0))
+      return Boolean(i.due_date && i.due_date < today && Number(i.balance_due) > 0)
     })
     const overdueAmount = overdueInvoices.reduce(
       (sum, i) => sum + (Number(i.balance_due !== undefined ? i.balance_due : i.total) || 0),
@@ -323,7 +267,7 @@ export default function Invoice() {
     )
     const overdueCount = overdueInvoices.length
 
-    // Pending / Outstanding = balance of unpaid and not-yet-overdue invoices, with the count.
+    // Pending / Outstanding
     const pendingInvoices = activeInvoices.filter(
       (i) => i.status !== 'PAID' && !overdueInvoices.includes(i)
     )
@@ -343,81 +287,10 @@ export default function Invoice() {
       pendingCount,
       overdueCount,
     }
-  }, [invoices])
-
-  // Orders available for invoice generation (QA approved or ready to invoice)
-  const qaApprovedOrders = useMemo(() => {
-    return orders.filter((o) => {
-      const isReady = o.status === 'READY_TO_INVOICE' || o.qa_status === 'APPROVED' || o.status === 'QC_PASSED'
-      const notFullyInvoiced = Number(o.invoiced_qty || 0) < Number(o.qa_approved_qty || o.batch_size || 1)
-      return isReady && notFullyInvoiced
-    })
-  }, [orders])
+  }, [monthlyInvoices])
 
   const openCreate = () => {
     navigate('/invoices/new')
-  }
-
-  const applyOrderToForm = (order, compId) => {
-    if (!order) return
-
-    const companyId = order.company || compId || '1'
-    const previewNum = previewDocumentNumber('INVOICE', companyId)
-    const cust = customers.find((c) => Number(c.id) === Number(order.customer))
-
-    // Determine billable quantity from QA record or order
-    const qaRecord = qaRecords.find((q) => Number(q.order_id) === Number(order.id))
-    const approvedQty = qaRecord?.qa_approved_qty || order.qa_approved_qty || order.batch_size || 1000
-    const alreadyInvoiced = Number(order.invoiced_qty) || 0
-    const billableQty = Math.max(approvedQty - alreadyInvoiced, 0)
-
-    // Find product from product catalog
-    const prod = products.find(
-      (p) =>
-        Number(p.id) === Number(order.product_id) ||
-        p.code === order.product_code ||
-        p.name === order.product_name
-    )
-
-    const lineRate = prod?.selling_price || prod?.mrp || order.mrp_for_printing || '250'
-
-    const orderLines = (order.lines && order.lines.length > 0)
-      ? order.lines.map((l) => ({
-          id: crypto.randomUUID ? crypto.randomUUID() : `line-${Math.random()}`,
-          product: l.product || '',
-          product_name: l.product_name || order.product_name || 'Pharmaceutical Product',
-          hsn_code: l.hsn_code || '30049099',
-          quantity: String(l.quantity || billableQty),
-          unit: l.unit || order.packing_size || 'Box',
-          rate: String(l.rate || lineRate),
-          discount: '0',
-          gst_percent: '18',
-        }))
-      : [
-          {
-            id: crypto.randomUUID ? crypto.randomUUID() : `line-${Math.random()}`,
-            product: prod?.id || '',
-            product_name: order.product_name || prod?.name || 'Pharmaceutical Formulation',
-            hsn_code: prod?.hsn_code || '30049099',
-            quantity: String(billableQty),
-            unit: order.packing_size || prod?.unit || 'Box',
-            rate: String(lineRate),
-            discount: '0',
-            gst_percent: '18',
-          },
-        ]
-
-    setForm((prev) => ({
-      ...prev,
-      company: companyId,
-      customer: String(order.customer || ''),
-      order: String(order.id),
-      batch: String(order.batch_id || ''),
-      number: previewNum,
-      payment_terms: cust?.payment_terms || 'Net 30',
-    }))
-
-    setLines(orderLines)
   }
 
   const openView = (invoice) => {
@@ -433,113 +306,14 @@ export default function Invoice() {
     }
   }
 
-  const setField = (field, value) =>
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
-
-  const setLineField = (id, field, value) =>
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== id) return line
-
-        const updated = { ...line, [field]: value }
-
-        if (field === 'product') {
-          const prod = products.find((p) => String(p.id) === String(value))
-          if (prod) {
-            updated.product_name = prod.name || prod.code
-            updated.rate = String(prod.selling_price || prod.mrp || 250)
-            updated.hsn_code = prod.hsn_code || '30049099'
-            updated.unit = prod.unit || 'Box'
-          }
-        }
-
-        return updated
-      })
-    )
-
-  const addLine = () =>
-    setLines((prev) => [...prev, emptyLine()])
-
-  const removeLine = (id) =>
-    setLines((prev) => (prev.length > 1 ? prev.filter((line) => line.id !== id) : prev))
-
-  // Compute live totals for Create modal
-  const computedTotals = useMemo(() => {
-    const isExempt = form.tax_exempt
-    const taxPercent = isExempt ? 0 : Number(form.tax_percent) || 18
-
-    const subtotal = lines.reduce((sum, line) => {
-      const q = Number(line.quantity) || 0
-      const r = Number(line.rate) || 0
-      const d = Number(line.discount) || 0
-      return sum + Math.max(q * r - d, 0)
-    }, 0)
-
-    const taxAmount = isExempt ? 0 : subtotal * (taxPercent / 100)
-    const rawTotal = subtotal + taxAmount
-    const roundOff = Math.round(rawTotal) - rawTotal
-    const grandTotal = Math.round(rawTotal)
-
-    return {
-      subtotal,
-      taxAmount,
-      roundOff,
-      total: grandTotal,
-    }
-  }, [lines, form.tax_percent, form.tax_exempt])
-
-  const submitInvoice = async (event) => {
-    event.preventDefault()
-    if (!form.customer) {
-      setError('Please select a customer for this invoice.')
-      return
-    }
-
-    if (lines.length === 0 || lines.some((l) => (Number(l.quantity) || 0) <= 0)) {
-      setError('Please enter valid quantities for all line items.')
-      return
-    }
-
-    setSaving(true)
-    setError('')
-
-    try {
-      const payload = {
-        ...form,
-        order: form.order || null,
-        batch: form.batch || null,
-        tax_percent: form.tax_exempt ? 0 : Number(form.tax_percent) || 18,
-        tax_exempt: form.tax_exempt,
-        subtotal: computedTotals.subtotal,
-        tax_amount: computedTotals.taxAmount,
-        round_off: computedTotals.roundOff,
-        total: computedTotals.total,
-        lines: lines.map((l) => ({
-          product: l.product ? Number(l.product) : null,
-          product_name: l.product_name || 'Pharmaceutical Formulation',
-          hsn_code: l.hsn_code || '30049099',
-          unit: l.unit || 'Box',
-          quantity: Number(l.quantity) || 0,
-          rate: Number(l.rate) || 0,
-          discount: Number(l.discount) || 0,
-          gst_percent: form.tax_exempt ? 0 : Number(l.gst_percent || form.tax_percent || 18),
-        })),
-      }
-
-      await invoiceService.createInvoice(payload, user)
-
-      setSuccess('Invoice created and issued successfully.')
-      setModal('')
-      await load()
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
+  // Reset all filters back to current month
+  const resetFilters = () => {
+    setSearch('')
+    setStatusFilter('ALL')
+    setSelectedMonth(currentMonthKey)
   }
+
+  const isFiltered = Boolean(search || statusFilter !== 'ALL' || selectedMonth !== currentMonthKey)
 
   // Open Payment modal
   const openRecordPayment = (inv) => {
@@ -574,13 +348,10 @@ export default function Invoice() {
       setSuccess(`Payment of ₹${formatINR(payAmt)} recorded successfully.`)
       setPaymentModalOpen(false)
 
-      // Refresh viewing invoice if open
       if (viewing && viewing.id === paymentTargetInvoice.id) {
         const refreshed = await invoiceService.getInvoice(viewing.id)
         setViewing(refreshed)
       }
-
-      await load()
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -604,7 +375,6 @@ export default function Invoice() {
       setSuccess(`Invoice ${viewing.number} cancelled. Linked order reverted to READY_TO_INVOICE.`)
       setCancelModalOpen(false)
       setModal('')
-      await load()
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -618,21 +388,14 @@ export default function Invoice() {
       action: 'invoice/printed',
       entityType: 'Invoice',
       entityId: viewing?.number,
-      payload: { customer: viewing?.customer_name, total: viewing?.total },
+      description: `Tax invoice ${viewing?.number} printed/downloaded by ${user?.first_name || user?.username}`,
     })
     window.print()
   }
 
-  // Download standalone HTML Invoice
+  // Download standalone HTML invoice file
   const handleDownloadHtml = () => {
     if (!viewing) return
-    recordAudit({
-      action: 'invoice/exportedHtml',
-      entityType: 'Invoice',
-      entityId: viewing.number,
-      payload: { total: viewing.total },
-    })
-
     const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -640,99 +403,67 @@ export default function Invoice() {
   <meta charset="utf-8">
   <title>Tax Invoice - ${viewing.number}</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 20px; color: #1e293b; }
-    .tax-box { border: 1px solid #cbd5e1; padding: 24px; max-width: 800px; margin: 0 auto; }
-    .hdr { display: flex; justify-content: space-between; border-bottom: 2px solid #0b73df; padding-bottom: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; background: #f8fafc; padding: 10px; margin: 12px 0; border: 1px solid #e2e8f0; }
-    .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-    .party { border: 1px solid #e2e8f0; padding: 10px; }
-    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 12px; }
-    th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
-    td { border: 1px solid #e2e8f0; padding: 8px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 40px; color: #1e293b; }
+    .tax-box { border: 2px solid #0f172a; padding: 24px; max-width: 800px; margin: 0 auto; }
+    .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 16px; }
+    .header h1 { margin: 0 0 6px; font-size: 20px; color: #0b73df; }
+    .header p { margin: 2px 0; font-size: 12px; color: #475569; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+    th { background: #f1f5f9; }
     .num { text-align: right; }
-    .totals { width: 280px; margin-left: auto; margin-top: 10px; }
-    .totals td { padding: 4px; }
-    .grand { font-size: 15px; font-weight: bold; color: #0b73df; border-top: 2px solid #0b73df; }
-    .words { background: #f8fafc; padding: 8px; border: 1px solid #e2e8f0; margin-top: 10px; font-weight: bold; }
-    .bank { margin-top: 16px; border: 1px solid #e2e8f0; padding: 10px; background: #f8fafc; }
-    .sign { margin-top: 30px; text-align: right; }
+    .totals { width: 300px; margin-left: auto; margin-bottom: 24px; }
+    .totals td { padding: 4px 8px; }
+    .grand { font-weight: 700; font-size: 14px; background: #f8fafc; }
+    .bank { font-size: 12px; background: #f8fafc; padding: 12px; border: 1px solid #e2e8f0; margin-bottom: 24px; }
+    .sign { text-align: right; margin-top: 40px; font-size: 12px; }
   </style>
 </head>
 <body>
   <div class="tax-box">
-    <div class="hdr">
+    <div class="header">
+      <h1>TAX INVOICE</h1>
+      <h2>${viewing.company_profile?.name || viewing.company_name}</h2>
+      <p>${viewing.company_profile?.address}</p>
+      <p>GSTIN: <strong>${viewing.company_profile?.gstin}</strong> | State: ${viewing.company_profile?.state || 'Gujarat'}</p>
+    </div>
+    <div class="meta-grid">
       <div>
-        <h2 style="margin:0">${viewing.company_profile?.name || viewing.company_name}</h2>
-        <p style="margin:2px 0;font-size:12px">${viewing.company_profile?.address}</p>
-        <p style="margin:2px 0;font-size:12px">GSTIN: <strong>${viewing.company_profile?.gstin}</strong> | PAN: <strong>${viewing.company_profile?.pan}</strong></p>
+        <strong>Invoice No:</strong> ${viewing.number}<br>
+        <strong>Date:</strong> ${formatDateIN(viewing.invoice_date)}<br>
+        <strong>Order Ref:</strong> ${viewing.order_number || '—'}
       </div>
-      <div style="text-align:right">
-        <h2 style="color:#0b73df;margin:0">TAX INVOICE</h2>
-        <span style="font-size:11px;color:#64748b">ORIGINAL FOR RECIPIENT</span>
-      </div>
-    </div>
-    <div class="grid">
-      <div><small>INVOICE NO</small><br><strong>${viewing.number}</strong></div>
-      <div><small>DATE</small><br><strong>${formatDateIN(viewing.invoice_date)}</strong></div>
-      <div><small>DUE DATE</small><br><strong>${formatDateIN(viewing.due_date)}</strong></div>
-      <div><small>PLACE OF SUPPLY</small><br><strong>${viewing.customer_profile?.state || 'Gujarat'} (${viewing.customer_profile?.state_code || '24'})</strong></div>
-    </div>
-    <div class="parties">
-      <div class="party">
-        <strong style="color:#0b73df">BILLED TO:</strong>
-        <p style="margin:4px 0"><strong>${viewing.customer_name}</strong></p>
-        <p style="margin:2px 0;font-size:12px">${viewing.customer_profile?.billing_address}</p>
-        <p style="margin:2px 0;font-size:12px">GSTIN: <strong>${viewing.customer_profile?.gstin}</strong></p>
-      </div>
-      <div class="party">
-        <strong style="color:#0b73df">SHIPPED TO:</strong>
-        <p style="margin:4px 0"><strong>${viewing.customer_name}</strong></p>
-        <p style="margin:2px 0;font-size:12px">${viewing.customer_profile?.shipping_address}</p>
+      <div>
+        <strong>Billed To:</strong> ${viewing.customer_name}<br>
+        <strong>GSTIN:</strong> ${viewing.customer_profile?.gstin || 'Unregistered'}<br>
+        <strong>Payment Terms:</strong> ${viewing.payment_terms || 'Net 30'}
       </div>
     </div>
     <table>
       <thead>
         <tr>
-          <th>Sr</th><th>Product</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (₹)</th><th class="num">Taxable (₹)</th><th class="num">GST %</th><th class="num">Total (₹)</th>
+          <th>Sr</th><th>Description</th><th>HSN</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate</th><th class="num">Total</th>
         </tr>
       </thead>
       <tbody>
         ${(viewing.lines || []).map((l, i) => `
           <tr>
             <td>${i + 1}</td>
-            <td><strong>${l.product_name}</strong></td>
+            <td>${l.product_name}</td>
             <td>${l.hsn_code}</td>
             <td class="num">${l.quantity}</td>
             <td>${l.unit}</td>
             <td class="num">₹${formatINR(l.rate)}</td>
-            <td class="num">₹${formatINR(l.taxable_value)}</td>
-            <td class="num">${l.gst_percent}%</td>
             <td class="num">₹${formatINR(l.total_amount)}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
-    <div class="words">Amount in words: ${viewing.total_in_words}</div>
     <table class="totals">
-      <tr><td>Taxable Value:</td><td class="num">₹${formatINR(viewing.subtotal)}</td></tr>
-      ${viewing.is_intra_state ? `
-        <tr><td>CGST (9%):</td><td class="num">₹${formatINR(viewing.cgst_amount)}</td></tr>
-        <tr><td>SGST (9%):</td><td class="num">₹${formatINR(viewing.sgst_amount)}</td></tr>
-      ` : `
-        <tr><td>IGST (18%):</td><td class="num">₹${formatINR(viewing.igst_amount)}</td></tr>
-      `}
-      <tr><td>Round Off:</td><td class="num">₹${formatINR(viewing.round_off)}</td></tr>
-      <tr class="grand"><td>Grand Total:</td><td class="num">₹${formatINR(viewing.total)}</td></tr>
+      <tr><td>Taxable Subtotal:</td><td class="num">₹${formatINR(viewing.subtotal)}</td></tr>
+      <tr><td>Grand Total:</td><td class="num"><strong>₹${formatINR(viewing.total)}</strong></td></tr>
     </table>
-    <div class="bank">
-      <strong>Bank Wire Transfer Details:</strong><br>
-      Bank: ${viewing.company_profile?.bank_name} | A/C: ${viewing.company_profile?.bank_account_no} | IFSC: ${viewing.company_profile?.bank_ifsc} | Branch: ${viewing.company_profile?.bank_branch}
-    </div>
-    <div class="sign">
-      <p>For <strong>${viewing.company_profile?.name || viewing.company_name}</strong></p>
-      <br><br>
-      <p>Authorized Signatory</p>
-    </div>
   </div>
 </body>
 </html>
@@ -754,6 +485,7 @@ export default function Invoice() {
 
   return (
     <div className="inv">
+      {/* 1. PAGE HEADER */}
       <div className="inv-header">
         <div>
           <h1>Invoicing</h1>
@@ -766,16 +498,76 @@ export default function Invoice() {
       {error && !modal && <Alert type="error">{error}</Alert>}
       {success && <Alert type="success">{success}</Alert>}
 
+      {/* 2. MONTHLY FILTER BAR AT TOP OF PAGE */}
+      <div className="inv-month-bar">
+        <div className="inv-month-controls">
+          <span className="inv-month-label">
+            <ClockIcon size={16} />
+            Month Filter:
+          </span>
+          <select
+            className="inv-month-select"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            title="Filter invoices by month and year"
+          >
+            <option value="ALL">All Time</option>
+            {monthOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
+          {selectedMonth !== currentMonthKey && (
+            <button
+              type="button"
+              className="inv-pill-btn"
+              onClick={() => setSelectedMonth(currentMonthKey)}
+            >
+              Current Month
+            </button>
+          )}
+
+          {selectedMonth !== 'ALL' && (
+            <button
+              type="button"
+              className="inv-pill-btn"
+              onClick={() => setSelectedMonth('ALL')}
+            >
+              All Time
+            </button>
+          )}
+
+          {isFiltered && (
+            <button
+              type="button"
+              className="inv-reset-btn"
+              onClick={resetFilters}
+            >
+              ✕ Reset filters
+            </button>
+          )}
+        </div>
+
+        <div className="inv-period-badge">
+          Showing: <strong>{selectedMonth === 'ALL' ? 'All Time Register' : formatMonthYearLabel(selectedMonth)}</strong> ({filteredInvoices.length} invoices)
+        </div>
+      </div>
+
+      {/* 3. MONTHLY SUMMARY KPIS */}
       <div className="inv-kpis">
         <div className="inv-kpi-card kpi-total">
           <div className="inv-kpi-top">
             <div className="inv-kpi-icon blue">
               <ReceiptIcon size={18} />
             </div>
-            <span className="inv-kpi-label">Total Invoiced</span>
+            <span className="inv-kpi-label">Total Invoices</span>
           </div>
           <div className="inv-kpi-value">{formatINR(kpis.totalInvoiced)}</div>
-          <span className="inv-kpi-subtext">{kpis.activeCount} active invoices</span>
+          <span className="inv-kpi-subtext">
+            {kpis.activeCount} active invoices {selectedMonth !== 'ALL' ? `in ${formatMonthYearLabel(selectedMonth)}` : ''}
+          </span>
         </div>
 
         <div className="inv-kpi-card kpi-paid">
@@ -783,7 +575,7 @@ export default function Invoice() {
             <div className="inv-kpi-icon green">
               <WalletIcon size={18} />
             </div>
-            <span className="inv-kpi-label">Collected / Paid</span>
+            <span className="inv-kpi-label">Paid Amount</span>
           </div>
           <div className="inv-kpi-value text-green">{formatINR(kpis.paid)}</div>
           <span className="inv-kpi-subtext">{kpis.paidCount} fully settled</span>
@@ -794,10 +586,10 @@ export default function Invoice() {
             <div className="inv-kpi-icon orange">
               <ClockIcon size={18} />
             </div>
-            <span className="inv-kpi-label">Pending / Outstanding</span>
+            <span className="inv-kpi-label">Pending Amount</span>
           </div>
           <div className="inv-kpi-value text-orange">{formatINR(kpis.outstanding)}</div>
-          <span className="inv-kpi-subtext">{kpis.pendingCount} pending payment</span>
+          <span className="inv-kpi-subtext">{kpis.pendingCount} pending collection</span>
         </div>
 
         <div className="inv-kpi-card kpi-overdue">
@@ -812,6 +604,7 @@ export default function Invoice() {
         </div>
       </div>
 
+      {/* 4. INVOICES REGISTER PANEL */}
       <div className="inv-panel">
         <div className="inv-toolbar">
           <h3 className="inv-toolbar-title">Invoices & Billing Register</h3>
@@ -862,6 +655,16 @@ export default function Invoice() {
               ))}
             </select>
 
+            {isFiltered && (
+              <button
+                type="button"
+                className="inv-reset-btn"
+                onClick={resetFilters}
+              >
+                Reset filters
+              </button>
+            )}
+
             <Button onClick={openCreate}>+ Create Invoice</Button>
           </div>
         </div>
@@ -909,38 +712,42 @@ export default function Invoice() {
                       style={{
                         fontSize: '10px',
                         padding: '2px 6px',
+                        background: '#f1f5f9',
                         borderRadius: '4px',
-                        background: inv.order ? '#eff6ff' : '#f1f5f9',
-                        color: inv.order ? '#1e40af' : '#475569',
-                        fontWeight: 700,
+                        fontWeight: 600,
+                        color: '#475569',
                       }}
                     >
-                      {inv.order ? 'ORDER' : 'DIRECT'}
+                      Tax Invoice
                     </span>
                   </td>
                   <td>{inv.company_name}</td>
-                  <td>{inv.customer_name}</td>
+                  <td className="cell-strong">{inv.customer_name}</td>
                   <td>{formatDateIN(inv.invoice_date)}</td>
-                  <td>{inv.due_date ? formatDateIN(inv.due_date) : '—'}</td>
-                  <td className="cell-strong">{formatINR(inv.total)}</td>
                   <td>
-                    {inv.status === 'PAID' ? (
-                      <span style={{ color: '#059669', fontWeight: 600 }}>₹0.00 (Settled)</span>
-                    ) : inv.status === 'CANCELLED' ? (
-                      <span style={{ color: '#94a3b8' }}>Cancelled</span>
-                    ) : (
-                      <span style={{ color: '#dc2626', fontWeight: 700 }}>
-                        {formatINR(inv.balance_due !== undefined ? inv.balance_due : inv.total)}
-                      </span>
-                    )}
+                    <span
+                      style={{
+                        color: inv.status === 'OVERDUE' ? '#dc2626' : 'inherit',
+                        fontWeight: inv.status === 'OVERDUE' ? 700 : 'normal',
+                      }}
+                    >
+                      {formatDateIN(inv.due_date)}
+                    </span>
+                  </td>
+                  <td className="cell-strong num">₹{formatINR(inv.total)}</td>
+                  <td
+                    className="cell-strong num"
+                    style={{
+                      color: Number(inv.balance_due) > 0 ? '#dc2626' : '#059669',
+                    }}
+                  >
+                    ₹{formatINR(inv.balance_due !== undefined ? inv.balance_due : inv.total)}
                   </td>
                   <td>
-                    <StatusPill tone={statusTone(inv.status)}>
-                      {inv.status || 'ISSUED'}
-                    </StatusPill>
+                    <StatusPill tone={statusTone(inv.status)}>{inv.status}</StatusPill>
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
-                    <div className="inv-actions-cell">
+                    <div className="inv-row-actions">
                       <button
                         type="button"
                         className="inv-action-btn inv-btn-view"
@@ -968,14 +775,40 @@ export default function Invoice() {
                   </td>
                 </tr>
               ))}
+
+              {filteredInvoices.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="inv-empty">
+                    <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', padding: '12px', background: '#f1f5f9', borderRadius: '50%', color: '#94a3b8', marginBottom: '12px' }}>
+                        <ReceiptIcon size={28} />
+                      </div>
+                      <h4 style={{ margin: '0 0 6px', color: '#0f172a', fontSize: '16px' }}>
+                        {selectedMonth !== 'ALL'
+                          ? `No invoices found for ${formatMonthYearLabel(selectedMonth)}`
+                          : 'No invoices found'}
+                      </h4>
+                      <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: '13px' }}>
+                        {search || statusFilter !== 'ALL'
+                          ? 'No invoices match your search or status filter criteria.'
+                          : selectedMonth !== 'ALL'
+                          ? `No invoices were issued in ${formatMonthYearLabel(selectedMonth)}. You can select another month or view All Time.`
+                          : 'No invoices have been created yet.'}
+                      </p>
+                      {isFiltered && (
+                        <Button
+                          variant="secondary"
+                          onClick={resetFilters}
+                        >
+                          Reset filters
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
-
-          {!loading && filteredInvoices.length === 0 && (
-            <p className="inv-empty">
-              No invoices match this filter criteria. Click "+ Create Invoice" to generate one.
-            </p>
-          )}
         </div>
       </div>
 
@@ -1043,65 +876,33 @@ export default function Invoice() {
           {/* TAB 1: TAX INVOICE */}
           {activeViewTab === 'invoice' && (
             <div className="print-only-invoice tax-inv-box">
-              {/* Header */}
               <div className="tax-inv-header">
                 <div className="tax-inv-company">
                   <h2>{viewing.company_profile?.name || viewing.company_name}</h2>
                   <p>{viewing.company_profile?.address}</p>
                   <p>
-                    GSTIN: <strong>{viewing.company_profile?.gstin}</strong> | PAN: <strong>{viewing.company_profile?.pan}</strong> | State: <strong>{viewing.company_profile?.state} ({viewing.company_profile?.state_code})</strong>
+                    GSTIN: <strong>{viewing.company_profile?.gstin || '24AAACC1234M1Z2'}</strong> | State: <strong>{viewing.company_profile?.state || 'Gujarat'} ({viewing.company_profile?.state_code || '24'})</strong>
                   </p>
                 </div>
-                <div className="tax-inv-title-badge">
-                  <h1>TAX INVOICE</h1>
-                  <div className="tax-inv-subtitle">ORIGINAL FOR RECIPIENT</div>
-                  <div style={{ marginTop: '6px' }}>
-                    <StatusPill tone={statusTone(viewing.status)}>
-                      {viewing.status || 'ISSUED'}
-                    </StatusPill>
+                <div className="tax-inv-title">
+                  <h3>TAX INVOICE</h3>
+                  <div className="tax-inv-meta">
+                    <div>
+                      <span>Invoice #:</span>
+                      <strong>{viewing.number}</strong>
+                    </div>
+                    <div>
+                      <span>Invoice Date:</span>
+                      <strong>{formatDateIN(viewing.invoice_date)}</strong>
+                    </div>
+                    <div>
+                      <span>Due Date:</span>
+                      <strong>{formatDateIN(viewing.due_date)}</strong>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Meta Grid */}
-              <div className="tax-inv-meta-grid">
-                <div className="tax-inv-meta-col">
-                  <span>Invoice Number</span>
-                  <strong>{viewing.number}</strong>
-                </div>
-                <div className="tax-inv-meta-col">
-                  <span>Invoice Date</span>
-                  <strong>{formatDateIN(viewing.invoice_date)}</strong>
-                </div>
-                <div className="tax-inv-meta-col">
-                  <span>Payment Terms / Due</span>
-                  <strong>{viewing.customer_profile?.payment_terms || 'Net 30'} ({viewing.due_date ? formatDateIN(viewing.due_date) : 'Immediate'})</strong>
-                </div>
-                <div className="tax-inv-meta-col">
-                  <span>Place of Supply</span>
-                  <strong>{viewing.customer_profile?.state || 'Gujarat'} ({viewing.customer_profile?.state_code || '24'})</strong>
-                </div>
-              </div>
-
-              {/* Traceability Bar */}
-              {(viewing.order_number !== '—' || viewing.qa_number !== '—' || viewing.qc_number !== '—') && (
-                <div className="tax-inv-traceability">
-                  <div>
-                    Sales Order Ref: <strong>{viewing.order_number}</strong>
-                  </div>
-                  <div>
-                    QA Release Cert: <strong>{viewing.qa_number}</strong>
-                  </div>
-                  <div>
-                    QC Inspection: <strong>{viewing.qc_number}</strong>
-                  </div>
-                  <div>
-                    Invoice Type: <strong>{viewing.order ? 'ORDER-BASED' : 'DIRECT COMMERCIAL'}</strong>
-                  </div>
-                </div>
-              )}
-
-              {/* Parties */}
               <div className="tax-inv-parties">
                 <div className="tax-inv-party-card">
                   <h4>Billed To (Customer Details)</h4>
@@ -1110,21 +911,14 @@ export default function Invoice() {
                   <p>
                     GSTIN: <strong>{viewing.customer_profile?.gstin || 'Unregistered'}</strong>
                   </p>
-                  <p>
-                    State: <strong>{viewing.customer_profile?.state || 'Gujarat'} ({viewing.customer_profile?.state_code || '24'})</strong>
-                  </p>
                 </div>
                 <div className="tax-inv-party-card">
                   <h4>Shipped To (Delivery Address)</h4>
                   <p><strong>{viewing.customer_name}</strong></p>
                   <p>{viewing.customer_profile?.shipping_address || viewing.customer_profile?.billing_address}</p>
-                  <p>
-                    State: <strong>{viewing.customer_profile?.state || 'Gujarat'} ({viewing.customer_profile?.state_code || '24'})</strong>
-                  </p>
                 </div>
               </div>
 
-              {/* Line Items Table */}
               <table className="tax-inv-table">
                 <thead>
                   <tr>
@@ -1134,9 +928,6 @@ export default function Invoice() {
                     <th className="num">Qty</th>
                     <th>Unit</th>
                     <th className="num">Rate (₹)</th>
-                    <th className="num">Discount (₹)</th>
-                    <th className="num">Taxable (₹)</th>
-                    <th className="num">GST %</th>
                     <th className="num">Total (₹)</th>
                   </tr>
                 </thead>
@@ -1146,87 +937,20 @@ export default function Invoice() {
                       <td>{idx + 1}</td>
                       <td>
                         <strong>{line.product_name}</strong>
-                        {line.description && <div style={{ fontSize: '10px', color: '#64748b' }}>{line.description}</div>}
                       </td>
                       <td>{line.hsn_code}</td>
                       <td className="num">{line.quantity}</td>
                       <td>{line.unit}</td>
                       <td className="num">₹{formatINR(line.rate)}</td>
-                      <td className="num">₹{formatINR(line.discount)}</td>
-                      <td className="num">₹{formatINR(line.taxable_value)}</td>
-                      <td className="num">{line.gst_percent}%</td>
-                      <td className="num">₹{formatINR(line.total_amount)}</td>
+                      <td className="num">₹{formatINR(line.total_amount || (Number(line.quantity) * Number(line.rate)))}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
-              {/* Amount in words */}
               <div className="tax-inv-words">
                 <strong>Amount in Words: </strong>
                 {viewing.total_in_words || numberToWordsINR(viewing.total)}
-              </div>
-
-              {/* Bottom Section: Bank Details & Totals */}
-              <div className="tax-inv-bottom">
-                <div>
-                  <div className="tax-inv-bank-box">
-                    <h4>Bank Details for Wire Transfer (NEFT/RTGS)</h4>
-                    <p>Bank Name: <strong>{viewing.company_profile?.bank_name}</strong></p>
-                    <p>Account Number: <strong>{viewing.company_profile?.bank_account_no}</strong></p>
-                    <p>IFSC Code: <strong>{viewing.company_profile?.bank_ifsc}</strong></p>
-                    <p>Branch: <strong>{viewing.company_profile?.bank_branch}</strong></p>
-                  </div>
-
-                  {viewing.notes && (
-                    <div style={{ marginTop: '12px', fontSize: '11px', color: '#475569' }}>
-                      <strong>Terms & Conditions:</strong>
-                      <p style={{ margin: '4px 0' }}>{viewing.notes}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <table className="tax-inv-summary-table">
-                    <tbody>
-                      <tr>
-                        <td>Taxable Value:</td>
-                        <td>₹{formatINR(viewing.subtotal)}</td>
-                      </tr>
-                      {viewing.is_intra_state ? (
-                        <>
-                          <tr>
-                            <td>CGST (9%):</td>
-                            <td>₹{formatINR(viewing.cgst_amount)}</td>
-                          </tr>
-                          <tr>
-                            <td>SGST (9%):</td>
-                            <td>₹{formatINR(viewing.sgst_amount)}</td>
-                          </tr>
-                        </>
-                      ) : (
-                        <tr>
-                          <td>IGST (18%):</td>
-                          <td>₹{formatINR(viewing.igst_amount)}</td>
-                        </tr>
-                      )}
-                      <tr>
-                        <td>Round Off:</td>
-                        <td>₹{formatINR(viewing.round_off)}</td>
-                      </tr>
-                      <tr className="grand-total">
-                        <td>Total Amount:</td>
-                        <td>₹{formatINR(viewing.total)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  <div className="tax-inv-sign">
-                    <p>For <strong>{viewing.company_profile?.name || viewing.company_name}</strong></p>
-                    <br />
-                    <p>Authorized Signatory</p>
-                  </div>
-                </div>
               </div>
             </div>
           )}

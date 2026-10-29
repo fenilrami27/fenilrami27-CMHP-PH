@@ -14,7 +14,7 @@ import {
 import { commitDocumentNumber } from '../../utils/documentNumbers'
 import { recordAudit } from '../../utils/audit'
 import { numberToWordsINR } from '../../utils/formatters'
-import { deriveStateCode } from './InvoiceViewPage'
+import { deriveStateCode } from '../../utils/gstUtils'
 
 export function computeSheetGrandTotal(sheet) {
   if (!sheet) return 0

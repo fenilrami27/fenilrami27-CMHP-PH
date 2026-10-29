@@ -123,6 +123,15 @@ const NAV_SECTIONS = [
       },
 
       {
+        label: 'Dispatch',
+        path: '/dispatch',
+        icon: TruckIcon,
+        accent: '#10b981',
+        companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER', 'STORES_USER'],
+      },
+
+      {
         label: 'Customer Management',
         path: '/customer-management',
         icon: UsersIcon,

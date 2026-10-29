@@ -26,6 +26,8 @@ export function resolveOrderDosageForm(order) {
   if (!order) return ''
   if (order.dosage_form) return order.dosage_form
   if (order.dosageForm) return order.dosageForm
+  if (order.product_type) return order.product_type
+  if (order.type) return order.type
   const state = store.getState().erp
   const allProducts = [
     ...(state.products || []),
@@ -134,11 +136,11 @@ export const productionService = {
     const type = (bmrType || '').toLowerCase()
 
     let record = null
-    if (type === 'syrup') {
-      if (orderKey && bmrs['syrup_' + orderKey]) {
-        record = bmrs['syrup_' + orderKey]
-      } else if (batchKey && bmrs['syrup_' + batchKey]) {
-        record = bmrs['syrup_' + batchKey]
+    if (type === 'syrup' || type === 'tablet') {
+      if (orderKey && bmrs[type + '_' + orderKey]) {
+        record = bmrs[type + '_' + orderKey]
+      } else if (batchKey && bmrs[type + '_' + batchKey]) {
+        record = bmrs[type + '_' + batchKey]
       }
       return delay(record || null)
     }

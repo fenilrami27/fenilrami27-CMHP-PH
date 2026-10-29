@@ -253,4 +253,13 @@ export function FactoryIcon(props) {
       <path d="M7 18h1" />
     </Svg>
   )
-}
+}
+
+
+export function CheckIcon(props) {
+  return (
+    <Svg {...props}>
+      <polyline points="20 6 9 17 4 12" />
+    </Svg>
+  )
+}

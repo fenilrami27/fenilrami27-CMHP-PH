@@ -35,11 +35,17 @@ import { DOSAGE_FORMS } from '../constants/dosageForms'
 
 function ensureDosageForm(state, form) {
   if (!form || typeof form !== 'string') return
-  const trimmed = form.trim()
+  let trimmed = form.trim()
   if (!trimmed) return
+  if (trimmed.toLowerCase() === 'tablets') {
+    trimmed = 'Tablet'
+  }
   if (!Array.isArray(state.dosageForms)) {
     state.dosageForms = [...DOSAGE_FORMS]
   }
+  state.dosageForms = state.dosageForms
+    .map((df) => (String(df).trim().toLowerCase() === 'tablets' ? 'Tablet' : String(df).trim()))
+    .filter((df) => df.toLowerCase() !== 'tablets')
   const exists = state.dosageForms.some(
     (df) => df.toLowerCase() === trimmed.toLowerCase()
   )
@@ -4335,8 +4341,18 @@ export const selectDosageForms = (state) => {
   const base = Array.isArray(state.erp?.dosageForms) && state.erp.dosageForms.length
     ? state.erp.dosageForms
     : DOSAGE_FORMS
-  const result = [...base]
-  const seen = new Set(result.map((f) => String(f).trim().toLowerCase()))
+  const seen = new Set()
+  const result = []
+
+  base.forEach((f) => {
+    let trimmed = String(f).trim()
+    if (trimmed.toLowerCase() === 'tablets') trimmed = 'Tablet'
+    const lower = trimmed.toLowerCase()
+    if (lower !== 'tablets' && !seen.has(lower)) {
+      seen.add(lower)
+      result.push(trimmed)
+    }
+  })
 
   const allProds = [
     ...(state.erp?.products || []),
@@ -4345,11 +4361,12 @@ export const selectDosageForms = (state) => {
     ...(state.erp?.byCompany?.tej?.products || []),
   ]
   allProds.forEach((p) => {
-    const val = p?.dosage_form || p?.category || p?.type
+    let val = p?.dosage_form || p?.category || p?.type
     if (val && typeof val === 'string') {
-      const trimmed = val.trim()
+      let trimmed = val.trim()
+      if (trimmed.toLowerCase() === 'tablets') trimmed = 'Tablet'
       const lower = trimmed.toLowerCase()
-      if (trimmed && !seen.has(lower)) {
+      if (trimmed && lower !== 'tablets' && !seen.has(lower)) {
         seen.add(lower)
         result.push(trimmed)
       }

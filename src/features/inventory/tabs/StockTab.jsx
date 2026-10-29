@@ -13,7 +13,7 @@ const FINANCIAL_YEARS = ['2026-27', '2025-26', '2024-25']
    SOURCE COMPANY HELPER (CMHP / TEJ / COMMON)
    ========================================================= */
 
-export function getLotSourceCompany(lot, allProducts = []) {
+function getLotSourceCompany(lot, allProducts = []) {
   // 1. Direct company ID check
   const compId = Number(lot.source_company_id || lot.company || lot.companyId)
   if (compId === 1) {

@@ -50,7 +50,7 @@ export default function Products() {
 
   const commonRawMaterials = erpState.commonRawMaterials || []
   const reduxDosageForms = useSelector(selectDosageForms)
-  const dosageForms = reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : DOSAGE_FORMS
+  const dosageForms = (reduxDosageForms && reduxDosageForms.length ? reduxDosageForms : DOSAGE_FORMS).filter((df) => String(df).trim().toLowerCase() !== 'tablets')
   const [customDosageForm, setCustomDosageForm] = useState('')
   const [isCustomType, setIsCustomType] = useState(false)
   const stockLedgerEntries = erpState.stockLedgerEntries || []
@@ -454,10 +454,12 @@ export default function Products() {
     setModalError('')
     setIsCustomType(false)
     setCustomDosageForm('')
+    const rawDf = product.dosage_form || product.category || product.type || DEFAULT_DOSAGE_FORM
+    const cleanedDf = String(rawDf).trim().toLowerCase() === 'tablets' ? 'Tablet' : rawDf
     setProductForm({
       name: product.name || '',
       code: product.code || '',
-      dosage_form: product.dosage_form || DEFAULT_DOSAGE_FORM,
+      dosage_form: cleanedDf,
       strength: product.strength || '',
       pack_size: product.pack_size || '',
       description: product.description || '',
@@ -478,18 +480,26 @@ export default function Products() {
       return
     }
     if (!productForm.pack_size.trim()) {
-      setModalError('Pack Size (e.g. 10x10 Tablets) is required.')
+      setModalError('Pack Size (e.g. 10x10 Strips) is required.')
       return
     }
 
-    const finalDosageForm = isCustomType ? customDosageForm.trim() : productForm.dosage_form
+    const trimmedCustom = customDosageForm.trim()
+    const finalDosageForm = isCustomType ? trimmedCustom : productForm.dosage_form
     if (!finalDosageForm) {
       setModalError(isCustomType ? 'Please enter the new dosage form / type name.' : 'Dosage Form is required.')
       return
     }
 
-    if (isCustomType && customDosageForm.trim()) {
-      dispatch(addDosageForm(customDosageForm.trim()))
+    if (isCustomType) {
+      const isDuplicate = dosageForms.some(
+        (df) => df.trim().toLowerCase() === trimmedCustom.toLowerCase()
+      ) || trimmedCustom.toLowerCase() === 'tablets'
+      if (isDuplicate) {
+        setModalError('This type already exists.')
+        return
+      }
+      dispatch(addDosageForm(trimmedCustom))
     }
 
     if (productModalMode === 'add') {
@@ -2026,7 +2036,7 @@ export default function Products() {
                   }
                 }}
               >
-                {!dosageForms.includes(productForm.dosage_form) && productForm.dosage_form && !isCustomType && (
+                {!dosageForms.includes(productForm.dosage_form) && productForm.dosage_form && productForm.dosage_form !== 'Tablets' && !isCustomType && (
                   <option value={productForm.dosage_form}>
                     {productForm.dosage_form}
                   </option>
@@ -2049,6 +2059,16 @@ export default function Products() {
                     autoFocus
                     required
                   />
+                  {Boolean(
+                    customDosageForm.trim() && (
+                      dosageForms.some((df) => df.trim().toLowerCase() === customDosageForm.trim().toLowerCase()) ||
+                      customDosageForm.trim().toLowerCase() === 'tablets'
+                    )
+                  ) && (
+                    <div style={{ color: '#dc2626', fontSize: '11px', marginTop: '4px', fontWeight: 600 }}>
+                      This type already exists
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2074,7 +2094,7 @@ export default function Products() {
               <input
                 type="text"
                 className="pharma-input"
-                placeholder="e.g. 10x10 Tablets Blister or 100 mL Bottle"
+                placeholder="e.g. 10x10 Strips Blister or 100 mL Bottle"
                 value={productForm.pack_size}
                 onChange={(e) => setProductForm({ ...productForm, pack_size: e.target.value })}
                 required
