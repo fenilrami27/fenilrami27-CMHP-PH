@@ -7,6 +7,7 @@ import { getBmrTemplate } from './bmrTemplates'
 import { getSyrupPageRenderers } from './SyrupBmrPages'
 import { getTabletPageRenderers } from './TabletBmrPages'
 import { getMotherTincturePageRenderers } from './MotherTinctureBmrPages'
+import { getOilPageRenderers } from './OilBmrPages'
 import cmhpLogo from '../../assets/cmhp_bmr_logo.png'
 import masterCopyImg from '../../assets/cmhp_master_copy.png'
 import './BmrForm.css'
@@ -4507,7 +4508,22 @@ function BmrDateField({
     })
   }, [template, data])
 
-  const pageRenderers = motherTincturePageRenderers || tabletPageRenderers || syrupPageRenderers || dropsPageRenderers
+  const oilPageRenderers = useMemo(() => {
+    if (template?.dosageForm !== 'Oil') return null
+    return getOilPageRenderers({
+      data,
+      setData,
+      updateHeader,
+      updateFooter,
+      updatePage,
+      renderHeader,
+      renderFooter,
+      renderYesNo,
+      BmrDateField,
+    })
+  }, [template, data])
+
+  const pageRenderers = motherTincturePageRenderers || tabletPageRenderers || syrupPageRenderers || oilPageRenderers || dropsPageRenderers
 
   if (loading) {
     return (

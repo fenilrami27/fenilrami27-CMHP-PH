@@ -136,7 +136,7 @@ export const productionService = {
     const type = (bmrType || '').toLowerCase()
 
     let record = null
-    if (type === 'syrup' || type === 'tablet') {
+    if (type === 'syrup' || type === 'tablet' || type === 'oil' || type === 'mother_tincture') {
       if (orderKey && bmrs[type + '_' + orderKey]) {
         record = bmrs[type + '_' + orderKey]
       } else if (batchKey && bmrs[type + '_' + batchKey]) {

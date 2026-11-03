@@ -2819,3 +2819,11 @@
     border-bottom: 1px dotted #000 !important;
   }
 }
+
+
+/* OIL DOSAGE FORM BADGE */
+.dosage-oil {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border: 1px solid #fde68a !important;
+}

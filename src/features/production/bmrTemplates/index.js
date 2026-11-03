@@ -32,6 +32,13 @@ import {
   getMotherTinctureSectionStatus,
 } from '../motherTinctureInitialData.js'
 
+import {
+  OIL_BMR_SECTIONS,
+  getEmptyOilBmrData,
+  normalizeOilBmrData,
+  getOilSectionStatus,
+} from '../oilInitialData.js'
+
 export const BMR_TEMPLATES = {
   Syrup: {
     dosageForm: 'Syrup',
@@ -116,15 +123,15 @@ export const BMR_TEMPLATES = {
   Oil: {
     dosageForm: 'Oil',
     bmrType: 'oil',
-    title: 'Oil Dosage Form BMR (19 Pages)',
+    title: 'Oil External Preparation BMR (19 Pages)',
     pagesCount: 19,
-    department: 'PRODUCTION ( LIQUID/OIL DEPARTMENT)',
-    formNo: 'FORM NO. SOP/QA/04/F-06/00',
-    sections: DROPS_BMR_SECTIONS,
-    getEmptyData: getEmptyDropsBmrData,
-    normalizeData: normalizeDropsBmrData,
-    getSectionStatus: getDropsSectionStatus,
-    isAvailable: false,
+    department: 'PRODUCTION ( EXTERNAL PREPERATION DEPARTMENT)',
+    formNo: 'FORM NO. SOP/QA/04/F-04/00',
+    sections: OIL_BMR_SECTIONS,
+    getEmptyData: getEmptyOilBmrData,
+    normalizeData: normalizeOilBmrData,
+    getSectionStatus: getOilSectionStatus,
+    isAvailable: true,
   },
   Kits: {
     dosageForm: 'Kits',
