@@ -58,7 +58,7 @@ export function getTabletPageRenderers({
           </div>
           <div className="bmr-tablet-p1-row">
             <span className="bmr-p1-num">2</span>
-            <span className="bmr-p1-label">Expiry Date / Best Use Before :</span>
+            <span className="bmr-p1-label">Expiry Date / Best Use Before</span>
             <span className="bmr-p1-colon">:</span>
             <div className="bmr-p1-field">
               <input
@@ -82,7 +82,7 @@ export function getTabletPageRenderers({
           </div>
           <div className="bmr-tablet-p1-row">
             <span className="bmr-p1-num">4</span>
-            <span className="bmr-p1-label">Date of Manufacturing Started:</span>
+            <span className="bmr-p1-label">Date of Manufacturing Started</span>
             <span className="bmr-p1-colon">:</span>
             <div className="bmr-p1-field">
               <BmrDateField

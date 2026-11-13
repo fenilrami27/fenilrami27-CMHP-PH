@@ -83,7 +83,8 @@ export function getEmptyMotherTinctureBmrData(orderParam) {
   const productTitle = order.product_name || order.product || order.name || ''
   const productCode = order.product_code || order.code || ''
   const batchNumber = order.batch_no || order.batch || ''
-  const compCode = order.company_code || (Number(order.company) === 2 ? 'TB' : 'CMHP')
+  const isTej = Number(order.company) === 2 || order.companyId === 'tej'
+  const compCode = order.company_code || (isTej ? 'TEJ' : 'CMHP')
   const orderNum = order.number || order.order_number || (order.id ? String(order.id).slice(-4) : '01')
   const defaultBmrNo = order.bmr_no || `BMR/${compCode}/${new Date().getFullYear().toString().slice(-2)}/${orderNum}`
 
@@ -97,7 +98,7 @@ export function getEmptyMotherTinctureBmrData(orderParam) {
       supersedes_no: '00',
       batch_no: batchNumber,
       version_no: '01',
-      mfg_for: 'CMHP',
+      mfg_for: isTej ? 'TEJ' : 'CMHP',
     },
 
     footers: Array.from({ length: 6 }, () => ({
@@ -233,7 +234,7 @@ export function normalizeMotherTinctureBmrData(raw, order) {
   if (!mergedHeader.effective_date) mergedHeader.effective_date = '05/01/2025'
   if (!mergedHeader.version_no) mergedHeader.version_no = '01'
   if (!mergedHeader.supersedes_no) mergedHeader.supersedes_no = '00'
-  if (!mergedHeader.mfg_for) mergedHeader.mfg_for = 'CMHP'
+  if (!mergedHeader.mfg_for) mergedHeader.mfg_for = (Number(order.company) === 2 || order.companyId === 'tej') ? 'TEJ' : 'CMHP'
 
   const mergedFooters = Array.from({ length: 6 }, (_, idx) => {
     const existing = raw.footers?.[idx] || {}

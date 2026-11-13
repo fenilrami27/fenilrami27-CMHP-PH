@@ -288,6 +288,10 @@
   opacity: 1;
 }
 
+.bmr-date-print-value {
+  display: none !important;
+}
+
 /* HEADER BOX (PDF Replica - Exact 249pt height box) */
 .bmr-header-box {
   border: 1.5px solid #000;
@@ -328,6 +332,20 @@
   width: 63pt;
   height: 28pt;
   object-fit: contain;
+}
+
+/* Tej Biocare Branding Fit (Tej branch only - CMHP untouched) */
+.bmr-logo-wrap-tej {
+  overflow: hidden;
+  justify-content: center;
+}
+
+.bmr-logo-img-tej {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: scale(1.45);
+  transform-origin: center 43%;
 }
 
 .bmr-company-title {
@@ -1967,9 +1985,9 @@
 
 .bmr-tablet-sheet .bmr-header-box {
   width: 100% !important;
-  height: 235pt !important;
-  min-height: 235pt !important;
-  max-height: 235pt !important;
+  height: 249pt !important;
+  min-height: 249pt !important;
+  max-height: 249pt !important;
   border: 1.5px solid #000 !important;
   box-sizing: border-box !important;
   flex-shrink: 0 !important;
@@ -1977,32 +1995,32 @@
 }
 
 .bmr-tablet-sheet .bmr-header-top-row {
-  height: 105pt !important;
-  min-height: 105pt !important;
-  max-height: 105pt !important;
+  height: 111pt !important;
+  min-height: 111pt !important;
+  max-height: 111pt !important;
 }
 
 .bmr-tablet-sheet .bmr-dept-title {
+  height: 22pt !important;
+  min-height: 22pt !important;
+  max-height: 22pt !important;
+  line-height: 22pt !important;
+  font-size: 10.5pt !important;
+}
+
+.bmr-tablet-sheet .bmr-doc-title {
   height: 20pt !important;
   min-height: 20pt !important;
   max-height: 20pt !important;
   line-height: 20pt !important;
-  font-size: 10pt !important;
-}
-
-.bmr-tablet-sheet .bmr-doc-title {
-  height: 18pt !important;
-  min-height: 18pt !important;
-  max-height: 18pt !important;
-  line-height: 18pt !important;
-  font-size: 10pt !important;
+  font-size: 10.5pt !important;
 }
 
 .bmr-tablet-sheet .bmr-header-grid {
-  height: 92pt !important;
-  min-height: 92pt !important;
-  max-height: 92pt !important;
-  grid-template-rows: 23pt 23pt 23pt 23pt !important;
+  height: 96pt !important;
+  min-height: 96pt !important;
+  max-height: 96pt !important;
+  grid-template-rows: 18pt 18pt 18pt 16pt 26pt !important;
 }
 
 .bmr-tablet-sheet .bmr-signoff-table th {
@@ -2668,20 +2686,34 @@
     display: none !important;
   }
 
-  .bmr-print-only-container .bmr-tablet-sheet {
-    width: 596pt !important;
-    height: 842pt !important;
-    min-height: 842pt !important;
-    max-height: 842pt !important;
-    padding: 34pt 32pt 24pt 38pt !important;
-    box-sizing: border-box !important;
-    page-break-after: always !important;
-    break-after: page !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    overflow: hidden !important;
-  }
-
+  .bmr-print-only-container .bmr-tablet-sheet {
+
+    width: 596pt !important;
+
+    height: 842pt !important;
+
+    min-height: 842pt !important;
+
+    max-height: 842pt !important;
+
+    padding: 34pt 32pt 24pt 38pt !important;
+
+    box-sizing: border-box !important;
+
+    page-break-after: always !important;
+
+    break-after: page !important;
+
+    page-break-inside: avoid !important;
+
+    break-inside: avoid !important;
+
+    overflow: hidden !important;
+
+  }
+
+
+
   .bmr-print-only-container .bmr-mother-tincture-sheet {
     width: 596pt !important;
     height: 842pt !important;
@@ -2707,20 +2739,34 @@
     print-color-adjust: exact !important;
   }
 
-  .bmr-print-only-container .bmr-tablet-sheet {
-    width: 596pt !important;
-    height: 842pt !important;
-    min-height: 842pt !important;
-    max-height: 842pt !important;
-    padding: 34pt 32pt 24pt 38pt !important;
-    box-sizing: border-box !important;
-    page-break-after: always !important;
-    break-after: page !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    overflow: hidden !important;
-  }
-
+  .bmr-print-only-container .bmr-tablet-sheet {
+
+    width: 596pt !important;
+
+    height: 842pt !important;
+
+    min-height: 842pt !important;
+
+    max-height: 842pt !important;
+
+    padding: 34pt 32pt 24pt 38pt !important;
+
+    box-sizing: border-box !important;
+
+    page-break-after: always !important;
+
+    break-after: page !important;
+
+    page-break-inside: avoid !important;
+
+    break-inside: avoid !important;
+
+    overflow: hidden !important;
+
+  }
+
+
+
   .bmr-print-only-container .bmr-mother-tincture-sheet:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
@@ -2774,37 +2820,6 @@
     width: 100% !important;
   }
 
-  .bmr-date-print-value {
-    display: inline-block !important;
-    font-size: 8.5pt !important;
-    font-family: inherit !important;
-    color: #000000 !important;
-    width: 100% !important;
-  }
-
-  .bmr-date-print-cell {
-    text-align: center !important;
-  }
-
-  .bmr-date-print-line {
-    border-bottom: 1px dotted #000000 !important;
-    min-height: 12pt !important;
-    vertical-align: baseline !important;
-  }
-
-  .bmr-date-picker-icon {
-    display: none !important;
-  }
-
-  .bmr-print-only-container input::placeholder,
-  .bmr-print-only-container textarea::placeholder,
-  .bmr-print-only-container input::-webkit-input-placeholder,
-  .bmr-print-only-container textarea::-webkit-input-placeholder {
-    color: transparent !important;
-    opacity: 0 !important;
-    -webkit-text-fill-color: transparent !important;
-  }
-
   .bmr-print-only-container input,
   .bmr-print-only-container textarea,
   .bmr-print-only-container select {
@@ -2817,6 +2832,59 @@
   .bmr-print-only-container .bmr-line-input {
     border: none !important;
     border-bottom: 1px dotted #000 !important;
+  }
+
+  /* Date fields: hide screen inputs and icons completely */
+  .bmr-print-only-container .bmr-date-screen-input,
+  .bmr-print-only-container input.bmr-date-screen-input,
+  .bmr-print-only-container .bmr-date-display,
+  .bmr-print-only-container input.bmr-date-display,
+  .bmr-print-only-container .bmr-date-picker-icon,
+  .bmr-print-only-container input[type="date"],
+  .bmr-print-only-container .no-print,
+  .bmr-print-only-container *.no-print,
+  .bmr-print-only-container input.no-print,
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+
+  /* Date fields: clean dedicated print span */
+  .bmr-print-only-container .bmr-date-field-wrap {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .bmr-print-only-container .bmr-date-print-value {
+    display: block !important;
+    font-size: 8.5pt !important;
+    font-family: inherit !important;
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .bmr-print-only-container .bmr-date-print-cell {
+    border: none !important;
+    text-align: center !important;
+    line-height: normal !important;
+  }
+
+  .bmr-print-only-container .bmr-date-print-line {
+    border: none !important;
+    border-bottom: 1px dotted #000000 !important;
+    min-height: 12pt !important;
+    line-height: 12pt !important;
+    vertical-align: baseline !important;
   }
 }
 

@@ -36,7 +36,7 @@ export function getOilPageRenderers({
 
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <span style={{ width: 22 }}>2</span>
-            <span style={{ width: 230 }}>Expiry Date / Best Use Before :</span>
+            <span style={{ width: 230 }}>Expiry Date / Best Use Before</span>
             <span style={{ width: 14 }}>:</span>
             <div style={{ width: 150 }}>
               <input
@@ -64,7 +64,7 @@ export function getOilPageRenderers({
 
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <span style={{ width: 22 }}>4</span>
-            <span style={{ width: 230 }}>Date of Manufacturing Started:</span>
+            <span style={{ width: 230 }}>Date of Manufacturing Started</span>
             <span style={{ width: 14 }}>:</span>
             <div style={{ width: 150 }}>
               <BmrDateField
