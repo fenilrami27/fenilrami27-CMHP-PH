@@ -362,7 +362,7 @@ export default function Quality() {
     }
 
     const declinerName = declinerInputName.trim() || 'Pooja Varma'
-    const declinerRole = 'QC In-Charge'
+    const declinerRole = 'QA In-Charge'
     const now = new Date().toISOString()
 
     dispatch(
@@ -414,7 +414,7 @@ export default function Quality() {
   return (
     <div>
       <PageHeader
-        title="Quality Control & QA Release"
+        title="Quality Assurance & QA Release"
         subtitle="Master formulation approvals and production order QA clearance."
       />
 
@@ -988,14 +988,14 @@ export default function Quality() {
                           <div>
                             <span className="qc-status-pill pill-declined">✕ Declined</span>
                             <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '3px', fontWeight: 600 }}>
-                              {req.decidedBy || 'QC In-Charge'}
+                              {req.decidedBy || 'QA In-Charge'}
                             </div>
                             <div style={{ fontSize: '10.5px', color: '#64748b' }}>
                               {formatDateIN(req.decidedAt)}
                             </div>
                           </div>
                         ) : (
-                          <span className="qc-status-pill pill-pending">⏳ Pending QC</span>
+                          <span className="qc-status-pill pill-pending">⏳ Pending QA</span>
                         )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
@@ -1049,13 +1049,15 @@ export default function Quality() {
                       batchUnit: reviewFormulaModal.batchUnit,
                       scaleFactor: reviewFormulaModal.scaleFactor,
                       approval: reviewFormulaModal,
-                      companyName: activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                      company: activeCompanyId,
+                      companyName: activeCompanyId === 2 ? 'TEJ BIOCARE' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                      companyCode: activeCompanyId === 2 ? 'TEJ' : 'CMHP',
                     })
                   }
                 >
                   📊 Export Excel (.xls)
                 </Button>
-                <Button variant="secondary" onClick={() => exportFormulaPrint('bmr-requisition-print-doc')}>
+                <Button variant="secondary" onClick={() => exportFormulaPrint('bmr-requisition-print-doc', activeCompanyId)}>
                   🖨️ Print / Save PDF
                 </Button>
               </div>
@@ -1103,7 +1105,8 @@ export default function Quality() {
               batchUnit={reviewFormulaModal.batchUnit}
               scaleFactor={reviewFormulaModal.scaleFactor}
               approval={reviewFormulaModal}
-              companyName={activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
+              company={activeCompanyId}
+              companyName={activeCompanyId === 2 ? 'TEJ BIOCARE' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
               companyCode={activeCompanyId === 2 ? 'TEJ' : 'CMHP'}
               department={
                 ['Liquid', 'Syrup', 'Drops', 'Oil', 'Syrups', 'Suspension'].includes(reviewFormulaModal.dosageForm)
@@ -1169,13 +1172,13 @@ export default function Quality() {
                 required
               />
               <span style={{ fontSize: '11.5px', color: '#64748b', display: 'block', marginTop: '3px' }}>
-                Prepared By: <strong>{approveDialogModal.submittedBy}</strong> ({approveDialogModal.submittedByRole || 'Production Chemist'}). Approval sign-off must be performed by a designated QA/QC authority.
+                Prepared By: <strong>{approveDialogModal.submittedBy}</strong> ({approveDialogModal.submittedByRole || 'Production Chemist'}). Approval sign-off must be performed by a designated QA authority.
               </span>
             </div>
 
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                QC Approval Remarks / BMR Release Endorsement (Optional)
+                QA Approval Remarks / BMR Release Endorsement (Optional)
               </label>
               <textarea
                 className="field-input"
@@ -1223,7 +1226,7 @@ export default function Quality() {
             </p>
 
             <div className="field field-full" style={{ marginBottom: 14 }}>
-              <label className="field-label">QC Reviewing Officer Name <span style={{ color: '#dc2626' }}>*</span></label>
+              <label className="field-label">QA Reviewing Officer Name <span style={{ color: '#dc2626' }}>*</span></label>
               <input
                 type="text"
                 className="field-input"
