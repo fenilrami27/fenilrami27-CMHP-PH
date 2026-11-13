@@ -277,6 +277,19 @@
   object-fit: contain;
 }
 
+/* Tej Biocare Branding Fit (Tej branch only - CMHP untouched) */
+.inv-company-logo-area-tej {
+  overflow: hidden;
+}
+
+.inv-company-logo-img-tej {
+  max-width: 98px;
+  max-height: 52px;
+  object-fit: contain;
+  transform: scale(1.35);
+  transform-origin: center 43%;
+}
+
 .inv-company-details {
   flex: 1;
   text-align: center;

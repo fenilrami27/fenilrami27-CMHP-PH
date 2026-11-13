@@ -11,6 +11,7 @@ import {
 } from '../../utils/companySelectors'
 import { resolveOrderDosageForm } from './productionService'
 import './ProductionInvoice.css'
+import { getCompanyBranding } from '../../utils/companyBranding.js'
 
 // Format YYYY-MM-DD or ISO date string to DD.MM.YYYY
 function formatInvoiceDate(d) {
@@ -240,7 +241,7 @@ export default function ProductionInvoice() {
       top_title_right: 'ORIGINAL FOR RECEPIENT',
 
       // Company Header (static text from screenshot 2, editable)
-      company_name: 'CMHP PRIVATE LIMITED',
+      company_name: branding.isTej ? branding.headerName : 'CMHP PRIVATE LIMITED',
       company_factory: 'Factory : 18, Shubh Laxmi, Viramgam Road,Sanand,Ahmedabad-382110. Regd.Off.: 701, Safal Prelude, Corporate Road, Ahmedabad-380015',
       company_contacts: 'Tel: +917947977198          Mob: +919327252466',
       company_gstin: '24AAICC9380N1Z2',
@@ -535,6 +536,15 @@ export default function ProductionInvoice() {
             style={{ background: '#059669' }}
           >
             🖨️ Print
+          </button>
+          <button
+            type="button"
+            className="prod-inv-btn-secondary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, background: '#ffffff', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 700, cursor: 'pointer' }}
+            onClick={handlePrint}
+            title="Download PDF via browser print"
+          >
+            ⬇️ Download PDF
           </button>
         </div>
       </div>
@@ -1243,7 +1253,7 @@ export default function ProductionInvoice() {
               {/* Rows 43-47: Authorised Signatory */}
               <div className="inv-signatory-block">
                 <div className="inv-signatory-header">
-                  For CMHP Private Limited
+                  {branding.isTej ? branding.forCompany : 'For CMHP Private Limited'}
                 </div>
                 <div className="inv-signature-area">
                   <img

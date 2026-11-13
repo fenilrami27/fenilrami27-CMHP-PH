@@ -9,6 +9,7 @@ import { getTabletPageRenderers } from './TabletBmrPages'
 import { getMotherTincturePageRenderers } from './MotherTinctureBmrPages'
 import { getOilPageRenderers } from './OilBmrPages'
 import cmhpLogo from '../../assets/cmhp_bmr_logo.png'
+import { getCompanyBranding } from '../../utils/companyBranding.js'
 import masterCopyImg from '../../assets/cmhp_master_copy.png'
 import './BmrForm.css'
 
@@ -24,6 +25,7 @@ export default function BmrForm() {
   const [saving, setSaving] = useState(false)
   const [saveFeedback, setSaveFeedback] = useState('')
   const [printCurrentOnly, setPrintCurrentOnly] = useState(false)
+  const branding = getCompanyBranding(currentOrder)
 
   const dosageForm = currentOrder ? (currentOrder.dosage_form || currentOrder.dosageForm || currentOrder.product_type || currentOrder.type || '') : ''
   const template = useMemo(() => getBmrTemplate(dosageForm), [dosageForm])
@@ -264,12 +266,14 @@ function BmrDateField({
     }
   }
 
+  const isCell = className && className.includes('bmr-cell-input')
+
   return (
     <div
       className={`bmr-date-field-wrap ${className}-wrap`}
       style={{
         position: 'relative',
-        display: 'inline-flex',
+        display: isCell ? 'block' : 'inline-flex',
         alignItems: 'center',
         width: style?.width || '100%',
         boxSizing: 'border-box',
@@ -278,7 +282,7 @@ function BmrDateField({
     >
       <input
         type="text"
-        className={`${className} bmr-date-display no-print`}
+        className={`${className} bmr-date-display bmr-date-screen-input no-print`}
         value={displayVal}
         placeholder={placeholder}
         onChange={handleDisplayChange}
@@ -321,7 +325,7 @@ function BmrDateField({
         }}
       />
       <span
-        className={`bmr-date-print-value print-only ${className && className.includes('bmr-cell-input') ? 'bmr-date-print-cell' : 'bmr-date-print-line'}`}
+        className={`bmr-date-print-value ${isCell ? 'bmr-date-print-cell' : 'bmr-date-print-line'}`}
       >
         {displayVal || ''}
       </span>
@@ -333,10 +337,14 @@ function BmrDateField({
   const renderHeader = () => (
     <div className="bmr-header-box">
       <div className="bmr-header-top-row">
-        <div className="bmr-logo-wrap">
-          <img src={cmhpLogo} alt="CMHP Logo" className="bmr-logo-img" />
+        <div className={`bmr-logo-wrap ${branding.isTej ? 'bmr-logo-wrap-tej' : ''}`}>
+          {branding.isTej ? (
+            <img src={branding.logoSrc} alt={branding.headerName} className="bmr-logo-img bmr-logo-img-tej" loading="eager" />
+          ) : (
+            <img src={cmhpLogo} alt="CMHP Logo" className="bmr-logo-img" />
+          )}
         </div>
-        <div className="bmr-company-title">CMHP PRIVATE LIMITED</div>
+        <div className="bmr-company-title">{branding.isTej ? branding.headerName : 'CMHP PRIVATE LIMITED'}</div>
         {!template?.hideMasterCopy && template?.dosageForm !== 'Tablet' ? (
           <div className="bmr-master-copy">
             <img src={masterCopyImg} alt="MASTER COPY" className="bmr-master-copy-img" />
@@ -360,7 +368,7 @@ function BmrDateField({
           <span className="bmr-grid-label">BMR NO. :</span>
           <input
             className="bmr-grid-input"
-            value={data.header?.bmr_no || ''}
+            value={branding.isTej && data.header?.bmr_no?.includes('BMR/CMHP/') ? data.header.bmr_no.replace('BMR/CMHP/', 'BMR/TEJ/') : (data.header?.bmr_no || '')}
             onChange={(e) => updateHeader('bmr_no', e.target.value)}
           />
         </div>
@@ -593,7 +601,7 @@ function BmrDateField({
             />
           </div>
           <div className="bmr-p1-row">
-            <span className="bmr-p1-label">2 Expiry Date / Best Use Before :</span>
+            <span className="bmr-p1-label">2 Expiry Date / Best Use Before</span>
             <span className="bmr-p1-colon">:</span>
             <input
               className="bmr-line-input"
@@ -611,7 +619,7 @@ function BmrDateField({
             />
           </div>
           <div className="bmr-p1-row">
-            <span className="bmr-p1-label">4 Date of Manufacturing Started:</span>
+            <span className="bmr-p1-label">4 Date of Manufacturing Started</span>
             <span className="bmr-p1-colon">:</span>
             <BmrDateField
               className="bmr-line-input"
@@ -4274,10 +4282,14 @@ function BmrDateField({
   const renderMotherTinctureHeader = (pageNumber) => (
     <div className="bmr-header-box bmr-mt-header-box">
       <div className="bmr-header-top-row bmr-mt-header-top-row">
-        <div className="bmr-logo-wrap">
-          <img src={cmhpLogo} alt="CMHP Logo" className="bmr-logo-img" />
+        <div className={`bmr-logo-wrap ${branding.isTej ? 'bmr-logo-wrap-tej' : ''}`}>
+          {branding.isTej ? (
+            <img src={branding.logoSrc} alt={branding.headerName} className="bmr-logo-img bmr-logo-img-tej" loading="eager" />
+          ) : (
+            <img src={cmhpLogo} alt="CMHP Logo" className="bmr-logo-img" />
+          )}
         </div>
-        <div className="bmr-company-title">CMHP PRIVATE LIMITED</div>
+        <div className="bmr-company-title">{branding.isTej ? branding.headerName : 'CMHP PRIVATE LIMITED'}</div>
         <div className="bmr-logo-wrap" style={{ visibility: 'hidden' }} aria-hidden="true" />
       </div>
       <div className="bmr-dept-title">PRODUCTION ( MOTHER TINCTURE DEPARTMENT)</div>
@@ -4295,16 +4307,16 @@ function BmrDateField({
           <span className="bmr-grid-label">EFFECTIVE DATE :</span>
           <input
             className="bmr-grid-input"
-            value={data.header?.effective_date !== undefined ? data.header.effective_date : '05/01/2025'}
+            value={formatDateDDMMYYYY(data.header?.effective_date) || '05/01/2025'}
             onChange={(e) => updateHeader('effective_date', e.target.value)}
           />
         </div>
 
         <div className="bmr-grid-cell">
-          <span className="bmr-grid-label">BMR NO. : BMR:</span>
+          <span className="bmr-grid-label">BMR NO. :</span>
           <input
             className="bmr-grid-input"
-            value={data.header?.bmr_no ? String(data.header.bmr_no).replace(/^BMR:\s*/i, '') : ''}
+            value={branding.isTej && data.header?.bmr_no?.includes('BMR/CMHP/') ? data.header.bmr_no.replace('BMR/CMHP/', 'BMR/TEJ/') : (data.header?.bmr_no || '')}
             onChange={(e) => updateHeader('bmr_no', e.target.value)}
           />
         </div>
@@ -4346,7 +4358,7 @@ function BmrDateField({
           <span className="bmr-grid-label">MFG. FOR :</span>
           <input
             className="bmr-grid-input"
-            value={data.header?.mfg_for !== undefined ? data.header.mfg_for : 'CMHP'}
+            value={data.header?.mfg_for !== undefined ? (branding.isTej && data.header.mfg_for === 'CMHP' ? branding.mfgFor : data.header.mfg_for) : (branding.isTej ? branding.mfgFor : 'CMHP')}
             onChange={(e) => updateHeader('mfg_for', e.target.value)}
           />
         </div>
@@ -4685,6 +4697,16 @@ function BmrDateField({
             title="Print only the active section"
           >
             🖨️ Print Section {activeSection}
+          </button>
+
+          <button
+            type="button"
+            className="bmr-back-btn"
+            style={{ background: '#ffffff', color: '#334155' }}
+            onClick={handlePrintFull}
+            title="Download PDF via browser print"
+          >
+            ⬇️ Download PDF
           </button>
         </div>
       </div>

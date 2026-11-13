@@ -10,9 +10,12 @@
  *  - Seamless execution across all modern Chromium & WebKit browsers.
  */
 
+import { isTejBiocare } from './companyBranding.js'
+
 export function printElement(elementOrId, options = {}) {
+  const isTej = isTejBiocare()
   const {
-    title = 'CMHP Pharma ERP - Document',
+    title = isTej ? 'Tej Biocare ERP - Document' : 'CMHP Pharma ERP - Document',
     pageOrientation = 'portrait',
     margin = '10mm 8mm',
   } = options

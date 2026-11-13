@@ -423,6 +423,21 @@
   margin: 0 auto;
 }
 
+/* Tej Biocare Branding Fit (Tej branch only - CMHP untouched) */
+.inv-logo-cell-tej {
+  overflow: hidden;
+}
+
+.inv-header-logo-img-tej {
+  max-height: 48pt;
+  max-width: 95%;
+  object-fit: contain;
+  transform: scale(1.35);
+  transform-origin: center 43%;
+  display: block;
+  margin: 0 auto;
+}
+
 .inv-company-name-cell {
   text-align: center;
   vertical-align: middle;
@@ -884,8 +899,8 @@
     margin: 0 !important;
     padding: 0 !important;
     width: 210mm !important;
-    height: 297mm !important;
-    min-height: 0 !important;
+    height: auto !important;
+    min-height: 100% !important;
     overflow: visible !important;
     background: #ffffff !important;
   }
@@ -937,12 +952,12 @@
     visibility: visible !important;
   }
 
-  /* Exact A4 sheet in print: 210mm x 297mm with 8mm inner padding */
+  /* Exact A4 sheet in print: 210mm with 8mm padding, supporting multi-page natural flow */
   .invoice-printable-sheet {
     width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
     min-height: 297mm !important;
+    height: auto !important;
+    max-height: none !important;
     margin: 0 !important;
     padding: 8mm !important;
     box-sizing: border-box !important;
@@ -950,17 +965,18 @@
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    page-break-after: avoid !important;
-    break-after: avoid !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   /* Master table fills the 194mm printable width */
   .inv-master-table {
     width: 100% !important;
     border: 1px solid #000000 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  .inv-master-table tr {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }

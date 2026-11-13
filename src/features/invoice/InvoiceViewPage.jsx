@@ -19,6 +19,7 @@ import {
 } from './invoiceService'
 import { formatQty, filterNumericInput, GST_STATE_MAP, deriveStateCode } from '../../utils/gstUtils'
 import './InvoiceViewPage.css'
+import { getCompanyBranding } from '../../utils/companyBranding.js'
 
 
 function convertToIsoDate(d) {
@@ -150,6 +151,7 @@ function EditableTextarea({
    ========================================================================== */
 function InvoiceSheet({
   sheet,
+  branding: brandingProp,
   computed,
   allTableRows,
   densityClass,
@@ -159,6 +161,7 @@ function InvoiceSheet({
   onGhostLineChange,
   onRemoveLine,
 }) {
+  const branding = brandingProp || getCompanyBranding(sheet)
   return (
     <div className="invoice-printable-sheet">
       {/* Top Strip (Outside master table border) */}
@@ -206,19 +209,28 @@ function InvoiceSheet({
               ==================================================================== */}
           {/* Row 1: Logo (cols 1-2, spans 2 rows) | Company Name (cols 3-14) */}
           <tr style={{ height: '26pt' }}>
-            <td colSpan={2} rowSpan={2} className="inv-logo-cell">
-              <img
-                src="/cmhp_invoice_logo.png"
-                alt="CMHP Logo"
-                className="inv-header-logo-img"
-                onError={(e) => {
-                  e.target.src = '/logo.jpg'
-                }}
-              />
+            <td colSpan={2} rowSpan={2} className={`inv-logo-cell ${branding.isTej ? 'inv-logo-cell-tej' : ''}`}>
+              {branding.isTej ? (
+                <img
+                  src={branding.invoiceLogoSrc}
+                  alt={branding.normalName}
+                  className="inv-header-logo-img inv-header-logo-img-tej"
+                  loading="eager"
+                />
+              ) : (
+                <img
+                  src="/cmhp_invoice_logo.png"
+                  alt="CMHP Logo"
+                  className="inv-header-logo-img"
+                  onError={(e) => {
+                    e.target.src = '/logo.jpg'
+                  }}
+                />
+              )}
             </td>
             <td colSpan={12} className="inv-company-name-cell">
               <EditableField
-                value={sheet.company_name}
+                value={branding.isTej && (!sheet.company_name || sheet.company_name === 'CMHP PRIVATE LIMITED') ? branding.headerName : sheet.company_name}
                 bold
                 align="center"
                 onChange={(v) => onFieldChange('company_name', v)}
@@ -890,7 +902,7 @@ function InvoiceSheet({
             <td colSpan={3} className="inv-seal-middle-block">&nbsp;</td>
             <td colSpan={5} className="inv-sign-block-cell">
               <div className="font-bold text-center inv-for-company">
-                {sheet.for_company}
+                {branding.isTej && (!sheet.for_company || sheet.for_company === 'For CMHP Private Limited') ? branding.forCompany : sheet.for_company}
               </div>
               {/* Preserved manual signature space (no image) */}
               <div className="inv-sign-empty-space" style={{ height: '36pt' }}>&nbsp;</div>
@@ -960,6 +972,8 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
     )
   }, [currentInvoice, reduxOrders, id, isNew, createdId])
 
+  const branding = getCompanyBranding(currentInvoice || order || compKey)
+
   // Target customer
   const customer = useMemo(() => {
     if (isNew && !createdId) return null
@@ -1005,7 +1019,7 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
         top_title_right: 'ORIGINAL FOR RECEPIENT',
 
         // Company Header (Master PDF exact)
-        company_name: 'CMHP PRIVATE LIMITED',
+        company_name: branding.isTej ? branding.headerName : 'CMHP PRIVATE LIMITED',
         company_factory_address:
           'Factory :18, Shubh Laxmi, Viramgam Road,Sanand,Ahmedabad-382110. Regd.Off.: 701, Safal Prelude, Corporate Road, Ahmedabad-380015',
         company_tel: 'Tel: +917947977198',
@@ -1066,7 +1080,7 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
 
         // Footer labels
         company_seal_label: 'Company Seal',
-        for_company: 'For CMHP Private Limited',
+        for_company: branding.isTej ? branding.forCompany : 'For CMHP Private Limited',
         cert_statement: 'Ceritified that the particulars given above are true and correct',
         authorised_signatory: 'Authorised signatory',
       }
@@ -1236,7 +1250,7 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
       top_title_right: 'ORIGINAL FOR RECEPIENT',
 
       // Company Header (Master PDF exact)
-      company_name: 'CMHP PRIVATE LIMITED',
+      company_name: branding.isTej ? branding.headerName : 'CMHP PRIVATE LIMITED',
       company_factory_address:
         'Factory :18, Shubh Laxmi, Viramgam Road,Sanand,Ahmedabad-382110. Regd.Off.: 701, Safal Prelude, Corporate Road, Ahmedabad-380015',
       company_tel: 'Tel: +917947977198',
@@ -1297,7 +1311,7 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
 
       // Footer labels
       company_seal_label: 'Company Seal',
-      for_company: 'For CMHP Private Limited',
+      for_company: branding.isTej ? branding.forCompany : 'For CMHP Private Limited',
       cert_statement: 'Ceritified that the particulars given above are true and correct',
       authorised_signatory: 'Authorised signatory',
     }
@@ -1988,6 +2002,16 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
           >
             🖨️ Print
           </button>
+
+          <button
+            type="button"
+            className="inv-view-btn-secondary"
+            style={{ fontWeight: 700 }}
+            onClick={handlePrint}
+            title="Download PDF via browser print"
+          >
+            ⬇️ Download PDF
+          </button>
         </div>
       </div>
 
@@ -2003,6 +2027,7 @@ export default function InvoiceViewPage({ isNew: isNewProp = false }) {
         <div className="inv-sheet-zoom-wrapper" style={zoomStyle}>
           {/* THE SINGLE MASTER INVOICE SHEET */}
           <InvoiceSheet
+            branding={branding}
             sheet={sheet}
             computed={computed}
             allTableRows={allTableRows}

@@ -1,6 +1,7 @@
 import React from 'react'
 import { formatDateIN } from '../utils/formatters'
 import './BmrRequisitionDocument.css'
+import { getCompanyBranding } from '../utils/companyBranding.js'
 
 /**
  * BmrRequisitionDocument
@@ -17,12 +18,17 @@ export default function BmrRequisitionDocument({
   batchUnit = 'L',
   scaleFactor = 1,
   approval = null,
+  company = null,
   companyName = 'CMHP PHARMACEUTICALS PVT. LTD.',
   companyCode = 'CMHP',
   department = 'PRODUCTION ( ORAL LIQUID DEPARTMENT )',
   showWatermark = true,
   isPrintView = false,
 }) {
+  const branding = getCompanyBranding(company || { companyCode, companyName })
+  const effectiveCompanyName = branding.isTej ? branding.headerName : (companyName || 'CMHP PHARMACEUTICALS PVT. LTD.')
+  const effectiveCompanyCode = branding.isTej ? branding.code : (companyCode || 'CMHP')
+
   const status = approval?.status || (product?.formula_approval_status) || 'NOT_SUBMITTED'
   const isApproved = status === 'APPROVED'
   const isPending = status === 'PENDING'
@@ -76,24 +82,35 @@ export default function BmrRequisitionDocument({
             ========================================================= */}
         <div className="bmr-header-box">
           <div className="bmr-header-top">
-            <div className="bmr-logo-cell">
-              <img
-                src="/logo.jpg"
-                alt="CMHP"
-                className="bmr-logo-img"
-                onError={(e) => {
-                  e.target.style.display = 'none'
-                  if (e.target.nextSibling) e.target.nextSibling.style.display = 'block'
-                }}
-              />
-              <div className="bmr-logo-fallback" style={{ display: 'none' }}>
-                <span className="logo-initials">{companyCode || 'CMHP'}</span>
-                <span className="logo-sub">PHARMA</span>
-              </div>
+            <div className={`bmr-logo-cell ${branding.isTej ? 'bmr-logo-cell-tej' : ''}`}>
+              {branding.isTej ? (
+                <img
+                  src={branding.logoSrc}
+                  alt={branding.normalName}
+                  className="bmr-logo-img bmr-logo-img-tej"
+                  loading="eager"
+                />
+              ) : (
+                <img
+                  src="/logo.jpg"
+                  alt="CMHP"
+                  className="bmr-logo-img"
+                  onError={(e) => {
+                    e.target.style.display = 'none'
+                    if (e.target.nextSibling) e.target.nextSibling.style.display = 'block'
+                  }}
+                />
+              )}
+              {!branding.isTej && (
+                <div className="bmr-logo-fallback" style={{ display: 'none' }}>
+                  <span className="logo-initials">{effectiveCompanyCode}</span>
+                  <span className="logo-sub">PHARMA</span>
+                </div>
+              )}
             </div>
 
             <div className="bmr-title-cell">
-              <h1 className="bmr-company-name">{companyName}</h1>
+              <h1 className="bmr-company-name">{effectiveCompanyName}</h1>
               <div className="bmr-dept-name">{department}</div>
               <h2 className="bmr-doc-title">BATCH MANUFACTURING RECORD (BMR)</h2>
             </div>
@@ -112,7 +129,7 @@ export default function BmrRequisitionDocument({
               </div>
               <div className="bmr-meta-row">
                 <span className="meta-label">COMPANY CODE :</span>
-                <span className="meta-value">{companyCode || 'CMHP'}</span>
+                <span className="meta-value">{effectiveCompanyCode}</span>
               </div>
               <div className="bmr-meta-row">
                 <span className="meta-label">BATCH NO. :</span>
@@ -131,7 +148,7 @@ export default function BmrRequisitionDocument({
             <div className="bmr-meta-col right-col">
               <div className="bmr-meta-row">
                 <span className="meta-label">BMR NO. :</span>
-                <span className="meta-value">BMR/{companyCode}/PRD/04</span>
+                <span className="meta-value">BMR/{effectiveCompanyCode}/PRD/04</span>
               </div>
               <div className="bmr-meta-row">
                 <span className="meta-label">EFFECTIVE DATE :</span>
