@@ -1294,7 +1294,7 @@ function downloadSalarySlip({
     </div>
 
     <div class="footer-note">
-      This is a system generated document. No physical signature is required. Generated via CMHP ERP Payroll Management.
+      This is a system generated document. No physical signature is required. Generated via ${companyName || 'CMHP'} ERP Payroll Management.
     </div>
   </div>
 </body>

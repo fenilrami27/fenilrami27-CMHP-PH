@@ -9,7 +9,10 @@ import {
   getCategoryMeta,
   markNotificationRead,
   markAllNotificationsRead,
+  selectFilteredNotifications,
+  selectUnreadNotificationsCount,
 } from '../../utils/notifications'
+import { selectActiveCompanyId } from '../../utils/companySelectors'
 import './NotificationsPage.css'
 
 const ITEMS_PER_PAGE = 10
@@ -33,14 +36,12 @@ export default function NotificationsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const allNotifications = useSelector(
-    (state) => state.erp?.notifications || []
-  )
+  const activeCompanyId = useSelector(selectActiveCompanyId)
 
   // Filter notifications visible to this user
-  const userNotifications = useMemo(() => {
-    return allNotifications.filter((n) => isNotificationForUser(n, user))
-  }, [allNotifications, user])
+  const userNotifications = useSelector((state) =>
+    selectFilteredNotifications(state, user, activeCompanyId)
+  )
 
   // Filter by status, category, and search query
   const filteredNotifications = useMemo(() => {
@@ -75,9 +76,9 @@ export default function NotificationsPage() {
   }, [userNotifications, user, statusFilter, categoryFilter, searchQuery])
 
   // Unread count
-  const unreadCount = useMemo(() => {
-    return userNotifications.filter((n) => !isNotificationRead(n, user)).length
-  }, [userNotifications, user])
+  const unreadCount = useSelector((state) =>
+    selectUnreadNotificationsCount(state, user, activeCompanyId)
+  )
 
   // Pagination
   const totalPages = Math.ceil(filteredNotifications.length / ITEMS_PER_PAGE) || 1
@@ -88,7 +89,7 @@ export default function NotificationsPage() {
 
   const handleMarkAllRead = () => {
     if (!user?.id) return
-    markAllNotificationsRead(user.id)
+    markAllNotificationsRead(user.id, activeCompanyId)
   }
 
   const handleItemClick = (item) => {

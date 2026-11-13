@@ -834,7 +834,7 @@ th {
     <br>
 
     This is a system-generated salary slip
-    from the CMHP ERP HRMS.
+    from the ${companyName || 'CMHP'} ERP HRMS.
 
     <br><br>
 

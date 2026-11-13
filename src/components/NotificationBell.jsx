@@ -10,7 +10,10 @@ import {
   getCategoryMeta,
   markNotificationRead,
   markAllNotificationsRead,
+  selectFilteredNotifications,
+  selectUnreadNotificationsCount,
 } from '../utils/notifications'
+import { selectActiveCompanyId } from '../utils/companySelectors'
 import './NotificationBell.css'
 
 /* =========================================================
@@ -152,19 +155,17 @@ export default function NotificationBell() {
   const navigate = useNavigate()
   const containerRef = useRef(null)
 
-  const allNotifications = useSelector(
-    (state) => state.erp?.notifications || []
-  )
+  const activeCompanyId = useSelector(selectActiveCompanyId)
 
   // Filter notifications visible to this user
-  const userNotifications = useMemo(() => {
-    return allNotifications.filter((n) => isNotificationForUser(n, user))
-  }, [allNotifications, user])
+  const userNotifications = useSelector((state) =>
+    selectFilteredNotifications(state, user, activeCompanyId)
+  )
 
   // Calculate unread count for current user
-  const unreadCount = useMemo(() => {
-    return userNotifications.filter((n) => !isNotificationRead(n, user)).length
-  }, [userNotifications, user])
+  const unreadCount = useSelector((state) =>
+    selectUnreadNotificationsCount(state, user, activeCompanyId)
+  )
 
   // Group newest first into "Today" and "Earlier"
   const { todayList, earlierList } = useMemo(() => {
@@ -222,7 +223,7 @@ export default function NotificationBell() {
   const handleMarkAllRead = (e) => {
     e.stopPropagation()
     if (!user?.id) return
-    markAllNotificationsRead(user.id)
+    markAllNotificationsRead(user.id, activeCompanyId)
   }
 
   const handleItemClick = (item) => {

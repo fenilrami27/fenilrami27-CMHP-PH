@@ -1,5 +1,6 @@
 import { printElement } from './printDocument'
 import { formatDateIN } from './formatters'
+import { getCompanyBranding } from './companyBranding.js'
 
 /**
  * Formula Export Utilities
@@ -7,9 +8,10 @@ import { formatDateIN } from './formatters'
  * formatted per pharmaceutical BMR standards.
  */
 
-export function exportFormulaPrint(elementId = 'bmr-requisition-print-doc') {
+export function exportFormulaPrint(elementId = 'bmr-requisition-print-doc', company = null) {
+  const branding = getCompanyBranding(company)
   printElement(elementId, {
-    title: 'BMR Raw Material Requisition Slip - SOP/QA/04/F-02/00',
+    title: `${branding.isTej ? branding.headerName : 'CMHP'} - BMR Raw Material Requisition Slip - SOP/QA/04/F-02/00`,
     pageOrientation: 'portrait',
     margin: '10mm 8mm',
   })
@@ -24,9 +26,14 @@ export function exportFormulaExcel({
   batchUnit = 'L',
   scaleFactor = 1,
   approval = null,
+  company = null,
   companyName = 'CMHP PHARMACEUTICALS PVT. LTD.',
+  companyCode = 'CMHP',
   department = 'PRODUCTION ( ORAL LIQUID DEPARTMENT )',
 }) {
+  const branding = getCompanyBranding(company || { companyCode, companyName })
+  const effectiveCompanyName = branding.isTej ? branding.headerName : (companyName || 'CMHP PHARMACEUTICALS PVT. LTD.')
+  const effectiveCompanyCode = branding.isTej ? branding.code : (companyCode || 'CMHP')
   const status = approval?.status || 'NOT_SUBMITTED'
   const isApproved = status === 'APPROVED'
   const isDeclined = status === 'DECLINED'
@@ -106,7 +113,7 @@ export function exportFormulaExcel({
     <body>
       <table style="border-collapse: collapse; width: 100%;">
         <tr>
-          <td colspan="7" class="hdr" style="padding: 10px; font-size: 16pt;">${companyName}</td>
+          <td colspan="7" class="hdr" style="padding: 10px; font-size: 16pt;">${effectiveCompanyName}</td>
         </tr>
         <tr>
           <td colspan="7" class="subhdr" style="padding: 6px;">${department}</td>
@@ -119,7 +126,7 @@ export function exportFormulaExcel({
           <td class="meta-lbl">PRODUCT :</td>
           <td colspan="3" class="meta-val" style="font-weight: bold;">${product.name || ''}</td>
           <td class="meta-lbl">BMR NO. :</td>
-          <td colspan="2" class="meta-val">BMR/CMHP/PRD/04</td>
+          <td colspan="2" class="meta-val">BMR/${effectiveCompanyCode}/PRD/04</td>
         </tr>
         <tr>
           <td class="meta-lbl">PRODUCT CODE :</td>
@@ -198,13 +205,18 @@ export function exportFormulaCsv({
   batchQty = 1,
   batchUnit = 'L',
   approval = null,
+  company = null,
+  companyName = 'CMHP PHARMACEUTICALS PVT. LTD.',
+  companyCode = 'CMHP',
 }) {
+  const branding = getCompanyBranding(company || { companyCode, companyName })
+  const effectiveCompanyName = branding.isTej ? branding.headerName : (companyName || 'CMHP PHARMACEUTICALS PVT. LTD.')
   const dateFormatted = formatDateIN(approval?.submittedAt || new Date())
   const approvedDateFormatted = approval?.decidedAt ? formatDateIN(approval.decidedAt) : ''
   const filename = `BMR_Requisition_${(product.code || 'PRD').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`
 
   const headerLines = [
-    `CMHP PHARMACEUTICALS PVT. LTD. - BATCH MANUFACTURING RECORD (BMR)`,
+    `${effectiveCompanyName} - BATCH MANUFACTURING RECORD (BMR)`,
     `ATTACHMENT - 1: RAW MATERIAL REQUISITION SLIP`,
     `PRODUCT,${product.name || ''}`,
     `PRODUCT CODE,${product.code || ''}`,
