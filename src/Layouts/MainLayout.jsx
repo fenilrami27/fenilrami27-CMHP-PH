@@ -87,7 +87,7 @@ const NAV_SECTIONS = [
       },
 
       {
-        label: 'Quality Control',
+        label: 'Quality Assurance',
         path: '/quality',
         icon: ShieldCheckIcon,
         accent: '#34d399',
@@ -105,21 +105,21 @@ const NAV_SECTIONS = [
       },
 
       {
+        label: 'QC',
+        path: '/qc',
+        icon: FlaskIcon,
+        accent: '#0d9488',
+        companyOnly: true,
+        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'DEPARTMENT_MANAGER', 'STORES_MANAGER', 'HR_MANAGER', 'EMPLOYEE'],
+      },
+
+      {
         label: 'Invoicing',
         path: '/invoices',
         icon: ReceiptIcon,
         accent: '#0b73df',
         companyOnly: true,
         roles: ['SUPER_ADMIN', 'MANAGEMENT'],
-      },
-
-      {
-        label: 'Supply Chain',
-        path: '/supply-chain',
-        icon: TruckIcon,
-        accent: '#f5a623',
-        companyOnly: true,
-        roles: ['SUPER_ADMIN', 'MANAGEMENT', 'STORES_MANAGER', 'STORES_USER'],
       },
 
       {

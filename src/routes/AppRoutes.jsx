@@ -48,14 +48,14 @@ import BmrForm
 import ProductionInvoice
   from '../features/production/ProductionInvoice'
 
+import QcList from '../features/qc/QcList'
+import QcViewPage from '../features/qc/QcViewPage'
 import InvoiceViewPage
   from '../features/invoice/InvoiceViewPage'
 
 import Invoice
   from '../features/invoice/Invoice'
 
-import SupplyChain
-  from '../features/supplyChain/SupplyChain'
 
 import WorkspaceSelection
   from '../features/workspace/WorkspaceSelection'
@@ -334,7 +334,7 @@ export default function AppRoutes() {
 
 
           {/* =================================================
-              QUALITY CONTROL & QA RELEASE
+              QUALITY ASSURANCE & QA RELEASE
               ================================================= */}
 
           <Route
@@ -417,6 +417,42 @@ export default function AppRoutes() {
           />
 
           <Route
+            path="/qc"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <QcList />
+              </RoleRoute>
+            }
+          />
+
+          <Route
+            path="/qc/view/:orderId"
+            element={
+              <RoleRoute
+                roles={[
+                  'SUPER_ADMIN',
+                  'MANAGEMENT',
+                  'DEPARTMENT_MANAGER',
+                  'STORES_MANAGER',
+                  'HR_MANAGER',
+                  'EMPLOYEE',
+                ]}
+              >
+                <QcViewPage />
+              </RoleRoute>
+            }
+          />
+
+          <Route
             path="/invoices/new"
             element={
               <RoleRoute
@@ -490,26 +526,7 @@ export default function AppRoutes() {
           />
 
 
-          {/* =================================================
-              SUPPLY CHAIN
-              ================================================= */}
-
-          <Route
-            path="/supply-chain"
-            element={
-              <RoleRoute
-                roles={[
-                  'SUPER_ADMIN',
-                  'MANAGEMENT',
-                  'STORES_MANAGER',
-                  'STORES_USER',
-                ]}
-              >
-                <SupplyChain />
-              </RoleRoute>
-            }
-          />
-
+          
           {/* =================================================
               DISPATCH
               ================================================= */}

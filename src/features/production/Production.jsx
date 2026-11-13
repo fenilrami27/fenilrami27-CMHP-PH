@@ -9,6 +9,7 @@ import { DOSAGE_FORMS } from '../../constants/dosageForms'
 import { selectDosageForms, addInvoice, saveOrderInvoice } from '../../store/erpSlice'
 import { selectActiveCompanyKey } from '../../utils/companySelectors'
 import { generateInvoiceNumber } from '../invoice/invoiceService'
+import { getCompanyBranding } from '../../utils/companyBranding'
 import './Production.css'
 
 function money(value) {
@@ -175,11 +176,13 @@ export default function Production() {
       const totalSgst = formattedLines.reduce((s, l) => s + (l.sgstAmount || 0), 0)
       const totalTax = totalCgst + totalSgst
       const grandTotal = Math.round(totalTaxable + totalTax)
+      const orderBranding = getCompanyBranding(order || compKey)
 
       const initialSheet = {
         top_title_left: 'TAX INVOICE',
         top_title_right: 'ORIGINAL FOR RECEPIENT',
-        company_name: 'CMHP PRIVATE LIMITED',
+        company_name: orderBranding.isTej ? orderBranding.headerName : 'CMHP PRIVATE LIMITED',
+        for_company: orderBranding.isTej ? orderBranding.forCompany : 'For CMHP Private Limited',
         company_factory: 'Factory : 18, Shubh Laxmi, Viramgam Road,Sanand,Ahmedabad-382110. Regd.Off.: 701, Safal Prelude, Corporate Road, Ahmedabad-380015',
         company_contacts: 'Tel: +917947977198          Mob: +919327252466',
         company_gstin: '24AAICC9380N1Z2',
@@ -497,6 +500,7 @@ export default function Production() {
                   <th>Dispatch</th>
                   <th>Invoice</th>
                   <th>BMR Action</th>
+                  <th>QC</th>
                 </tr>
               </thead>
               <tbody>
@@ -697,6 +701,27 @@ export default function Production() {
                         >
                           📄 BMR
                         </button>
+                      </td>
+                      {/* 15. QC Action Button */}
+                      <td>
+                        {(() => {
+                          const isBmrDone = (bmrStatus || "").toUpperCase() === "YES"
+                          return (
+                            <button
+                              type="button"
+                              className={`prod-action-btn-qc ${!isBmrDone ? "disabled" : ""}`}
+                              disabled={!isBmrDone}
+                              title={isBmrDone ? "View Quality Control (Certificate of Analysis)" : "Complete the BMR first"}
+                              onClick={() => {
+                                if (isBmrDone) {
+                                  navigate("/qc", { state: { highlightOrderId: order.id } })
+                                }
+                              }}
+                            >
+                              🔬 QC
+                            </button>
+                          )
+                        })()}
                       </td>
                     </tr>
                   )
