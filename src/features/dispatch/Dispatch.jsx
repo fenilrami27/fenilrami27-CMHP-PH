@@ -591,8 +591,12 @@ export default function Dispatch() {
       })
 
       // 4. Central In-App Notification
+      const orderCompId = Number(order.company) === 2 || order.companyId === 'tej' ? 2 : 1
       dispatch(
         addNotification({
+          companyId: orderCompId,
+          company: orderCompId,
+          targetRoles: ['DISPATCH', 'SALES', 'MANAGEMENT'],
           category: 'order',
           type: 'order',
           title: 'Order Dispatched',

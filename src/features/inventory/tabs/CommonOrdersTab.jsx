@@ -526,7 +526,10 @@ export default function CommonOrdersTab({
         user: currentUser?.username || currentUser?.email || 'Admin',
         role: userRole,
       })
+      const sampleCompId = Number(sampleModalOrder?.company) === 2 || sampleModalOrder?.companyId === 'tej' ? 2 : 1
       dispatchNotification({
+        companyId: sampleCompId,
+        company: sampleCompId,
         category: 'inventory',
         title: 'Sample Quantity Updated',
         message: `Admin updated sample quantity for Order #${sampleModalOrder.number || sampleModalOrder.id} to ${val} units. Remaining ${totalProduced - val} units for packaging.`,
@@ -552,7 +555,10 @@ export default function CommonOrdersTab({
         user: currentUser?.username || currentUser?.email || 'User',
         role: userRole,
       })
+      const sampleCompId = Number(sampleModalOrder?.company) === 2 || sampleModalOrder?.companyId === 'tej' ? 2 : 1
       dispatchNotification({
+        companyId: sampleCompId,
+        company: sampleCompId,
         category: 'inventory',
         title: 'Sample Quantity Confirmed',
         message: `Sample quantity confirmed: ${val} units kept as samples for Order #${sampleModalOrder.number || sampleModalOrder.id}. Remaining ${totalProduced - val} units routed to packaging.`,

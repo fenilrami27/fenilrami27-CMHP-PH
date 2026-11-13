@@ -839,6 +839,9 @@ export default function Invoice() {
                 <Button variant="secondary" onClick={handlePrint}>
                   Print Invoice
                 </Button>
+                <Button variant="secondary" onClick={handlePrint} title="Download PDF via browser print">
+                  ⬇️ Download PDF
+                </Button>
                 {viewing.status !== 'PAID' && viewing.status !== 'CANCELLED' && (
                   <Button onClick={() => openRecordPayment(viewing)}>
                     Record Payment

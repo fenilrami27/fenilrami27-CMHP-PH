@@ -1890,7 +1890,9 @@ export default function Products() {
                               batchUnit: requiredBatchUnit,
                               scaleFactor: currentScaleFactor,
                               approval: activeApproval,
-                              companyName: activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                              company: activeCompanyId,
+                              companyName: activeCompanyId === 2 ? 'TEJ BIOCARE' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                              companyCode: activeCompanyId === 2 ? 'TEJ' : 'CMHP',
                             })
                           }}
                         >
@@ -1909,6 +1911,9 @@ export default function Products() {
                               batchQty: requiredBatchQty,
                               batchUnit: requiredBatchUnit,
                               approval: activeApproval,
+                              company: activeCompanyId,
+                              companyName: activeCompanyId === 2 ? 'TEJ BIOCARE' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                              companyCode: activeCompanyId === 2 ? 'TEJ' : 'CMHP',
                             })
                           }}
                         >
@@ -2297,13 +2302,15 @@ export default function Products() {
                       batchUnit: requiredBatchUnit,
                       scaleFactor: currentScaleFactor,
                       approval: activeApproval,
-                      companyName: activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                      company: activeCompanyId,
+                      companyName: activeCompanyId === 2 ? 'TEJ BIOCARE' : 'CMHP PHARMACEUTICALS PVT. LTD.',
+                      companyCode: activeCompanyId === 2 ? 'TEJ' : 'CMHP',
                     })
                   }
                 >
                   📊 Export Excel (.xls)
                 </Button>
-                <Button variant="secondary" onClick={() => exportFormulaPrint()}>
+                <Button variant="secondary" onClick={() => exportFormulaPrint('bmr-requisition-print-doc', activeCompanyId)}>
                   🖨️ Print / Save PDF
                 </Button>
               </div>
@@ -2323,7 +2330,8 @@ export default function Products() {
               batchUnit={requiredBatchUnit}
               scaleFactor={currentScaleFactor}
               approval={activeApproval}
-              companyName={activeCompanyId === 2 ? 'TEJ BIOCARE HEALTHCARE PVT. LTD.' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
+              company={activeCompanyId}
+              companyName={activeCompanyId === 2 ? 'TEJ BIOCARE' : 'CMHP PHARMACEUTICALS PVT. LTD.'}
               companyCode={activeCompanyId === 2 ? 'TEJ' : 'CMHP'}
               department={['Liquid', 'Syrup', 'Drops', 'Oil', 'Syrups', 'Suspension'].includes(activeProduct?.dosage_form) ? 'PRODUCTION ( ORAL LIQUID DEPARTMENT )' : 'PRODUCTION ( ORAL SOLID DOSAGE DEPARTMENT )'}
             />

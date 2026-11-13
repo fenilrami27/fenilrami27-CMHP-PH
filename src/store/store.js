@@ -10,6 +10,7 @@ import erpReducer, {
 import {
   loadPersistedERPState,
   savePersistedERPState,
+  migrateNotifications,
 } from './persistence'
 
 import {
@@ -62,7 +63,7 @@ function buildInitialERPState() {
     'lots', 'commonProducts', 'commonRawMaterials', 'products', 'orders', 'batches',
     'customers', 'suppliers', 'issueHistory', 'stockReturns',
     'qcRecords', 'qaRecords', 'purchaseOrders', 'dispatches', 'dosageForms', 'invoices',
-    'designations', 'salaryStructures', 'attendance', 'payments', 'formulas', 'formulaApprovals'
+    'designations', 'salaryStructures', 'attendance', 'payments', 'formulas', 'formulaApprovals', 'notifications'
   ]
   seedIfEmptyKeys.forEach((key) => {
     if (!Array.isArray(result[key]) || result[key].length === 0) {
@@ -90,9 +91,70 @@ function buildInitialERPState() {
     result.orderInvoices = { ...(initialState.orderInvoices || {}), ...result.orderInvoices }
   }
 
-  if (!result.byCompany || !result.byCompany.cmhp || !result.byCompany.cmhp.orders || result.byCompany.cmhp.orders.length === 0) {
-    result.byCompany = JSON.parse(JSON.stringify(initialState.byCompany || {}))
+  if (!result.orderQc || typeof result.orderQc !== 'object') {
+    result.orderQc = { ...(initialState.orderQc || {}) }
+  } else {
+    result.orderQc = { ...(initialState.orderQc || {}), ...result.orderQc }
   }
+
+  if (!result.byCompany) {
+    result.byCompany = JSON.parse(JSON.stringify(initialState.byCompany || {}))
+  } else {
+    if (!result.byCompany.cmhp || !result.byCompany.cmhp.orders || result.byCompany.cmhp.orders.length === 0) {
+      result.byCompany.cmhp = JSON.parse(JSON.stringify(initialState.byCompany?.cmhp || {}))
+    }
+    if (!result.byCompany.tej || !result.byCompany.tej.orders || result.byCompany.tej.orders.length === 0) {
+      result.byCompany.tej = {
+        ...(result.byCompany.tej || {}),
+        products: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.products || [])),
+        orders: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.orders || [])),
+        batches: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.batches || [])),
+        formulas: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.formulas || [])),
+        formulaApprovals: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.formulaApprovals || [])),
+        qaRecords: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.qaRecords || [])),
+        qcRecords: JSON.parse(JSON.stringify(initialState.byCompany?.tej?.qcRecords || [])),
+      }
+    }
+  }
+
+  // Ensure commonRawMaterials contains all initial/seed raw materials
+  if (Array.isArray(initialState.commonRawMaterials)) {
+    if (!Array.isArray(result.commonRawMaterials)) {
+      result.commonRawMaterials = JSON.parse(JSON.stringify(initialState.commonRawMaterials))
+    } else {
+      initialState.commonRawMaterials.forEach((rm) => {
+        if (!result.commonRawMaterials.some((x) => x.id === rm.id || x.code === rm.code)) {
+          result.commonRawMaterials.push(JSON.parse(JSON.stringify(rm)))
+        }
+      })
+    }
+  }
+
+  // Ensure stockLedgerEntries contains opening entries for any new raw materials
+  if (Array.isArray(initialState.stockLedgerEntries)) {
+    if (!Array.isArray(result.stockLedgerEntries)) {
+      result.stockLedgerEntries = JSON.parse(JSON.stringify(initialState.stockLedgerEntries))
+    } else {
+      initialState.stockLedgerEntries.forEach((entry) => {
+        if (!result.stockLedgerEntries.some((x) => x.id === entry.id || x.receipt_no === entry.receipt_no)) {
+          result.stockLedgerEntries.push(JSON.parse(JSON.stringify(entry)))
+        }
+      })
+    }
+  }
+
+  // Sync top-level slices for Tej Biocare if not already present
+  ;['products', 'orders', 'batches', 'formulas', 'formulaApprovals', 'qaRecords', 'qcRecords'].forEach((key) => {
+    if (Array.isArray(initialState[key]) && Array.isArray(result[key])) {
+      initialState[key].forEach((item) => {
+        if (Number(item.company) === 2 || item.companyId === 'tej') {
+          if (!result[key].some((x) => x.id === item.id)) {
+            result[key].push(JSON.parse(JSON.stringify(item)))
+          }
+        }
+      })
+    }
+  })
 
   // Ensure dosageForms includes all current DOSAGE_FORMS and removes any 'Tablets'
   if (Array.isArray(result.dosageForms)) {
@@ -118,6 +180,8 @@ function buildInitialERPState() {
   // Ensure notifications, stockRequests, and ledger arrays exist
   if (!Array.isArray(result.notifications)) {
     result.notifications = []
+  } else {
+    result.notifications = migrateNotifications(result.notifications, result)
   }
   if (!Array.isArray(result.stockRequests)) {
     result.stockRequests = [...(initialState.stockRequests || [])]
@@ -155,6 +219,29 @@ function buildInitialERPState() {
   if (Array.isArray(result.invoices)) sanitizeInvoices(result.invoices)
   if (result.byCompany?.cmhp?.invoices) sanitizeInvoices(result.byCompany.cmhp.invoices)
   if (result.byCompany?.tej?.invoices) sanitizeInvoices(result.byCompany.tej.invoices)
+
+  // Ensure Drops and Syrup seed orders have BMR completed so QC button is enabled and they appear in QC list
+  const ensureDropsSyrupBmrComplete = (list) => {
+    if (!Array.isArray(list)) return
+    const targetOrderIds = [
+      '1793266000004', 'ORD-2026-0004',
+      '1793266000005', 'ORD-2026-0005',
+      '1793266000104', 'ORD-2026-0104',
+      '1793266000105', 'ORD-2026-0105',
+    ]
+    list.forEach((order) => {
+      if (
+        targetOrderIds.includes(String(order.id)) ||
+        targetOrderIds.includes(String(order.number)) ||
+        targetOrderIds.includes(String(order.order_number))
+      ) {
+        order.bmr_status = 'YES'
+      }
+    })
+  }
+  if (Array.isArray(result.orders)) ensureDropsSyrupBmrComplete(result.orders)
+  if (result.byCompany?.cmhp?.orders) ensureDropsSyrupBmrComplete(result.byCompany.cmhp.orders)
+  if (result.byCompany?.tej?.orders) ensureDropsSyrupBmrComplete(result.byCompany.tej.orders)
 
   // Ensure every raw material with current_stock > 0 has an opening stock ledger entry
   if (Array.isArray(result.commonRawMaterials)) {

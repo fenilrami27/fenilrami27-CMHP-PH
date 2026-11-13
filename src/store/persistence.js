@@ -73,12 +73,23 @@ export function loadPersistedERPState() {
 
     if (data && typeof data === 'object') {
       delete data.locations
+      delete data.supplyChain
+      delete data.supply_chain
+      if (data.byCompany?.cmhp) {
+        delete data.byCompany.cmhp.supplyChain
+        delete data.byCompany.cmhp.supply_chain
+      }
+      if (data.byCompany?.tej) {
+        delete data.byCompany.tej.supplyChain
+        delete data.byCompany.tej.supply_chain
+      }
       if (!Array.isArray(data.commonProducts)) data.commonProducts = []
       if (!Array.isArray(data.commonRawMaterials)) data.commonRawMaterials = []
       if (!Array.isArray(data.stockLedgerEntries)) data.stockLedgerEntries = []
       if (!Array.isArray(data.stockRequests)) data.stockRequests = []
       if (!data.bmrs || typeof data.bmrs !== 'object') data.bmrs = {}
       if (!data.orderInvoices || typeof data.orderInvoices !== 'object') data.orderInvoices = {}
+      if (!data.orderQc || typeof data.orderQc !== 'object') data.orderQc = {}
 
       // Sanitize formula approvals to ensure proper GMP role segregation
       const fixApprovals = (arr) => {
@@ -100,6 +111,10 @@ export function loadPersistedERPState() {
       fixApprovals(data.formulaApprovals)
       if (data.byCompany?.cmhp?.formulaApprovals) fixApprovals(data.byCompany.cmhp.formulaApprovals)
       if (data.byCompany?.tej?.formulaApprovals) fixApprovals(data.byCompany.tej.formulaApprovals)
+      // Sanitize and migrate notifications for strict company isolation
+      if (Array.isArray(data.notifications)) {
+        data.notifications = migrateNotifications(data.notifications, data)
+      }
 
       return data
     }
@@ -168,3 +183,58 @@ export function importERPState(raw) {
 }
 
 export { ERP_STORAGE_KEY, STORAGE_VERSION, SEED_VERSION_KEY }
+
+export function migrateNotifications(notifications = [], state = {}) {
+  if (!Array.isArray(notifications)) return []
+
+  return notifications
+    .filter((n) => n && typeof n === 'object')
+    .map((n) => {
+      let compId = n.companyId ?? n.company
+      if (!compId) {
+        const text = `${n.title || ''} ${n.message || ''}`.toLowerCase()
+        if (text.includes('tej') || text.includes('biocare')) {
+          compId = 2
+        } else if (text.includes('cmhp')) {
+          compId = 1
+        } else if (n.referenceId && state) {
+          const ord = (state.orders || []).find(
+            (o) => String(o.number || o.id) === String(n.referenceId)
+          )
+          if (ord) {
+            compId = Number(ord.company) === 2 || ord.companyId === 'tej' ? 2 : 1
+          } else {
+            const inv = (state.invoices || []).find(
+              (i) => String(i.number || i.id) === String(n.referenceId)
+            )
+            if (inv) {
+              compId = Number(inv.company) === 2 || inv.companyId === 'tej' ? 2 : 1
+            }
+          }
+        }
+      }
+
+      const normalizedCompId =
+        compId === 2 || compId === '2' || compId === 'tej' || compId === 'TEJ' || compId === 'company_b'
+          ? 2
+          : 1
+
+      return {
+        ...n,
+        companyId: normalizedCompId,
+        company: normalizedCompId,
+        targetRoles:
+          Array.isArray(n.targetRoles) && n.targetRoles.length > 0
+            ? n.targetRoles
+            : n.targetUserIds && n.targetUserIds.length > 0
+              ? []
+              : ['ALL'],
+        targetUserIds: Array.isArray(n.targetUserIds) ? n.targetUserIds : [],
+        readBy: Array.isArray(n.readBy)
+          ? n.readBy
+          : n.is_read
+            ? [1]
+            : [],
+      }
+    })
+}

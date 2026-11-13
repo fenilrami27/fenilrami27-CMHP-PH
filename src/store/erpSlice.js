@@ -20,6 +20,7 @@ import {
   SEED_BATCHES,
   SEED_BMRS,
   SEED_ORDER_INVOICES,
+  SEED_ORDER_QC,
   SEED_STOCK_LEDGER_ENTRIES,
   SEED_STOCK_REQUESTS,
   SEED_DESIGNATIONS,
@@ -257,6 +258,7 @@ export const initialState = {
   qaRecords: [...SEED_QA_RECORDS],
   invoices: [...SEED_INVOICES],
   orderInvoices: { ...SEED_ORDER_INVOICES },
+  orderQc: { ...SEED_ORDER_QC },
   bmrs: { ...SEED_BMRS },
   stockLedgerEntries: [...SEED_STOCK_LEDGER_ENTRIES],
   stockRequests: [...SEED_STOCK_REQUESTS],
@@ -850,17 +852,20 @@ const erpSlice = createSlice({
       addCompanyEntity(state, 'qcRecords', qcPayload)
 
       if (!Array.isArray(state.notifications)) state.notifications = []
+      const notifProdCompanyId = Number(company) === 2 || companyKey === 'tej' ? 2 : 1
       state.notifications.unshift({
         id: `notif-prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'order',
         type: 'order',
+        companyId: notifProdCompanyId,
+        company: notifProdCompanyId,
         title: 'Production Started',
         message: `Production started for Batch #${batchNumber} (Order #${orderNumber || orderId}). Raw materials issued outward to stock ledger.`,
         createdAt: nowIso(),
         severity: 'info',
         link: '/quality',
         referenceId: String(batchNumber),
-        targetRoles: ['STORES_MANAGER', 'MANAGEMENT', 'SUPER_ADMIN'],
+        targetRoles: ['QC', 'PRODUCTION', 'STORES_MANAGER', 'MANAGEMENT', 'SUPER_ADMIN'],
         targetUserIds: [],
         readBy: [],
       })
@@ -1305,10 +1310,13 @@ const erpSlice = createSlice({
       if (remainingQty <= 0 || remainingQty < threshold) {
         if (!Array.isArray(state.notifications)) state.notifications = []
         const isZero = remainingQty <= 0
+        const notifLotCompanyId = Number(lotObj.company) === 2 || lotObj.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
         state.notifications.unshift({
           id: `notif-stock-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           category: 'inventory',
           type: 'inventory',
+          companyId: notifLotCompanyId,
+          company: notifLotCompanyId,
           title: isZero ? 'Stock Depleted (Zero)' : 'Low Stock Warning',
           message: `${lotObj.item_name || 'Item'} (${lotObj.lot_number || 'Lot'}) ${isZero ? 'has reached zero stock' : `is below minimum threshold (${remainingQty} units remaining)`}.`,
           createdAt: nowIso(),
@@ -1627,10 +1635,13 @@ const erpSlice = createSlice({
       state.customers.push(newCust)
 
       if (!Array.isArray(state.notifications)) state.notifications = []
+      const notifCustCompanyId = Number(newCust.company) === 2 || newCust.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'order',
         type: 'order',
+        companyId: notifCustCompanyId,
+        company: notifCustCompanyId,
         title: 'New Customer Added',
         message: `Customer "${newCust.name || 'New Customer'}" was successfully registered.`,
         createdAt: nowIso(),
@@ -2017,10 +2028,13 @@ const erpSlice = createSlice({
 
       if (!Array.isArray(state.notifications)) state.notifications = []
       const ordNum = newOrder.number || newOrder.order_number || `ORD-${newOrder.id}`
+      const notifOrdCompanyId = Number(newOrder.company) === 2 || newOrder.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-order-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'order',
         type: 'order',
+        companyId: notifOrdCompanyId,
+        company: notifOrdCompanyId,
         title: 'New Order Received',
         message: `New order received: Order #${ordNum}, customer: ${newOrder.customer_name || 'Customer'}, product: ${newOrder.product_name || 'Product'}, quantity: ${newOrder.quantity || 100}, delivery due date: ${newOrder.delivery_deadline || newOrder.planned_mfg_date || 'Standard'}.`,
         createdAt: nowIso(),
@@ -2308,6 +2322,25 @@ const erpSlice = createSlice({
     |--------------------------------------------------------------------------
     */
 
+    saveOrderQc: (
+      state,
+      action
+    ) => {
+      const { orderId, qcData } = action.payload || {}
+      if (!state.orderQc) {
+        state.orderQc = {}
+      }
+      if (orderId) {
+        const existing = state.orderQc[String(orderId)] || {}
+        state.orderQc[String(orderId)] = {
+          ...existing,
+          ...qcData,
+          orderId: String(orderId),
+          savedAt: nowIso(),
+        }
+      }
+    },
+
     saveOrderInvoice: (
       state,
       action
@@ -2374,17 +2407,20 @@ const erpSlice = createSlice({
 
       if (!Array.isArray(state.notifications)) state.notifications = []
       const invNum = newInv.number || `INV-${invId}`
+      const notifInvCompanyId = Number(newInv.company) === 2 || newInv.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'order',
         type: 'order',
+        companyId: notifInvCompanyId,
+        company: notifInvCompanyId,
         title: 'New Invoice Generated',
         message: `Invoice #${invNum} generated for Order #${newInv.order_number || newInv.order || '—'}. Total: ₹${Number(newInv.total_amount || newInv.grand_total || 0).toLocaleString('en-IN')}`,
         createdAt: nowIso(),
         severity: 'success',
         link: '/invoices',
         referenceId: String(invNum),
-        targetRoles: ['SUPER_ADMIN', 'MANAGEMENT'],
+        targetRoles: ['INVOICING', 'BILLING', 'SUPER_ADMIN', 'MANAGEMENT'],
         targetUserIds: [],
         readBy: [],
       })
@@ -2469,7 +2505,7 @@ const erpSlice = createSlice({
           notifTitle = 'Order Dispatched'
           notifMsg = `Order #${ordNum} has been dispatched to customer.`
           targetRoles = ['MANAGEMENT', 'SUPER_ADMIN', 'DEPARTMENT_MANAGER']
-          link = '/supply-chain'
+          link = '/dispatch'
           severity = 'success'
         }
 
@@ -2478,10 +2514,13 @@ const erpSlice = createSlice({
             (n) => n.referenceId === String(ordNum) && n.title === notifTitle
           )
           if (!exists) {
+            const notifOrdCompId = Number(ord?.company) === 2 || ord?.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
             state.notifications.unshift({
               id: `notif-stage-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               category: 'order',
               type: 'order',
+              companyId: notifOrdCompId,
+              company: notifOrdCompId,
               title: notifTitle,
               message: notifMsg,
               createdAt: nowIso(),
@@ -2649,17 +2688,20 @@ const erpSlice = createSlice({
 
         if (!Array.isArray(state.notifications)) state.notifications = []
         const ordNum = orderObj?.number || `ORD-${orderId}`
+        const notifQaCompId = Number(orderObj?.company) === 2 || orderObj?.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
         state.notifications.unshift({
           id: `notif-qa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           category: 'quality',
           type: 'quality',
+          companyId: notifQaCompId,
+          company: notifQaCompId,
           title: 'QA Approved — Ready for Packaging',
           message: `Order #${ordNum} QA release approved (${approvedQty} units). Finished goods ready for sample deduction and packaging.`,
           createdAt: nowIso(),
           severity: 'success',
           link: '/orders',
           referenceId: String(ordNum),
-          targetRoles: ['STORES_MANAGER', 'SUPER_ADMIN', 'MANAGEMENT'],
+          targetRoles: ['QA', 'STORES_MANAGER', 'INVOICING', 'SUPER_ADMIN', 'MANAGEMENT'],
           targetUserIds: [],
           readBy: [],
         })
@@ -3504,17 +3546,20 @@ const erpSlice = createSlice({
       addCompanyEntity(state, 'leaveRequests', newLeave)
 
       if (!Array.isArray(state.notifications)) state.notifications = []
+      const notifLeaveCompId = Number(newLeave.company) === 2 || newLeave.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-leave-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'leave',
         type: 'leave',
+        companyId: notifLeaveCompId,
+        company: notifLeaveCompId,
         title: 'New Leave Request Submitted',
         message: `${newLeave.employee_name || 'An employee'} submitted a ${newLeave.leave_type_name || newLeave.leave_type || 'Leave'} request for ${newLeave.start_date || '—'} to ${newLeave.end_date || '—'}.`,
         createdAt: nowIso(),
         severity: 'info',
         link: '/hrms/leave',
         referenceId: String(newLeave.id),
-        targetRoles: ['SUPER_ADMIN', 'HR_ADMINISTRATOR', 'HR_MANAGER', 'MANAGEMENT'],
+        targetRoles: ['HR_ADMINISTRATOR', 'HR_MANAGER', 'SUPER_ADMIN', 'MANAGEMENT'],
         targetUserIds: [],
         readBy: [],
       })
@@ -3536,10 +3581,13 @@ const erpSlice = createSlice({
       if (!Array.isArray(state.notifications)) state.notifications = []
       const isApproved = status === 'APPROVED'
       const applicantId = existingReq?.user_id || existingReq?.user || existingReq?.employee_id
+      const notifDecideCompId = Number(existingReq?.company) === 2 || existingReq?.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-decide-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'leave',
         type: 'leave',
+        companyId: notifDecideCompId,
+        company: notifDecideCompId,
         title: isApproved ? 'Leave Approved' : 'Leave Declined',
         message: `Your leave request for ${existingReq?.start_date || '—'} to ${existingReq?.end_date || '—'} was ${isApproved ? 'Approved' : 'Declined'} by ${decided_by || 'HR'}.${decision_note ? ` Remark: ${decision_note}` : ''}`,
         createdAt: nowIso(),
@@ -3619,22 +3667,44 @@ const erpSlice = createSlice({
     createNotification: (state, action) => {
       if (!Array.isArray(state.notifications)) state.notifications = []
       const notif = action.payload || {}
+      const compId = Number(notif.companyId ?? notif.company ?? state.activeCompanyId) === 2 || notif.companyId === 'tej' ? 2 : 1
+      const normalized = {
+        ...notif,
+        companyId: compId,
+        company: compId,
+        targetRoles: Array.isArray(notif.targetRoles) && notif.targetRoles.length > 0
+          ? notif.targetRoles
+          : (notif.targetUserIds && notif.targetUserIds.length > 0 ? [] : ['ALL']),
+        targetUserIds: Array.isArray(notif.targetUserIds) ? notif.targetUserIds : [],
+        readBy: Array.isArray(notif.readBy) ? notif.readBy : [],
+      }
       const exists = state.notifications.some(
-        (n) => n.id === notif.id || (notif.referenceId && n.referenceId === notif.referenceId && n.title === notif.title)
+        (n) => n.id === normalized.id || (normalized.referenceId && n.referenceId === normalized.referenceId && n.title === normalized.title)
       )
       if (!exists) {
-        state.notifications.unshift(notif)
+        state.notifications.unshift(normalized)
       }
     },
 
     addNotification: (state, action) => {
       if (!Array.isArray(state.notifications)) state.notifications = []
       const notif = action.payload || {}
+      const compId = Number(notif.companyId ?? notif.company ?? state.activeCompanyId) === 2 || notif.companyId === 'tej' ? 2 : 1
+      const normalized = {
+        ...notif,
+        companyId: compId,
+        company: compId,
+        targetRoles: Array.isArray(notif.targetRoles) && notif.targetRoles.length > 0
+          ? notif.targetRoles
+          : (notif.targetUserIds && notif.targetUserIds.length > 0 ? [] : ['ALL']),
+        targetUserIds: Array.isArray(notif.targetUserIds) ? notif.targetUserIds : [],
+        readBy: Array.isArray(notif.readBy) ? notif.readBy : [],
+      }
       const exists = state.notifications.some(
-        (n) => n.id === notif.id || (notif.referenceId && n.referenceId === notif.referenceId && n.title === notif.title)
+        (n) => n.id === normalized.id || (normalized.referenceId && n.referenceId === normalized.referenceId && n.title === normalized.title)
       )
       if (!exists) {
-        state.notifications.unshift(notif)
+        state.notifications.unshift(normalized)
       }
     },
 
@@ -3651,12 +3721,16 @@ const erpSlice = createSlice({
     },
 
     markAllNotificationsRead: (state, action) => {
-      const { userId } = action.payload || {}
+      const { userId, companyId } = action.payload || {}
       if (!Array.isArray(state.notifications) || !userId) return
+      const targetCompId = Number(companyId ?? state.activeCompanyId) === 2 || companyId === 'tej' ? 2 : 1
       state.notifications.forEach((n) => {
-        if (!Array.isArray(n.readBy)) n.readBy = []
-        if (!n.readBy.some((uid) => Number(uid) === Number(userId))) {
-          n.readBy.push(Number(userId))
+        const notifCompId = Number(n.companyId ?? n.company) === 2 || n.companyId === 'tej' ? 2 : 1
+        if (notifCompId === targetCompId) {
+          if (!Array.isArray(n.readBy)) n.readBy = []
+          if (!n.readBy.some((uid) => Number(uid) === Number(userId))) {
+            n.readBy.push(Number(userId))
+          }
         }
       })
     },
@@ -3782,17 +3856,20 @@ const erpSlice = createSlice({
 
       if (!Array.isArray(state.notifications)) state.notifications = []
       const ordNum = order.number || `ORD-${order.id}`
+      const notifSampleCompId = Number(order.company) === 2 || order.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-sample-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'inventory',
         type: 'inventory',
+        companyId: notifSampleCompId,
+        company: notifSampleCompId,
         title: 'Sample Quantity Deducted',
         message: `${sampleQty} sample units retained for Order #${ordNum}. Remaining ${packagingQty} units allocated to packaging.`,
         createdAt: nowIso(),
         severity: 'info',
         link: '/inventory/samples',
         referenceId: String(ordNum),
-        targetRoles: ['STORES_MANAGER', 'MANAGEMENT', 'SUPER_ADMIN'],
+        targetRoles: ['STORES_MANAGER', 'QC', 'MANAGEMENT', 'SUPER_ADMIN'],
         targetUserIds: [],
         readBy: [],
       })
@@ -3905,10 +3982,13 @@ const erpSlice = createSlice({
       state.byCompany[key].stockRequests.unshift(req)
 
       if (!Array.isArray(state.notifications)) state.notifications = []
+      const notifSrCompId = Number(req.company) === 2 || req.companyId === 'tej' || key === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
       state.notifications.unshift({
         id: `notif-sr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         category: 'inventory',
         type: 'inventory',
+        companyId: notifSrCompId,
+        company: notifSrCompId,
         title: 'Raw Material Stock Request',
         message: `Stock request ${reqNum} created for ${req.materialName || 'Material'}: Shortage of ${req.shortageQuantity || 0} ${req.unit || 'kg'} (Order #${req.orderNumber || '—'}).`,
         createdAt: nowIso(),
@@ -3952,17 +4032,20 @@ const erpSlice = createSlice({
         }
 
         if (!Array.isArray(state.notifications)) state.notifications = []
+        const notifSrFulfillCompId = Number(targetReq?.company) === 2 || targetReq?.companyId === 'tej' ? 2 : (state.activeCompanyId === 2 ? 2 : 1)
         state.notifications.unshift({
           id: `notif-sr-fulfilled-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           category: 'inventory',
           type: 'inventory',
+          companyId: notifSrFulfillCompId,
+          company: notifSrFulfillCompId,
           title: 'Raw Material Stock Arrived',
           message: `Stock request for ${targetReq.materialName || 'Material'} has been fulfilled. Stock is now available for Order #${targetReq.orderNumber || '—'}.`,
           createdAt: nowIso(),
           severity: 'success',
           link: '/orders',
           referenceId: String(targetReq.orderNumber || targetReq.id),
-          targetRoles: ['STORES_MANAGER', 'SUPER_ADMIN'],
+          targetRoles: ['STORES_MANAGER', 'PRODUCTION', 'SUPER_ADMIN', 'MANAGEMENT'],
           targetUserIds: targetReq.requestedByUserId ? [targetReq.requestedByUserId] : [],
           readBy: [],
         })
@@ -4141,6 +4224,8 @@ export const {
   setInvoiceStatus,
 
   saveOrderInvoice,
+
+  saveOrderQc,
 
   resetOrderInvoice,
 
